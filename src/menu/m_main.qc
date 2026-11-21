@@ -8516,14 +8516,11 @@ void() m_init =
 	// P1707 (Lex, 22 Nov): a console `map` read no zones on bhop_overthinker (0; the picker's game 7, crc = the lobby's).
 	// Every game this client hosts reads the published copy (sv_zones.qc; sv_phys.c's caps too); dedicated servers --
 	// lobbies, sweep.py's verifier, a player's own -- never run the menu, so they keep one order. Not archived. A
-	// launch option's +map spawns BEFORE m_init and its cvar() auto-creates this as "" (measured): that is set too
-	// and Mzd_Watch restarts that map once; a value someone set, e.g. +set sv_zones_curated 0, stays.
+	// launch option's +map spawns BEFORE m_init and its cvar() auto-creates this as "" (measured): that is set too,
+	// and Mzd_Watch restarts that map once if it loaded no zones; a value someone set, e.g. +set ... 0, stays.
 	registercvar("sv_zones_curated", "1", 0);
 	if (cvar_string("sv_zones_curated") == "")
-	{
 		cvar_set("sv_zones_curated", "1");
-		mzd_boot = TRUE;
-	}
 	Crash_Init();       // P1418: a crash report from the engine's Sys_Error record, if one is waiting
 
 	Font_Init();
