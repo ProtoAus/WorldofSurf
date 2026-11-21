@@ -180,6 +180,7 @@ float as_rdone[TAS_ASMAX];
 float *as_rows;                 // the demo's samples: t x y z vx vy vz
 float *as_bin;                  // P1478: each sample's inputs: forward, side, pitch, yaw (columns 11, 12, 7, 8)
 float *as_bdk;                  // each sample's duck (ksfbuttons 4, else the keys column's 32)
+float as_ksf;                    // P1709: the guide is a KSF import (ksfbuttons lines): see the start's replay
 float as_nrows;
 float(float k) SV_TASAutoGuideFloor =
 {	// the guide's own speed just past portal k-1's teleport (plan data: kept across a Continue, review 2); k >= 1
@@ -264,6 +265,7 @@ float(string path) SV_TASAutoRead =
 	}
 	fclose(fh);
 	as_nraw = n; as_traw0 = n ? as_rows[0] : 0; as_traw1 = n ? as_rows[(n - 1) * 7] : 0;
+	as_ksf = ksfseen;
 	return n;
 };
 
@@ -2293,8 +2295,22 @@ void(entity e) SV_TASAutoFrame =
 			if (e.as_ri >= as_nrows || e.as_ri > as_r0 + 120)
 				{ SV_TASAutoStop(e, "the guide's own start did not leave the box from here"); return; }
 			i = e.as_ri;
-			t = (as_rows[i*7+6] - as_rows[i*7-1] > 150 && fabs(as_rows[i*7-1]) < 1) ? 1 : 0;
-			best = as_bin[i*4+3] - 360 * floor((as_bin[i*4+3] + 180) / 360);
+			// P1709: a KSF import's row is the state BEFORE its own command: its keys drove the next row and the view of
+			// that command is the next row's. Read as one row, the replay took the guide's jump a tick late (that tick on
+			// the ground: friction, 287 -> 276 u/s on surf_sandtrap2 bonus 4, and its flight caught the fail slab's corner
+			// short of ramp 1 and bhopped off it -- Lex, 22 Nov). From the guide's standstill, keys of row i with the view
+			// of row i+1 replay its 76-tick prestrafe exactly in this mover (pm_stepsim). tas_jargon_off 2048: as before.
+			if (as_ksf && i + 1 < as_nrows && SV_TASAutoRule(2048))
+			{
+				t = (as_rows[i*7+13] - as_rows[i*7+6] > 150 && fabs(as_rows[i*7+6]) < 1) ? 1 : 0;
+				best = as_bin[i*4+7];
+			}
+			else
+			{
+				t = (as_rows[i*7+6] - as_rows[i*7-1] > 150 && fabs(as_rows[i*7-1]) < 1) ? 1 : 0;
+				best = as_bin[i*4+3];
+			}
+			best = best - 360 * floor((best + 180) / 360);
 			// tas_jargon_startduck: the guide's crouch too (surf_gigapede bonus 4's human ducks from 0.5 s before the jump to
 			// its board at 0.4 s; this replay carried the jump only, and every stretch-1 line skimmed or overshot)
 			if (as_bdk[i] && cvar("tas_jargon_startduck"))
@@ -2302,6 +2318,10 @@ void(entity e) SV_TASAutoFrame =
 				t = t + 2;
 				if (!e.as_sdk) { e.as_sdk = 1; SV_TASAutoNote(e, 1, sprintf("start: crouching as the guide did (his duck from t=%.3f)", as_rows[i*7])); }
 			}
+			if (t & 1)	// P1709: where this replay takes off, against the guide
+				SV_TASAutoNote(e, 1, sprintf("start: the guide's jump %.0f u from its takeoff point, at %.0f u/s (it %.0f)",
+					vlen([e.origin_x - as_rows[i*7+1], e.origin_y - as_rows[i*7+2], 0]), vlen([e.velocity_x, e.velocity_y, 0]),
+					vlen([as_rows[i*7+4], as_rows[i*7+5], 0])));
 			argc_pl = tokenize(sprintf("tas next manual %.0f %.0f %.4f %.4f %.0f 1", as_bin[i*4], as_bin[i*4+1], as_bin[i*4+2], best, t));
 			SV_TASPlanCommand(e, argc_pl);
 			e.as_ri = e.as_ri + 1;
