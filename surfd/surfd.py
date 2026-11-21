@@ -496,6 +496,9 @@ PLAT_MAX = PLAT_LINUX
 # P1694 (Lex, 20 Nov): the run used a controller -- allowed, and the boards show it light fire red,
 # "Controller".  Its own field (`pad`, 0/1) beside `plat`: platform and input device are independent, and an
 # older surfd files a plat above 1 as Linux.  Display only, like plat: style_of and certifiable never read it.
+# P1710 (Lex, 22 Nov: "don't remove any records, just report that they couldn't be verified"): `oldgame` (0/1),
+# its own field like `pad` (TF_ bit 21 stays the styles reservation): the run's game could not count script
+# presses or controller use, so it ranks, marked "unchecked".  Display only: style_of and certifiable never read it.
 
 SCHEMA_VERSION = 26
 KSF_UNBOUND_SQL = """
@@ -1117,6 +1120,21 @@ def runs_pad(conn):
     conn.commit()
 
 
+def runs_oldgame(conn):
+    """P1710, IDEMPOTENT: runs.oldgame and replays.oldgame, 1 when the run's game could not count script presses
+    or controller use (the lobby's `oldgame=1` / the finish's `oldgame 1`).  0 for every row before it.  Additive,
+    exactly as runs_pad, with its caveat (a rollback can show a stale mark; restand rebuilds from replays.oldgame)."""
+    for table in ("runs", "replays"):
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(%s)" % table)}
+        if "oldgame" not in cols:
+            try:
+                conn.execute("ALTER TABLE %s ADD COLUMN oldgame INTEGER NOT NULL DEFAULT 0" % table)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column" not in str(exc):
+                    raise
+    conn.commit()
+
+
 # (path, inode, size, mtime_ns) -> sha256.  Every trusted post names a file, and
 # a streamed run's can be hundreds of MB: a re-post of an unchanged file costs a
 # stat, not a read (review round 9).  A lobby rewrite moves mtime or the inode.
@@ -1716,6 +1734,7 @@ def migrate():
         replays_sha(conn)
         runs_plat(conn)
         runs_pad(conn)
+        runs_oldgame(conn)
         if version < 8:
             conn.execute("PRAGMA user_version=8")
             conn.commit()
@@ -3294,7 +3313,7 @@ def board_rows(db, mapname, track, leg, tier, style, limit, offset, base=None, n
         where, args = ("r.tier=?", (tier,))
     rank = "ROW_NUMBER() OVER (ORDER BY " + BOARD_ORDER + ") AS board_rank, " if name else ""
     query = ("SELECT " + rank + "r.rowid, r.momdemo, r.player, r.name, r.ticks, r.tickrate, r.millis, r.flags,"
-            "       r.submitted, r.replay_id, r.tier AS rtier, r.map AS rmap, r.plat, r.pad, r.runid, r.style AS rstyle, "
+            "       r.submitted, r.replay_id, r.tier AS rtier, r.map AS rmap, r.plat, r.pad, r.oldgame, r.runid, r.style AS rstyle, "
             + _PARENT_SQL + " AS prun, "
             + VER_SQL + " AS ver"
             "  FROM runs r"
@@ -3335,6 +3354,8 @@ def board_rows(db, mapname, track, leg, tier, style, limit, offset, base=None, n
             rows[-1]["plat"] = row["plat"]
         if row["pad"]:
             rows[-1]["pad"] = 1                 # P1694: likewise
+        if row["oldgame"]:
+            rows[-1]["oldgame"] = 1             # P1710: likewise
         # P1569: only on a helped row, so every other board's bytes stay as they were.
         if (row["flags"] & TF_HELPED) and row["replay_id"]:
             names = row_helpers(db, row["replay_id"])
@@ -3597,8 +3618,8 @@ def _runs_full(db, leg):
 _UPSERT_RUN = """
     INSERT INTO runs (map, track, leg, tier, style, player, name,
                       ticks, tickrate, millis, flags, node, runid,
-                      submitted, replay_id, plat, pad)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                      submitted, replay_id, plat, pad, oldgame)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(map, track, leg, tier, style, player) DO UPDATE SET
         name      = excluded.name,
         ticks     = excluded.ticks,
@@ -3610,7 +3631,8 @@ _UPSERT_RUN = """
         submitted = excluded.submitted,
         replay_id = excluded.replay_id,
         plat      = excluded.plat,
-        pad       = excluded.pad
+        pad       = excluded.pad,
+        oldgame   = excluded.oldgame
 """
 
 
@@ -3657,7 +3679,7 @@ def restand(db, rid):
             best["map"], best["track"], best["leg"], best["tier"], best["style"],
             best["player"], best["name"], best["ticks"], best["tickrate"],
             best["millis"], best["flags"], best["node"], "", best["submitted"],
-            best["id"], best["plat"], best["pad"]))
+            best["id"], best["plat"], best["pad"], best["oldgame"]))
         return "moved"
     if cur is not None:
         db.execute("DELETE FROM runs WHERE map=? AND track=? AND leg=?"
@@ -3982,6 +4004,8 @@ def submit_run():
         log.warning("plat %r from %s; filed as %d", raw_plat[:16], src, plat)
     # P1694: the controller mark, `pad=1`; anything else is 0 (display only).
     pad = 1 if (request.form.get("pad") or "").strip() == "1" else 0
+    # P1710: the game could not count scripts or controller use, `oldgame=1`; anything else is 0 (display only).
+    oldgame = 1 if (request.form.get("oldgame") or "").strip() == "1" else 0
 
     style = style_of(flags)
     if style is None:
@@ -4254,6 +4278,10 @@ def submit_run():
                 if not pad and _rec_finish_pad(path):
                     log.warning("rec leaf %r says pad 1 and the post 0, from %s; filing 1", leaf, src)
                     pad = 1
+                # P1710: and the unchecked mark.
+                if not oldgame and _rec_finish_oldgame(path):
+                    log.warning("rec leaf %r says oldgame 1 and the post 0, from %s; filing 1", leaf, src)
+                    oldgame = 1
 
     # A REFUSED recbytes IS LOGGED, because the silent fallback hid a real bug
     # for a whole deploy.  The sender spelled 1128886 as `1.12889e+06` (QC's %g
@@ -4366,8 +4394,8 @@ def submit_run():
                                              tier, style, player, name, ticks,
                                              tickrate, millis, flags, node,
                                              submitted, bytes, truncated, runid,
-                                             bound, sha, sha_at, plat, pad)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                             bound, sha, sha_at, plat, pad, oldgame)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(map, track, leg, leaf) DO UPDATE SET
                             map_dir   = excluded.map_dir,
                             tier      = excluded.tier,
@@ -4387,6 +4415,7 @@ def submit_run():
                             sha_at    = excluded.sha_at,
                             plat      = excluded.plat,
                             pad       = excluded.pad,
+                            oldgame   = excluded.oldgame,
                             submitted = excluded.submitted,
                             seen      = -1,
                             checked   = 0
@@ -4428,7 +4457,7 @@ def submit_run():
                         (mapname, map_dir, track, leg, leaf, tier, style,
                          player, name, ticks, tickrate, millis, flags, node,
                          now, recbytes, rectrunc, runid or "-", 0 if fileless else 1,
-                         fsha, now, plat, pad, hdr_runid, hdr_runid),
+                         fsha, now, plat, pad, oldgame, hdr_runid, hdr_runid),
                     )
                 else:
                     # LOG AND CARRY ON -- never a 429.  See MAX_REPLAYS: an
@@ -4438,7 +4467,7 @@ def submit_run():
                                 MAX_REPLAYS, leaf)
                 rep = db.execute(
                     "SELECT id, name, tier, style, flags, tickrate, millis,"
-                    " runid, submitted, player, kind, plat, pad FROM replays"
+                    " runid, submitted, player, kind, plat, pad, oldgame FROM replays"
                     " WHERE map=? AND track=? AND leg=? AND leaf=?",
                     (mapname, track, leg, leaf),
                 ).fetchone()
@@ -4469,6 +4498,10 @@ def submit_run():
                     if not fileless and pad > rep["pad"]:
                         db.execute("UPDATE replays SET pad = 1 WHERE id = ?", (rid,))
                     pad = rep["pad"] if fileless else max(pad, rep["pad"])
+                    # P1710: and the unchecked mark.
+                    if not fileless and oldgame > rep["oldgame"]:
+                        db.execute("UPDATE replays SET oldgame = 1 WHERE id = ?", (rid,))
+                    oldgame = rep["oldgame"] if fileless else max(oldgame, rep["oldgame"])
                     tickrate, millis = rep["tickrate"], rep["millis"]
                     runid = "" if rep["runid"] == "-" else rep["runid"]
                     new = have is not None and rep["submitted"] != have["submitted"]
@@ -4546,7 +4579,7 @@ def submit_run():
                     else:
                         db.execute(_UPSERT_RUN, (mapname, track, leg, ptier, style, player,
                                                  name, ticks, tickrate, millis, flags,
-                                                 node, runid, now, 0, plat, pad))
+                                                 node, runid, now, 0, plat, pad, oldgame))
                 log.info("run from %s is a stage of rejected run %s; hidden",
                          src, runid)
                 best = prev["millis"] if prev is not None else 0
@@ -4599,7 +4632,7 @@ def submit_run():
             db.execute(
                 _UPSERT_RUN,
                 (mapname, track, leg, tier, style, player, name, ticks,
-                 tickrate, millis, flags, node, runid, now, rid, plat, pad),
+                 tickrate, millis, flags, node, runid, now, rid, plat, pad, oldgame),
             )
     except sqlite3.Error as exc:
         log.exception("run db error from %s: %s", src, exc)
@@ -5047,6 +5080,15 @@ def _rec_finish_pad(path):
     if "begin" in tail:
         tail = tail[len(tail) - tail[::-1].index("begin"):]
     return any(line.strip() == "pad 1" for line in tail)
+
+
+def _rec_finish_oldgame(path):
+    """P1710: the finish's `oldgame 1` record (the game could not count scripts or controller use); False when
+    absent or unreadable.  Body lines only, as _rec_finish_pad."""
+    tail = _rec_tail_lines(path)
+    if "begin" in tail:
+        tail = tail[len(tail) - tail[::-1].index("begin"):]
+    return any(line.strip() == "oldgame 1" for line in tail)
 
 
 def _rec_finish_plat(path):
@@ -7003,8 +7045,8 @@ def _web_maps_body(now):
         (TIER_COMMUNITY, STYLE_TAS))}
     tiers = map_tiers()
     wrs = {r["map"]: r for r in db.execute(
-        "SELECT r.map, r.name, r.millis, r.plat, r.pad, " + VER_SQL + " AS ver FROM ("
-        "  SELECT map, name, millis, replay_id, plat, pad, ROW_NUMBER() OVER"
+        "SELECT r.map, r.name, r.millis, r.plat, r.pad, r.oldgame, " + VER_SQL + " AS ver FROM ("
+        "  SELECT map, name, millis, replay_id, plat, pad, oldgame, ROW_NUMBER() OVER"
         "         (PARTITION BY map ORDER BY " + BOARD_ORDER + ") AS k"
         "    FROM runs WHERE track=0 AND leg=0 AND tier=? AND style=?) r"
         " WHERE r.k = 1", (TIER_RANKED, STYLE_CLEAN)).fetchall()}
@@ -7022,7 +7064,8 @@ def _web_maps_body(now):
             # P1603: the WR's platform mark, only when it has one (board.js marks the holder).
             "wr": ({"name": wr["name"], "ms": wr["millis"], "ver": wr["ver"],
                     **({"plat": wr["plat"]} if wr["plat"] > PLAT_VERIFIED else {}),
-                    **({"pad": 1} if wr["pad"] else {})}
+                    **({"pad": 1} if wr["pad"] else {}),
+                    **({"oldgame": 1} if wr["oldgame"] else {})}
                    if wr else None),
         }
         if tiers is not None and key in tiers:
