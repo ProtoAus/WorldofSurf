@@ -1,5 +1,11 @@
 # lextest.md — things waiting on a human
 
+## P1710 -- runs from too-old game versions stay up, marked "unchecked" (worldofsurf-2c) -- after the backend update
+1. Your rule (22 Nov): no record removed; a run that could not be verified stays up, reported, valid as of its date.
+2. Once the next backend update is live: a run set on a game older than 0.1.55 shows "unchecked" beside the name
+   on the web board and in the game's board (hover says why); the admin's run page and Top 10 say "Unchecked".
+3. Runs from 0.1.55 and newer never show it.
+
 ## 0.1.56 release -- PUBLISHED 21 Nov 21:13Z (record: tools/release-0.1.56.md); lobbies on it 21:16Z; owner check PENDING
 - P1705, P1706, P1707, P1709. Lobbies: engine patch-1709 (also the surfd verifier), the release's progs, cfg/default.cfg
   pm_fixslopes 2 / pm_groundtracedist 2 / pm_jumpzoffset 0 and main's mode_ahop.cfg, one restart 21:16Z.

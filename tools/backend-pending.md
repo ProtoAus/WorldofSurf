@@ -21,6 +21,16 @@ CURRENT = cd1965f1 (root /srv/nvme/agent-work/gen1674-20261121-e3; kit FTESurf-p
 pins native fteqw-svarm64 1753f9d4 (lobby engine patch-1683, swapped 01:38Z), and keeps the consumer's 900 s
 `systemctl start` (its drop-in will have 18 ExecStartPre blocks, ~280 s; or the owner prunes retired blocks).
 
+## P1710 "unchecked" mark -- surfd half READY for the NEXT generation; lobby side deploys first (worldofsurf-2c)
+Lex, 22 Nov: no record removed; a run that could not be verified stays up, marked. Files: surfd/surfd.py
+(runs_oldgame: runs.oldgame / replays.oldgame INTEGER NOT NULL DEFAULT 0, no schema bump; intake `oldgame=1`; the
+finish's `oldgame 1` raises a lower post; replay upsert/merge; restand; board rows and the maps WR), recplot.py,
+admin.py (Top 10 query), templates/admin_run.html, admin_top10.html, web/board.js; test surfd/test_oldgame.py.
+Generation: a HAND ALTER before staging exactly like pad's (an oldgame_columns.remote.py beside pad_columns.remote.py,
+the schema_rehearsal case, a db_oldgame_columns reference check), else the primary alters in its CLOSED phase and
+holds. After the swap: the one-off backfill (BACKLOG P1710). Before it: the lobby progs post `oldgame=1` (ignored) and
+write the record; board.js shows nothing until surfd sends `oldgame`.
+
 ## P1704 views over HTTPS -- LIVE 21 Nov 11:28Z (all three steps; worldofsurf-47)
 DONE: 1 in gen1702; 2 nginx --view-only 10:11Z (surfd.conf 91769a88, ratelimit f05ef5db; empty POST -> 413); 3 lobby
 engine patch-1704 (820137cd / plugin 04933baf, agent-work eng1704-20261121-47, gate identical) swapped 11:28:26Z with

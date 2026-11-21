@@ -21,6 +21,9 @@
 
 ## next
 
+### P1710 Older game versions are marked, not removed
+- A run set on a game version too old to check for scripts or controller use stays on the board, with an "unchecked" mark beside the name. Nothing is removed; update the game to drop the mark on your next runs.
+
 ## 0.1.56 2026-11-21
 
 ### P1709 Hopping up slopes keeps your speed, as in Momentum

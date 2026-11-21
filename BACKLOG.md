@@ -45,6 +45,17 @@
 - Ghost: a refusal under a resume phase (run_ms_phase, no client stat) shows as one round trip detached, then back.
 - Noclip speed (Shift+wheel, pm_noclipspeed userinfo) still mispredicts the 1-2 commands in flight (P1040).
 
+## P1710 follow-ups (22 Nov, worldofsurf-2c)
+- The surfd half rides the NEXT generation (tools/backend-pending.md). Its backfill is NOT written: runs finished after
+  the lobby deploy carry `oldgame 1` in their .rec while the live surfd ignores `oldgame=1`; a one-off pass over bound
+  replays (surfd._rec_finish_oldgame, then restand) after the swap gives them the mark.
+- The in-game name cell does not cut its tags ("no evidence", "unchecked", "+N"): at 800x600 they can run into the
+  time column (Patch 635's failure). The record does not say which half fired (scripts or controller); reccheck notes
+  `oldgame` as an unknown record (teach it, heldmeta too); the finish card never tells the player; tournaments count
+  these runs without a note.
+- surfd/test_board.py's two-thread migration checks ((g) v5, (h) v7) flake with "duplicate column name: clock_us/
+  tick_us" on main too (test_pad: 2 of 4 runs on main, 1 of 4 with P1710; the Pi's python3.11 likewise).
+
 ## P1707 follow-ups (22 Nov, worldofsurf-2c)
 - Seen in P1707's test (not caused by it: the menu had not started): the dev client (ftesurf64 git-8974-patch-1698-0-
   g657183e0d) dies with SIGFPE loading surf_cannonball locally, after its `[cc]` colour-correction shader is generated:
