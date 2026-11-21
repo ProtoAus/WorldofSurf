@@ -818,7 +818,7 @@ float(entity e, float track, float leg) SV_TASAutoCourse =
 // is 270 u from spawn to exit, where the runway capture (450 u and more) jumped 375 u off the line (rig t2chain1).
 float(entity e) SV_TASAutoRest =
 {
-	local float i;
+	local float i, best, bs, sp;
 	for (i = as_r0 - 1; i >= 1; i = i - 1)
 		if (!as_rows[i*7+4] && !as_rows[i*7+5] && !as_rows[i*7+6] && as_rows[i*7+3] == as_rows[i*7-4])
 		{	// in the course's own start box (a full-run guide's spawn before a stage walked out of it: review C)
@@ -826,7 +826,20 @@ float(entity e) SV_TASAutoRest =
 			if (Zone_PointInside(e.as_szone, SV_TASAutoRowO(i))) return i;
 			return -1;
 		}
-	return -1;
+	// P1709: a KSF demo that starts recording already moving never stands still (surf_sandtrap2 bonus 4's "x" guide:
+	// 38 u/s at its first row), so the start steered, and its straight runway reached the jump at 262 u/s and fell
+	// short of ramp 1. Its slowest grounded row in the box under 60 u/s stands in: the prestrafe from rest catches up
+	// below the 260 cap within a few ticks. tas_jargon_off 2048: steering, as before.
+	if (!as_ksf || !SV_TASAutoRule(2048) || e.as_szone < 0 || e.as_szone >= zone_count) return -1;
+	best = -1; bs = 60;
+	for (i = as_r0 - 1; i >= 1; i = i - 1)
+	{
+		sp = vlen([as_rows[i*7+4], as_rows[i*7+5], 0]);
+		if (sp < bs && !as_rows[i*7+6] && as_rows[i*7+3] == as_rows[i*7-4])
+		if (Zone_PointInside(e.as_szone, SV_TASAutoRowO(i)))
+			{ best = i; bs = sp; }
+	}
+	return best;
 };
 // the keys HUD while a tape or Jargon drives the body: the command it played (none while paused), + 65536 to say so
 void(entity e) SV_TASAutoKeysStat =
