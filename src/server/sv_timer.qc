@@ -7256,7 +7256,8 @@ float(string path) SV_TASUpBest =
 	if (mine <= 0) return FALSE;
 	h = search_begin(strcat(substring(path, 0, SV_TASUpCut(path) + 1), "*_tas.rec"), 0, TRUE);
 	if (h < 0) return TRUE;
-	n = min(search_getsize(h), 500);
+	n = search_getsize(h);
+	if (n > 500) { search_end(h); return FALSE; }   // too many to read at a finish: no offer, never a false best
 	for (i = 0; i < n; i = i + 1)
 	{
 		f = search_getfilename(h, i);
@@ -7276,7 +7277,7 @@ string sv_tasup_tok;
 string() SV_TASUpOfferTok =
 {
 	if (sv_tasup_tok == "")
-		sv_tasup_tok = strzone(substring(digest_hex("SHA256", sprintf("%.9g %.9g %.9g %.9g", random(), random(), time, gettime(0))), 0, 16));
+		sv_tasup_tok = strzone(strtolower(substring(digest_hex("SHA256", sprintf("%.9g %.9g %.9g %.9g", random(), random(), time, gettime(0))), 0, 16)));
 	return sv_tasup_tok;
 };
 float() SV_TASUpOffer =
@@ -7288,16 +7289,18 @@ float() SV_TASUpOffer =
 	fclose(fh);
 	return (v == 0 || v == 1) ? v : 2;
 };
+void(entity e) SV_TASUpList;
 void(entity e, float v, string tok) SV_TASUpSetOffer =
 {
 	local float fh;
 	if (!SV_TASUpHost(e) || (v != 0 && v != 1 && v != 2)) return;
 	if (v > SV_TASUpOffer() && strcmp(tok, SV_TASUpOfferTok()))
-		{ sprint(e, "tas upload: turn it up from the TAS menu's Upload tab\n"); return; }
+		{ sprint(e, PRINT_HIGH, "tas upload: turn it up from the TAS menu's Upload tab\n"); return; }
 	fh = fopen(SV_TASUpOfferPath(), FILE_WRITE);
-	if (fh < 0) { sprint(e, "tas upload: could not save that setting\n"); return; }
+	if (fh < 0) { sprint(e, PRINT_HIGH, "tas upload: could not save that setting\n"); return; }
 	fputs(fh, sprintf("%g\n", v));
 	fclose(fh);
+	SV_TASUpList(e);           // the client's box and chips follow it at once (review 3)
 };
 void(entity e, string path) SV_TASUpNote =
 {

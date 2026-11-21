@@ -202,7 +202,7 @@ over the game (ui_native_gamefocus) and the window in front (engine P1712 `cl_wi
 and store the tool "sent from the game by itself". If the engine will not sign it, the box falls back to asking. The
 box acts only on its own run (the tab's Back or another Upload closes it); bests arriving meanwhile wait, one a course.
 Known limit: SV_TASUpBest reads every own `*_tas.rec` in the folder, a place a server's csprogs can write, so a planted
-fast file can stop offers for that course (it can never make a slower run a best). Checked headless against a scratch tasupd: auto send taken (held: Jargon's resume records), old engine refuses -7,
+fast file can stop offers for that course; over 500 files there is no offer at all (never a slower run as a best). Checked headless against a scratch tasupd: auto send taken (held: Jargon's resume records), old engine refuses -7,
 a finish slower than a saved one gets no box.
 
 ## P1700: on the website

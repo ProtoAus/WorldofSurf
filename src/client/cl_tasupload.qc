@@ -83,6 +83,9 @@ void(string p, string sha) TASUp_Add =
 };
 void() TASUp_Pending;
 void() TASUp_OfferList;
+void(string why) TASUp_BoxKeep;
+void(string p) TASUp_Unqueue;
+float() TASUp_BoxOwns;
 // SV_TASUpList's events: index, count, then the run's sha and path; the list is replaced once the last arrives
 void() TASUp_ListEvent =
 {
@@ -92,7 +95,14 @@ void() TASUp_ListEvent =
 	sha = path = "";
 	if (n) { sha = readstring(); path = readstring(); }
 	if (!isserver()) return;        // only the game this process hosts says what it finished
-	tup_mode = m; tup_tok = TASUp_Keep(tup_tok, tk);
+	tup_mode = m; tup_tok = TASUp_Keep(tup_tok, TASUp_Hex(tk, 16) ? tk : "");   // it goes into a command line
+	if (m < 2) tupb_auto = FALSE;   // P1712: turned down (the tab, or `cmd tas offer` -- SV_TASUpSetOffer resends this)
+	if (m == 0)
+	{
+		while (tupb_qn > 0) TASUp_Unqueue(tupb_q[0]);
+		tupb_want = 0;
+		if (TASUp_BoxOwns() && (tup_state == 1 || tup_state == 2)) TASUp_BoxKeep("Off");
+	}
 	if (i == 0) { for (k = 0; k < tupe_n; k = k + 1) { strunzone(tupe_p[k]); strunzone(tupe_s[k]); } tupe_n = 0; }
 	if (n && i == tupe_n && tupe_n < TUP_MAX) { tupe_p[tupe_n] = strzone(path); tupe_s[tupe_n] = strzone(sha); tupe_n = tupe_n + 1; }
 	if (i < n - 1) return;
@@ -271,8 +281,6 @@ void() TASUp_Pump =
 	if (tup_state == 2 && gettime(0) > tup_armed + 590) TASUp_Answer("the confirmation expired: press Upload again");   // tasupd.CHALLENGE_TTL
 };
 
-void(string why) TASUp_BoxKeep;
-void(string p) TASUp_Unqueue;
 // P1712: what a new TAS best does -- 2 the box, then it sends itself; 1 the box asks; 0 nothing (SV_TASUpOffer)
 vector(vector at, float width, float tsz, float hint, float row) TASUp_OfferChips =
 {
