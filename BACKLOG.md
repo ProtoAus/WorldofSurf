@@ -1,5 +1,19 @@
 # BACKLOG.md
 
+## P1707 follow-ups (22 Nov, worldofsurf-2c)
+- Seen in P1707's test (not caused by it: the menu had not started): the dev client (ftesurf64 git-8974-patch-1698-0-
+  g657183e0d) dies with SIGFPE loading surf_cannonball locally, after its `[cc]` colour-correction shader is generated:
+  Hash_Key <- Hash_Get <- R_LoadShader <- Mod_RegisterBasicShader <- VBSP_GenerateMaterials (hl2 plugin), a modulo
+  by a zero bucket count. Headless sway; other Source maps loaded fine there. Reproduce in a normal window first.
+- Client-hosted test arms that assert a zone source of maps/zones/local without setting sv_zones_curated (e.g.
+  tools/p463zone.py:216) now read a saved data/maps/zones/curated copy first: `+set sv_zones_curated 0` in them.
+- A lobby or console map now costs two zone GETs per client per map change (CSQC cl_zonedl.qc and the menu's
+  Mzd_Watch fetch the same published URL); merge them if the Pi ever minds. mzd_seen is not reset on a disconnect
+  (lobby X, then a local X skips the check; matters only if the lobby-time refresh failed).
+- m_init is NOT the earliest QC on a launch with `+map`: the server spawns (and SSQC cvar() auto-creates names as "")
+  before menu.dat initialises (measured 22 Nov, even behind 300 `wait`s). Audit what assumes otherwise: FS_CvarsMoved
+  (old-name migration before any registercvar), the rec_terms publication comment in m_init, lobby_hosts' note.
+
 ## P1705 follow-ups (21 Nov, worldofsurf-2c)
 - Game: Archive_Seal / Archive_SealFile (sv_archive.qc) still lose the owner seal when `<run>.rec.owner-p<port>-<n>.part`
   exceeds MAX_QPATH (7 of 4632 recordings since 1 Nov; Archive_Seal removes the old `.owner` first). Write the part

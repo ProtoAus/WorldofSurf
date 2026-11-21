@@ -21,6 +21,10 @@
 
 ## next
 
+### P1707 Zones in every local game
+- A map you start yourself from the console or a launch option now has the same zones as the lobbies, as the map picker's games already did. bhop_overthinker had none that way.
+- A map you first played on a lobby fetches its zones for your own games too. If a game you host started without zones, it restarts once with them.
+
 ### P1705 Lobbies no longer crash at the end of some runs
 - Finishing a run on a few long-named maps (surf_the_gloaming and others, mostly segmented runs) crashed the lobby: everyone froze at the end zone and it came back on another map. Fixed on the lobbies on 21 Nov.
 - Those runs still count and are recorded. Downloading them again from your run history on those maps follows in a later update.

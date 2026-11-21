@@ -89,7 +89,7 @@ void(string mapname, string zonecrc, float hosting) Mzd_Watch =
 	Mzd_Fetch(mapname);         // refresh for next time; consent, one request and one-minute guards are its own
 	if (!hosting) return;
 	if (have)
-		Mzd_Restart(mapname);   // with the copy here now; the refresh lands after it and changes nothing this game
+		Mzd_Restart(mapname);   // with the copy here; a fast refresh may land first, and either copy is the published one
 	else
 		mzd_restart = (mzd_req && mzd_map == mapname);
 };

@@ -1,5 +1,13 @@
 # lextest.md — things waiting on a human
 
+## P1707 -- zones in every local game (worldofsurf-2c) -- with the next release (menu only)
+1. Console: `map bhop_overthinker`. The zones are there (console: `zones(sv): 7 on bhop_overthinker ... crc 71bf3520`,
+   the lobby's). Before, 0.
+2. A launch option `+map bhop_overthinker`: one quick reload at the start ("restarting bhop_overthinker with its
+   published zones"), then the same 7.
+3. A map you only ever played on a lobby (surf_borderlands_css on your PC): `map` it; a moment after it loads it
+   restarts once with its zones (15).
+
 ## P1705 -- lobbies no longer crash at the end of some runs (worldofsurf-2c) -- LIVE on the lobbies 21 Nov 12:49Z
 1. Markbeaton54's report (freeze at the end zone, then another map): finish a segmented run on surf_the_gloaming
    (or surf_lt_omnific stage 4/5). The run finishes normally and the lobby stays up.
