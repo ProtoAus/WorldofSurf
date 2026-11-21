@@ -1,5 +1,15 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 21 Nov 2026 23:57Z: gen1710 LIVE -- the base for the NEXT generation (worldofsurf-2c, Lex "pre-pare an update? do it if you need.")
+Primary e4dbc744 (members-v1, 92) = gen1702's files + P1710's surfd half at REF 8bbc3700 (admin.py, recplot.py, surfd.py,
+templates/admin_run.html, templates/admin_top10.html, web/board.js); fallback 6297635d = gen1702's 92 exactly; guard
+4b6a9fb3 unchanged. Root /srv/nvme/agent-work/gen1710-20261122-2c; private kit FTESurf-private/worktrees/gen1710-20261122-2c
+(OWNER.md has every step); genkit generation.json "built" recorded. runs/replays.oldgame added by hand 22:51Z (backup
+surfd.db.bak-pre1710-20261121T225001Z). Root install (Lex) 23:36:57Z; swap 23:54:15-23:57:19Z; POSTFLIGHT PASS. P1710
+backfill: 4 bound runs since the lobby progs, none with `oldgame 1` (no-op). Next kit: CURRENT e4dbc744 (members-v1, 92),
+native 59bc2e04 (lobby patch-1709); retention now keeps gen1702 + gen1710 (gen1674 still named by gen1702's code; the 47
+roots only gen1674's untrimmed proposal named go by the 14-day rule -- Lex, 22 Nov: "Let retention remove them").
+
 ## 21 Nov 2026 11:27Z: gen1702 LIVE -- the base for the NEXT generation (worldofsurf-47, Lex "Release + lobbies now")
 Primary 74bb6404 (members-v1, 92 members) = gen1674's files + REF 4fa70237's surfd changes (admin.py, hidupload.py,
 recplot.py, surfd.py, sweep.py, templates/admin{,_accounts,_maps,_run,_runs}.html, web/board.{css,html,js}, added
@@ -21,7 +31,7 @@ CURRENT = cd1965f1 (root /srv/nvme/agent-work/gen1674-20261121-e3; kit FTESurf-p
 pins native fteqw-svarm64 1753f9d4 (lobby engine patch-1683, swapped 01:38Z), and keeps the consumer's 900 s
 `systemctl start` (its drop-in will have 18 ExecStartPre blocks, ~280 s; or the owner prunes retired blocks).
 
-## P1710 "unchecked" mark -- lobby side LIVE 21 Nov 21:23Z; surfd half READY for the NEXT generation (worldofsurf-2c)
+## P1710 "unchecked" mark -- LIVE end to end 21 Nov 23:57Z (lobby side 21:23Z; surfd half in gen1710) (worldofsurf-2c)
 LIVE: all 12 lobbies on qw 8bbf41ba / cs 36fbd89c = tag v0.1.56 (a0c594f3) + 2aa72543 + 7d97c6b8 only (built with 0.1.56's
 fteqcc, which rebuilds the tag's bb26775e / b5dc2419 exactly; NOT main, so worldofsurf-5a's later sv_tasautosurf.qc
 is not on the lobbies); backups *.pre1710-20261121T212240Z; codes.txt 172; engine patch-1709 untouched. From now on a
