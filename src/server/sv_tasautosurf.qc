@@ -2182,7 +2182,7 @@ float(entity e) SV_TASAutoPlatformFinish =
 // After SV_TASDemoFrame (SV_TASOptFrame): the next step of the chain once no search is running.
 void(entity e) SV_TASAutoFrame =
 {
-	local float head, i, best, d, t, s, along, lat, herr, ee, ph, argc_pl, rd, cp, bf;
+	local float head, i, best, d, t, s, along, lat, herr, ee, ph, argc_pl, rd, cp, bf, pk;
 	local vector u, cr, cl, nn;
 	// The TAS timeline (rewinds, edits, every tool here) begins with the running attempt, so a start box's
 	// prestrafe and jump stay the player's: paused on the first running tick, autosurf takes the fall to the
@@ -2283,7 +2283,7 @@ void(entity e) SV_TASAutoFrame =
 			}
 			if (rd <= 16 && t < 1)
 			{
-				e.as_stage = 13; e.as_ri = e.as_ri + 1; e.as_sn = 0;
+				e.as_stage = 13; e.as_ri = e.as_ri + ((as_ksf && SV_TASAutoRule(2048)) ? 0 : 1); e.as_sn = 0;	// P1709: a KSF rest row holds its first command
 				e.as_smeth = 1; SV_TASAutoNote(e, 1, sprintf("start: the guide's own prestrafe from where it stood (%.0f u from here)", rd));
 				return;
 			}
@@ -2308,13 +2308,16 @@ void(entity e) SV_TASAutoFrame =
 			if (e.as_ri >= as_nrows || e.as_ri > as_r0 + 120)
 				{ SV_TASAutoStop(e, "the guide's own start did not leave the box from here"); return; }
 			i = e.as_ri;
-			// P1709: a KSF import's row is the state BEFORE its own command: its keys drove the next row and the view of
-			// that command is the next row's. Read as one row, the replay took the guide's jump a tick late (that tick on
-			// the ground: friction, 287 -> 276 u/s on surf_sandtrap2 bonus 4, and its flight caught the fail slab's corner
-			// short of ramp 1 and bhopped off it -- Lex, 22 Nov). From the guide's standstill, keys of row i with the view
-			// of row i+1 replay its 76-tick prestrafe exactly in this mover (pm_stepsim). tas_jargon_off 2048: as before.
+			// P1709: a KSF import's row is the state BEFORE its own command: its keys drive the next row, and that
+			// command's view is the next row's (from the guide's rest row, keys of row i and view of row i+1 replay its
+			// 76-tick prestrafe exactly in this mover: pm_stepsim). Read one row late, the replay played row 76's keys
+			// (strafe only) on the ground with row 76's view the tick before surf_sandtrap2 bonus 4's jump: 287 -> 276
+			// u/s, and the short flight caught the fail slab's corner short of ramp 1 and bhopped off it (Lex, 22 Nov).
+			// The replay starts at the rest row (its first command). tas_jargon_off 2048: as before.
+			pk = 0;
 			if (as_ksf && i + 1 < as_nrows && SV_TASAutoRule(2048))
 			{
+				pk = 1;
 				t = (as_rows[i*7+13] - as_rows[i*7+6] > 150 && fabs(as_rows[i*7+6]) < 1) ? 1 : 0;
 				best = as_bin[i*4+7];
 			}
@@ -2331,7 +2334,7 @@ void(entity e) SV_TASAutoFrame =
 				t = t + 2;
 				if (!e.as_sdk) { e.as_sdk = 1; SV_TASAutoNote(e, 1, sprintf("start: crouching as the guide did (his duck from t=%.3f)", as_rows[i*7])); }
 			}
-			if (t & 1)	// P1709: where this replay takes off, against the guide
+			if (pk && (t & 1))	// P1709: where this replay takes off, against the guide's point
 				SV_TASAutoNote(e, 1, sprintf("start: the guide's jump %.0f u from its takeoff point, at %.0f u/s (it %.0f)",
 					vlen([e.origin_x - as_rows[i*7+1], e.origin_y - as_rows[i*7+2], 0]), vlen([e.velocity_x, e.velocity_y, 0]),
 					vlen([as_rows[i*7+4], as_rows[i*7+5], 0])));
@@ -2374,7 +2377,7 @@ void(entity e) SV_TASAutoFrame =
 				// guide's standstill, and its prestrafe replayed from there left the box at 76 u/s against his 283
 				if (rd <= (SV_TASAutoRule(524288) ? 16 : 64) && fabs(e.origin_z - as_rows[e.as_ri*7+3]) <= 18)
 				{
-					e.as_stage = 13; e.as_ri = e.as_ri + 1;
+					e.as_stage = 13; e.as_ri = e.as_ri + ((as_ksf && SV_TASAutoRule(2048)) ? 0 : 1);	// P1709: as at the walk's end
 					e.as_smeth = 1; SV_TASAutoNote(e, 1, sprintf("start: the guide's own prestrafe from where it stood (%.0f u from here)", rd));
 					return;
 				}
