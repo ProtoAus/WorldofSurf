@@ -1,5 +1,11 @@
 # lextest.md — things waiting on a human
 
+## 0.1.56 release -- PUBLISHED 21 Nov 21:13Z (record: tools/release-0.1.56.md); lobbies on it 21:16Z; owner check PENDING
+- P1705, P1706, P1707, P1709. Lobbies: engine patch-1709 (also the surfd verifier), the release's progs, cfg/default.cfg
+  pm_fixslopes 2 / pm_groundtracedist 2 / pm_jumpzoffset 0 and main's mode_ahop.cfg, one restart 21:16Z.
+1. Start the game: it updates to 0.1.56 (title menu version), then join a lobby: uphill landings on a bhop map keep
+   speed without rubber-banding (an un-updated 0.1.55 client rubber-bands there until it updates).
+
 ## P1709 -- uphill hops keep their speed; Jargon's sandtrap2 bonus 4 start (worldofsurf-5a) -- your dev install
 1. ahop_coast (it plays bhop here): hop up the displacement hills the way you do in Momentum. Uphill landings should
    keep your speed and you should not get bounced off a slope you meant to land on.

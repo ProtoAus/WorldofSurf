@@ -21,6 +21,8 @@
 
 ## next
 
+## 0.1.56 2026-11-21
+
 ### P1709 Hopping up slopes keeps your speed, as in Momentum
 - Bhop and surf landings now match Momentum's current version: you land within 2 units of the ground, and landing on an uphill slope or displacement keeps your speed instead of costing it or bouncing you off.
 - Jumps take off from the floor itself, as Momentum does now (they started 1.5 units up).
