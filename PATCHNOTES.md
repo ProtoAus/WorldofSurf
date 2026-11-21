@@ -21,6 +21,11 @@
 
 ## next
 
+### P1711 Jargon starts like its guide run, and you choose what it aims for
+- Jargon's start now replays a KSF guide run's prestrafe tick for tick, so it jumps where and as fast as the guide did (surf_sandtrap2 bonus 4 used to jump early and fall short of ramp 1).
+- A guide run that starts already moving now gets the same start instead of Jargon's own run-up.
+- Jargon's Tuning tab has Aim: speed, balanced or time. Time arrives sooner even a little slower (short courses); speed carries the most speed into every ramp (long courses).
+
 ### P1710 Older game versions are marked, not removed
 - A run set on a game version too old to check for scripts or controller use stays on the board, with an "unchecked" mark beside the name. Nothing is removed; update the game to drop the mark on your next runs.
 

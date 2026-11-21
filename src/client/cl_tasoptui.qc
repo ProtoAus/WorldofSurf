@@ -1344,6 +1344,23 @@ float(vector at, float width, float tsz, float hint, float row) TASOptUI_DrawTun
 		TASOptUI_RuleSet(4194304, !on);
 	sui_tooltip_for("jgt_push", "Its predictions carry a line through boosters and pushes as the game does. Off: a line that touches one is cut there, as before.", max(1, hint / 7));
 	at_y = at_y + row + 3;
+	// Lex, 22 Nov: "a settings option for what the Jargon aims for": presets of the time weight below (`pace`). A tick
+	// sooner is priced by what the speed would gain over the rest of the guide's route (SV_TASAutoPace), so speed still
+	// counts most where much route is left; the finish is always the earliest touch of the end. One header-less row:
+	// the panel does not scroll.
+	cw = (width - 12) / 3;
+	for (i = 0; i < 3; i = i + 1)
+	{
+		id = sprintf("jgt_a%g", i);
+		v = TASOptUI_TuneGet(1);
+		on = (i == 0) ? (v == 0) : ((i == 1) ? (fabs(v - 1) < 0.001) : (fabs(v - 3) < 0.001));
+		if (Profile_Chip(id, at + [i * (cw + 6), 0, 0], [cw, row, 0], (i == 0) ? "Aim: speed" : ((i == 1) ? "Aim: balanced" : "Aim: time"), hint, on))
+			localcmd((i == 1) ? "set tas_jargon_pace \"\"\n" : sprintf("set tas_jargon_pace %g\n", (i == 0) ? 0 : 3));
+		sui_tooltip_for(id, (i == 0) ? "Carry the most speed into every ramp (time weight 0): long courses, where speed is what saves time later."
+			: ((i == 1) ? "A tick sooner is worth what that speed would gain on the rest of the route (time weight 1). The default."
+			: "Arrive sooner even if a little slower (time weight 3): short courses. sandtrap2 bonus 4: 0:07.845 against 0:07.860."), max(1, hint / 7));
+	}
+	at_y = at_y + row + 3;
 	lw = width * 0.52; cw = (width - lw - 18) / 4;
 	for (i = 0; i < JGT_N; i = i + 1)
 	{

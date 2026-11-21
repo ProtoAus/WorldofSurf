@@ -1,5 +1,10 @@
 # lextest.md — things waiting on a human
 
+## P1711 -- Jargon's start and its aim (worldofsurf-5a) -- your dev install
+1. surf_sandtrap2 bonus 4, Jargon "By itself" with any of the three guide runs (agentflwrs, farsh, x): the console note
+   says "the guide's jump N u from its takeoff point, at 287/288 u/s (it 287/288)" and it boards ramp 1.
+2. Jargon panel > Tuning: Aim: speed / balanced / time light up and move "Time weight" to 0 / 1 / 3.
+
 ## P1710 -- runs from too-old game versions stay up, marked "unchecked" (worldofsurf-2c) -- after the backend update
 1. Your rule (22 Nov): no record removed; a run that could not be verified stays up, reported, valid as of its date.
 2. Once the next backend update is live: a run set on a game older than 0.1.55 shows "unchecked" beside the name
