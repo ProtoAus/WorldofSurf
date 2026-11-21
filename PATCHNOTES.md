@@ -26,6 +26,7 @@
 - Jumps take off from the floor itself, as Momentum does now (they started 1.5 units up).
 - Ahop maps give Momentum's accelerated-hop boost on every jump, at Half-Life 2's jump height.
 - Jargon starts KSF guide runs on the right tick at the guide's speed: surf_sandtrap2 bonus 4 now makes its first jump and finishes.
+- TAS projects saved before this update cannot be reopened exactly: the movement they were made with changed.
 
 ### P1707 Zones in every local game
 - A map you start yourself from the console or a launch option now has the same zones as the lobbies, as the map picker's games already did. bhop_overthinker had none that way.
