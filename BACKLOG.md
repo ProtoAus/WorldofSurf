@@ -18,6 +18,12 @@
   edge: its straight runway decays to the 260 cap (sandtrap b4's "x" guide: 262 u/s 77 u short; a guide-distance window
   with a speed gate left the box without a jump, so it was not shipped). tools/momstep.py reads only .mtv; the
   pm_stepsim seeds lack the duck timer (transition ticks graded apart).
+- Jargon review (follow-up): still reading KSF rows the old way -- stage 34's P1579 walk-and-jump replay (entry jl + 1,
+  keys of row i: the same pre-jump ground tick that cost 287 -> 276 here), and GuideJump/StartDuck (the steering
+  start's duck reads the takeoff row, one tick after the jump command; test cvar only). StartSafe is one row
+  conservative for KSF guides (falls back to steering: safe). The slowest-row fallback takes the global minimum
+  before the run, not the final approach, and starts at 0 against the guide's up to 59 u/s (the "x" guide's takeoff
+  lands 21 u off its point).
 
 ## P1706 high-ping prediction -- what it leaves (21 Nov, worldofsurf-88)
 - Muri's "S does nothing in rewind" is not reproduced: at 350 ms the S key path (Rewind_InputEvent k 0 -> sl_saveat)
