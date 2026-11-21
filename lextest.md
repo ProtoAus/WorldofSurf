@@ -24,7 +24,8 @@
    and take off from the floor). Ramps themselves should feel exactly as before.
 3. Jargon, surf_sandtrap2 bonus 4, start "By itself" with the top guide run: it makes the first jump onto ramp 1 and
    finishes (it did 0:07.800 here).
-4. Lobbies keep the old rules until the next release (the lobbies, their verifier and your clients change together).
+4. Lobbies: on these rules since 0.1.56 (21 Nov 21:16Z; engine patch-1709, which is also the run verifier). On the lobbies
+   ahop_coast also plays bhop (its zone file there says 2), so steps 1-2 apply there too once your client is 0.1.56.
 
 ## P1706 -- noclip, rewind, ghost and loads at high ping (worldofsurf-88) -- LIVE on the lobbies 21 Nov 15:50Z
 Best done by a high-ping player (muri, ~350 ms). Rig numbers are in the engine's ENGINE_PATCHES P1706.
