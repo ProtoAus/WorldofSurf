@@ -21,7 +21,11 @@ CURRENT = cd1965f1 (root /srv/nvme/agent-work/gen1674-20261121-e3; kit FTESurf-p
 pins native fteqw-svarm64 1753f9d4 (lobby engine patch-1683, swapped 01:38Z), and keeps the consumer's 900 s
 `systemctl start` (its drop-in will have 18 ExecStartPre blocks, ~280 s; or the owner prunes retired blocks).
 
-## P1710 "unchecked" mark -- surfd half READY for the NEXT generation; lobby side deploys first (worldofsurf-2c)
+## P1710 "unchecked" mark -- lobby side LIVE 21 Nov 21:23Z; surfd half READY for the NEXT generation (worldofsurf-2c)
+LIVE: all 12 lobbies on qw 8bbf41ba / cs 36fbd89c = tag v0.1.56 (a0c594f3) + 2aa72543 + 7d97c6b8 only (built with 0.1.56's
+fteqcc, which rebuilds the tag's bb26775e / b5dc2419 exactly; NOT main, so worldofsurf-5a's later sv_tasautosurf.qc
+is not on the lobbies); backups *.pre1710-20261121T212240Z; codes.txt 172; engine patch-1709 untouched. From now on a
+finished run from a too-old game writes `oldgame 1` and posts `oldgame=1` (the live surfd ignores the field).
 Lex, 22 Nov: no record removed; a run that could not be verified stays up, marked. Files: surfd/surfd.py
 (runs_oldgame: runs.oldgame / replays.oldgame INTEGER NOT NULL DEFAULT 0, no schema bump; intake `oldgame=1`; the
 finish's `oldgame 1` raises a lower post; replay upsert/merge; restand; board rows and the maps WR), recplot.py,
