@@ -4138,9 +4138,11 @@ string(float ticks) SV_TimerString = { return Time_TickString(ticks, run_t_tick)
                             otherwise clean but its game could not count script
                             presses (no IPG_SCRIPT in `inguard`, before 1646) or sent
                             no controller count (before 1694), so neither check
-                            could run; not on TAS.  Posted as `oldgame=1`.  Display
-                            only ("unverified"; it ranks).  Not carried by saves: the
-                            finish's own latch sets it.  Off under held metadata.
+                            could run; not on TAS or a cursor-mode game.  Read from
+                            the live client at the finish (not the start's `inguard`)
+                            and set there, never carried by saves.  Posted as
+                            `oldgame=1`.  Display only ("unchecked"; it ranks).  Off
+                            under held metadata.
     clk <bound> <hyst> <allow> <wall> <stalls> <credited> <debt> <behind>
                             the game clock against server time over the run, saves
                             included (SV_ClockFrame): wall seconds measured, packet
@@ -12354,11 +12356,7 @@ void(entity e, float atstart) SV_TimerProfile =
 	e.run_t_plat = SV_RunPlat(e);       // P1603: every latch caller, so they all agree
 	w = SV_ProfileWhy(e);
 	if (w == PW_OK)
-	{
-		if (!atstart && SV_OldGameInput(e))
-			e.run_t_oldgame = 1;        // P1710: at the finish, before its record and post
 		return;
-	}
 	if (e.run_t_pwhy == PW_OK)
 		e.run_t_pwhy = w;               // Patch 840: the first reason seen, for the finish line
 	e.run_t_flags = e.run_t_flags | TF_NOPROFILE;
@@ -14733,6 +14731,9 @@ void(entity e, float ticks) SV_TimerFinish =
 	// the clock started AND the set-and-unset window that leaves both ends
 	// reading clean.  Same shape, same reason.  See SV_TimerProfile.
 	SV_TimerProfile(e, FALSE);
+	// P1710 review 2: ASSIGNED here, once, not latched: a save written or a session parked mid-run also passes
+	// SV_TimerProfile(e, FALSE), and a load does not restore this field. Before its record and its post.
+	e.run_t_oldgame = (!SV_ProfileBroken(e) && SV_OldGameInput(e));
 	// Patch 840: the finish's verdict beside the header's start one, so a file
 	// says which setting demoted it and when.
 	if (SV_RecLive(e))
