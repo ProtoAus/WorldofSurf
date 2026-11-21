@@ -3041,6 +3041,7 @@ void(entity e) SV_TASUpList =
 	{
 		WriteByte(MSG_MULTICAST, SVC_CGAMEPACKET); WriteByte(MSG_MULTICAST, TAS_EV_UPLIST);
 		WriteByte(MSG_MULTICAST, i); WriteByte(MSG_MULTICAST, n); WriteByte(MSG_MULTICAST, mode);
+		WriteString(MSG_MULTICAST, local_host ? SV_TASUpOfferTok() : "");
 		if (n) { c = tokenize(bufstr_get(show, i)); WriteString(MSG_MULTICAST, argv(0)); WriteString(MSG_MULTICAST, argv(1)); }
 		msg_entity = e; multicast(e.origin, MULTICAST_ONE_R);
 	}

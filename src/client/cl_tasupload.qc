@@ -22,10 +22,12 @@ float tup_pend, tup_pendt;       // `tas upload N` waiting for the list (row N-1
 string tup_path, tup_label, tup_nonce, tup_sha, tup_note;
 string tup_short;               // P1712: the answer in a few words, for the offer box
 var float tup_mode = 2;         // P1712: what a new best does (the local game's word: SV_TASUpOffer)
+string tup_tok;                 // P1712: the local game's token that raising it needs (SV_TASUpOfferTok)
 // P1712's offer box: up; sends itself; countdown left (runs only while seen, at state 2); last frame; closes; list due
 #define TUPB_SECS 12
 #define TUPB_Q 4
 float tupb_box, tupb_auto, tupb_left, tupb_seen, tupb_end, tupb_want, tupb_qn;
+float tupb_asking, tupb_mine;   // TASUp_Ask is the box's (set only by TASUp_OfferList); the flow is the box's since
 string tupb_path, tupb_why;     // the run offered; why it fell back to asking
 string tupb_q[TUPB_Q];          // bests that came while one was on its way, one a course (the newest)
 
@@ -85,12 +87,12 @@ void() TASUp_OfferList;
 void() TASUp_ListEvent =
 {
 	local float i, n, k, m;
-	local string sha, path;
-	i = readbyte(); n = readbyte(); m = readbyte();
+	local string sha, path, tk;
+	i = readbyte(); n = readbyte(); m = readbyte(); tk = readstring();
 	sha = path = "";
 	if (n) { sha = readstring(); path = readstring(); }
 	if (!isserver()) return;        // only the game this process hosts says what it finished
-	tup_mode = m;
+	tup_mode = m; tup_tok = TASUp_Keep(tup_tok, tk);
 	if (i == 0) { for (k = 0; k < tupe_n; k = k + 1) { strunzone(tupe_p[k]); strunzone(tupe_s[k]); } tupe_n = 0; }
 	if (n && i == tupe_n && tupe_n < TUP_MAX) { tupe_p[tupe_n] = strzone(path); tupe_s[tupe_n] = strzone(sha); tupe_n = tupe_n + 1; }
 	if (i < n - 1) return;
@@ -139,6 +141,7 @@ void(float i) TASUp_Ask =
 {
 	local string body;
 	if (i < 0 || i >= tup_n || tup_state == 1 || tup_state == 3) return;
+	tupb_mine = tupb_asking;                       // P1712: any other Upload (the tab, `tas upload N`) takes the flow
 	tup_label = TASUp_Keep(tup_label, tup_l[i]);   // first: a refusal below shows this run's name (flow review 2)
 	tup_path = TASUp_Keep(tup_path, tup_p[i]);     // and the offer box sees whose flow this is (P1712)
 	if (!TASShare_Allowed()) { TASUp_Answer("accept the online terms in the main menu first"); return; }
@@ -222,7 +225,7 @@ float(float reqid, float code, string body) TASUp_Reply =
 		{
 			tup_nonce = TASUp_Keep(tup_nonce, s);
 			tup_state = 2;      // the offer's code came by itself, not with a click
-			tup_armed = gettime(0) + ((tupb_box && !strcmp(tup_path, tupb_path)) ? 0 : 0.5);
+			tup_armed = gettime(0) + ((tupb_box && tupb_mine) ? 0 : 0.5);
 			print(sprintf("tas upload: ready to send %s: click Send\n", tup_path));
 		}
 		else TASUp_Answer(strcat("not uploaded: ", (why != "") ? why : "the service did not give a code"));
@@ -269,6 +272,7 @@ void() TASUp_Pump =
 };
 
 void(string why) TASUp_BoxKeep;
+void(string p) TASUp_Unqueue;
 // P1712: what a new TAS best does -- 2 the box, then it sends itself; 1 the box asks; 0 nothing (SV_TASUpOffer)
 vector(vector at, float width, float tsz, float hint, float row) TASUp_OfferChips =
 {
@@ -284,8 +288,9 @@ vector(vector at, float width, float tsz, float hint, float row) TASUp_OfferChip
 		                 (i == 0) ? "Auto-upload" : (i == 1) ? "Ask" : "Off", tsz, tup_mode == 2 - i))
 		{
 			v = 2 - i;
-			localcmd(sprintf("cmd tas offer %g\n", v));
+			localcmd(sprintf("cmd tas offer %g %s\n", v, tup_tok));
 			tup_mode = v; tup_at = 0;
+			if (v == 0) while (tupb_qn > 0) TASUp_Unqueue(tupb_q[0]);   // Off: nothing waiting is offered either
 			if (tupb_box && v < 2) tupb_auto = FALSE;              // an offer already up follows it
 			if (tupb_box && v == 0 && (tup_state == 1 || tup_state == 2)) TASUp_BoxKeep("Off");
 		}
@@ -303,6 +308,7 @@ void(vector at, float width, float tsz, float hint, float row) TASUp_Draw =
 		"file; a new record, or anything the check cannot clear, waits for review.", SUI_THEME_DIM, TRUE) + hint;
 	at = TASUp_OfferChips(at, width, tsz, hint, row);
 	half = [(width - 6) / 2, row, 0];
+	TASUp_List();               // in every state: the mode the chips show comes with it (P1712)
 	if (tup_state == 0)
 	{
 		if (!isserver())
@@ -310,7 +316,6 @@ void(vector at, float width, float tsz, float hint, float row) TASUp_Draw =
 			ZonePub_Wrap(at, width, tsz, "Upload from a game you host: TAS runs are made there.", SUI_THEME_TEXT, TRUE);
 			return;
 		}
-		TASUp_List();
 		if (!tup_n)
 		{
 			ZonePub_Wrap(at, width, tsz, "No TAS run of this map yet. Finish one with Jargon or Manual TAS and it shows here. "
@@ -385,9 +390,17 @@ void(float argc) TASUp_Verb =
 // mode 2 the countdown's end sends it unkeyed. The box acts only on its own run: the tab taking the flow closes it.
 float() PE_BoxUp;
 float() CR_BoxUp;
-// seen: not under the scoreboard, the TAS menu or another report box, and the window has focus (security review)
-float() TASUp_BoxUp = { return tupb_box && !rec_sb_open && !tasu_open && sui_style_focused && !PE_BoxUp() && !CR_BoxUp(); };
-float() TASUp_BoxOwns = { return tupb_box && tup_state != 0 && !strcmp(tup_path, tupb_path); };
+float() cl_windowactive = #0;   // engine P1712
+// the game has the keys (no console or menu over it) and the window is in front; TRUE on an engine without the builtins
+float() TASUp_Focus =
+{
+	if (checkbuiltin(ui_native_gamefocus)) if (!ui_native_gamefocus()) return FALSE;
+	if (checkbuiltin(cl_windowactive)) if (!cl_windowactive()) return FALSE;
+	return TRUE;
+};
+// seen: not under the scoreboard, the TAS menu, another report box or any panel holding the cursor, with focus (reviews)
+float() TASUp_BoxUp = { return tupb_box && !rec_sb_open && !tasu_open && !UI_CursorHeld() && TASUp_Focus() && !PE_BoxUp() && !CR_BoxUp(); };
+float() TASUp_BoxOwns = { return tupb_box && tupb_mine && tup_state != 0; };
 string(string p) TASUp_Folder = { local float i; for (i = strlen(p) - 1; i > 0; i = i - 1) if (str2chr(p, i) == 47) return substring(p, 0, i); return p; };
 void(string p) TASUp_Unqueue =
 {
@@ -401,10 +414,12 @@ void(string p) TASUp_Unqueue =
 			return;
 		}
 };
-// a newer best of a course replaces that course's waiting one (it is faster: SV_TASUpBest)
-void(string p) TASUp_Queue =
+float(string p) TASUp_Queued = { local float i; for (i = 0; i < tupb_qn; i = i + 1) if (!strcmp(TASUp_Folder(tupb_q[i]), TASUp_Folder(p))) return TRUE; return FALSE; };
+// a newer best of a course replaces that course's waiting one (it is faster: SV_TASUpBest); older: kept only if none waits
+void(string p, float older) TASUp_Queue =
 {
 	local float k;
+	if (older && TASUp_Queued(p)) return;
 	TASUp_Unqueue(p);
 	if (tupb_qn >= TUPB_Q) { strunzone(tupb_q[0]); for (k = 1; k < tupb_qn; k = k + 1) tupb_q[k - 1] = tupb_q[k]; tupb_qn = tupb_qn - 1; }
 	tupb_q[tupb_qn] = strzone(p); tupb_qn = tupb_qn + 1;
@@ -417,11 +432,13 @@ void(string path) TASUp_Offer =
 	{
 		if (TASUp_BoxOwns() && (tup_state == 1 || tup_state == 2))
 		{
-			if (strcmp(TASUp_Folder(tupb_path), TASUp_Folder(path))) TASUp_Queue(tupb_path);   // another course: back in line
+			if (strcmp(TASUp_Folder(tupb_path), TASUp_Folder(path))) TASUp_Queue(tupb_path, TRUE);   // another course: back in line
 			tup_state = 0; tup_req = 0;
 		}
 		tupb_box = FALSE;
 	}
+	else if (tupb_want && cltime <= tupb_want && strcmp(TASUp_Folder(tupb_path), TASUp_Folder(path)))
+		TASUp_Queue(tupb_path, TRUE);     // an offer still waiting for its list, of another course
 	TASUp_Unqueue(path);
 	tupb_path = TASUp_Keep(tupb_path, path);
 	tupb_want = cltime + 5;
@@ -435,7 +452,7 @@ void() TASUp_NewEvent =
 	if (!isserver() || mode <= 0) return;
 	if (ui_consent_ver < FS_TERMS_ONLINE && cvar("rec_terms") < FS_TERMS_ONLINE) return;   // TASShare_Allowed, without its print
 	tup_mode = mode;
-	if (tup_state == 3 || (!TASUp_BoxOwns() && TASUp_Busy())) { TASUp_Queue(path); return; }
+	if (tup_state == 3 || (!TASUp_BoxOwns() && TASUp_Busy())) { TASUp_Queue(path, FALSE); return; }
 	TASUp_Offer(path);
 };
 void() TASUp_OfferList =
@@ -444,12 +461,12 @@ void() TASUp_OfferList =
 	if (cltime > tupb_want) { tupb_want = 0; return; }
 	tupb_want = 0;
 	for (i = 0; i < tup_n; i = i + 1) if (!strcmp(tup_p[i], tupb_path)) break;
-	if (i >= tup_n) return;
-	if (TASUp_Busy()) { TASUp_Queue(tupb_path); return; }    // the tab started one in the gap
+	if (i >= tup_n || tup_mode <= 0) return;
+	if (TASUp_Busy()) { TASUp_Queue(tupb_path, TRUE); return; }    // the tab started one in the gap
 	tup_state = 0;
 	tupb_box = TRUE; tupb_auto = (tup_mode >= 2); tupb_why = TASUp_Keep(tupb_why, "");
 	tupb_left = TUPB_SECS; tupb_seen = cltime; tupb_end = 0;
-	TASUp_Ask(i);              // a refusal answers in the box
+	tupb_asking = TRUE; TASUp_Ask(i); tupb_asking = FALSE;    // a refusal answers in the box
 };
 // closes the box; the next waiting best (if the machine is free) is offered
 void() TASUp_BoxClose =
@@ -484,6 +501,7 @@ void(vector scr) TASUp_DrawBox =
 	if (!tupb_box)
 	{
 		if (tupb_want && cltime > tupb_want) tupb_want = 0;               // its list never came
+		if (tup_state == 1 || tup_state == 3) TASUp_Pump();               // a tab request whose reply never came
 		if (tupb_qn > 0 && !TASUp_Busy() && !tupb_want) TASUp_BoxClose();   // a best that waited on the tab
 		return;
 	}
@@ -491,7 +509,7 @@ void(vector scr) TASUp_DrawBox =
 	TASUp_Pump();
 	if (tup_state == 2 && TASUp_BoxUp()) tupb_left = tupb_left - min(cltime - tupb_seen, 0.25);   // not hidden or stalled
 	tupb_seen = cltime;
-	if (tup_state == 2 && tupb_left <= 0)
+	if (tup_state == 2 && tupb_left <= 0 && TASUp_BoxUp())
 	{
 		if (!tupb_auto) { TASUp_BoxKeep("no key pressed"); return; }
 		TASUp_Send(TRUE);      // or, refused, the box asks (TASUp_Send)

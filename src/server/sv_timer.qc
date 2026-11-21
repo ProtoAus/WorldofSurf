@@ -7256,7 +7256,7 @@ float(string path) SV_TASUpBest =
 	if (mine <= 0) return FALSE;
 	h = search_begin(strcat(substring(path, 0, SV_TASUpCut(path) + 1), "*_tas.rec"), 0, TRUE);
 	if (h < 0) return TRUE;
-	n = min(search_getsize(h), 1000);
+	n = min(search_getsize(h), 500);
 	for (i = 0; i < n; i = i + 1)
 	{
 		f = search_getfilename(h, i);
@@ -7270,6 +7270,15 @@ float(string path) SV_TASUpBest =
 // what a new best does (Upload tab, `cmd tas offer N`): 2 the box, then it sends itself; 1 the box asks; 0 nothing. Kept
 // in data/tasproj/, which no server's csprogs can write, so a server's stuffed cvar cannot undo an opt-out (review)
 string() SV_TASUpOfferPath = { return "data/tasproj/upload_offer.txt"; };
+// raising it takes this map's token, which only the host's own client is sent (SV_TASUpList): a bind a server stuffed
+// cannot know it; lowering it needs none (security review 2)
+string sv_tasup_tok;
+string() SV_TASUpOfferTok =
+{
+	if (sv_tasup_tok == "")
+		sv_tasup_tok = strzone(substring(digest_hex("SHA256", sprintf("%.9g %.9g %.9g %.9g", random(), random(), time, gettime(0))), 0, 16));
+	return sv_tasup_tok;
+};
 float() SV_TASUpOffer =
 {
 	local float fh, v;
@@ -7279,12 +7288,14 @@ float() SV_TASUpOffer =
 	fclose(fh);
 	return (v == 0 || v == 1) ? v : 2;
 };
-void(entity e, float v) SV_TASUpSetOffer =
+void(entity e, float v, string tok) SV_TASUpSetOffer =
 {
 	local float fh;
 	if (!SV_TASUpHost(e) || (v != 0 && v != 1 && v != 2)) return;
+	if (v > SV_TASUpOffer() && strcmp(tok, SV_TASUpOfferTok()))
+		{ sprint(e, "tas upload: turn it up from the TAS menu's Upload tab\n"); return; }
 	fh = fopen(SV_TASUpOfferPath(), FILE_WRITE);
-	if (fh < 0) { dprint("tas upload: cannot write the offer setting\n"); return; }
+	if (fh < 0) { sprint(e, "tas upload: could not save that setting\n"); return; }
 	fputs(fh, sprintf("%g\n", v));
 	fclose(fh);
 };
@@ -7328,7 +7339,8 @@ void(entity e, string path) SV_TASUpNote =
 		else
 		{	// P1712: a new best goes to the host's own client to offer (TASUp_NewEvent); the list it asks for says what it is
 			mode = SV_TASUpOffer();
-			if (mode > 0 && SV_TASUpBest(path))
+			if (mode > 0)          // nested: QC's && would scan the folder anyway
+			if (SV_TASUpBest(path))
 			{
 				WriteByte(MSG_MULTICAST, SVC_CGAMEPACKET); WriteByte(MSG_MULTICAST, TAS_EV_UPNEW);
 				WriteString(MSG_MULTICAST, path); WriteByte(MSG_MULTICAST, mode);

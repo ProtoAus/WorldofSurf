@@ -190,16 +190,19 @@ proofless game upload refused (200, ok=0); releases 0.1.45-0.1.54 learned (none 
 SV_TASUpNote sends the host's client TAS_EV_UPNEW (path, mode) when no other own TAS run in the course folder is as
 fast (SV_TASUpBest: every `*_tas.rec` there, each as its name's ticks at its header's own tick rate; ties are not a
 best). The mode -- 2 the box then it sends itself (default, Upload tab "Auto-upload"), 1 the box asks, 0 nothing -- is
-data/tasproj/upload_offer.txt, set by `cmd tas offer N` from the host (the tab's chips), so no server's csprogs or
-stuffed cvar can change it. The client (cl_tasupload.qc TASUp_NewEvent) asks for the list, then the challenge at once,
+data/tasproj/upload_offer.txt, set by `cmd tas offer N [token]` from the host, so no server's csprogs or stuffed cvar
+can change it; raising it needs the map's token, sent only to the host's own client with the list (the tab's chips use
+it), so a bind a server once stuffed cannot turn auto-upload back on. The client (cl_tasupload.qc TASUp_NewEvent) asks for the list, then the challenge at once,
 and shows a box where the F6 report boxes sit (under the finish card when that covers it): F6 sends it keyed (kind -6,
 header 1) in one press, F7 keeps it local. In mode 2, when its 12 s run out -- counted only at state 2 while the box is
-seen: not under the scoreboard, the TAS menu or another report box, and the window focused -- it sends itself:
+seen: not under the scoreboard, the TAS menu, another report box or any panel holding the cursor, no console or menu
+over the game (ui_native_gamefocus) and the window in front (engine P1712 `cl_windowactive`) -- it sends itself:
 `acct_sign(..., -7)`, a kind only the engine's P1712 has, always unkeyed ("key 0", no press spent), site fixed like
--6, and only on a loopback connection; header FTESURF-TASUP 2 tells tasupd to verify that statement (GAME_AUTO_KIND)
+-6, and only on a loopback connection with the window in front; header FTESURF-TASUP 2 tells tasupd to verify that statement (GAME_AUTO_KIND)
 and store the tool "sent from the game by itself". If the engine will not sign it, the box falls back to asking. The
 box acts only on its own run (the tab's Back or another Upload closes it); bests arriving meanwhile wait, one a course.
-Checked headless against a scratch tasupd: auto send taken (held: Jargon's resume records), old engine refuses -7,
+Known limit: SV_TASUpBest reads every own `*_tas.rec` in the folder, a place a server's csprogs can write, so a planted
+fast file can stop offers for that course (it can never make a slower run a best). Checked headless against a scratch tasupd: auto send taken (held: Jargon's resume records), old engine refuses -7,
 a finish slower than a saved one gets no box.
 
 ## P1700: on the website

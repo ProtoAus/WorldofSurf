@@ -5,8 +5,8 @@
    appears under the finish card with a 12 s timer; F6 uploads at once ("uploaded: run N ..."); F7 keeps it local.
 2. Press nothing: at 0 it uploads itself (console: "sent ... by itself when the offer ran out").
 3. A finish that is not faster than a saved run of that course: no box (it is still in the Upload tab).
-4. TAS menu > Upload: "After a new best: Auto-upload / Ask / Off" (`cmd tas offer 2/1/0`); the timer stops while the
-   TAS menu is open or the game is not focused.
+4. TAS menu > Upload: "After a new best: Auto-upload / Ask / Off". The console's `cmd tas offer 0` / `1` turns it down;
+   turning it up works only from the tab. The timer stops while the TAS menu, console or Esc menu is open, or you tab out.
 5. Uploaded runs wait in `tasupd.py list --state held` for your approve unless the physics check clears them.
 
 ## P1711 -- Jargon's start and its aim (worldofsurf-5a) -- your dev install
