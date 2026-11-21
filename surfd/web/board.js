@@ -294,6 +294,11 @@
         a.appendChild(wt);
         a.appendChild(wn);
         if (m.wr.ver) { a.appendChild(vchip()); }
+        if (m.wr.oldgame) {       // P1710: the WR's game could not count scripts or controller use
+          var wog = el('span', 'noev', 'unchecked');
+          wog.title = OLDGAME_TIP;
+          a.appendChild(wog);
+        }
       }
       var bits = [];
       if (m.runs > 0) {

@@ -368,7 +368,7 @@ def list_top10(conn, since, offset):
     return conn.execute("""
 WITH ranked AS (
   SELECT r.map, r.track, r.leg, r.style, r.player, r.name, r.millis, r.flags, r.submitted, r.replay_id, r.runid,
-         r.plat, r.pad,
+         r.plat, r.pad, r.oldgame,
          ROW_NUMBER() OVER (PARTITION BY r.map, r.track, r.leg, r.style
                             ORDER BY r.millis, r.submitted, r.player) AS rk
     FROM runs r WHERE r.tier = 'ranked' AND r.style <> 'tas'),

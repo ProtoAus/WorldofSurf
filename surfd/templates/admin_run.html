@@ -298,6 +298,7 @@ function renderRun(j) {
         ...words.map(w => frag(" ", pill(w, "info")))));
   if (r.plat !== undefined) dlRow(dl, "platform", platWord(r.plat));
   if (r.pad) dlRow(dl, "controller", "used (display tag only)");   // P1694
+  if (r.oldgame) dlRow(dl, "game", "too old to count scripts or controller use: unchecked (display tag only)");   // P1710
   dlRow(dl, "node", r.node);
   dlRow(dl, "submitted", fmtDate(r.submitted));
   dlRow(dl, "file", frag(span("mono", r.leaf), r.file ? "" : " \u2014 not on this node"));
@@ -960,6 +961,7 @@ function renderHead(P) {
   if (cert.prof) dlRow(dl, "prof", cert.prof);
   if (Number(cert.plat) > 0) dlRow(dl, "plat", platWord(cert.plat));   // P1603: the run's (the header's is the start's)
   if (Number(cert.pad) > 0) dlRow(dl, "pad", "1 (the finish: a controller was used)");   // P1694
+  if (Number(cert.oldgame) > 0) dlRow(dl, "oldgame", "1 (the finish: the game could not count scripts or controller use)");   // P1710
   if (cert.startlag) dlRow(dl, "start lag", cert.startlag[0] + " tick(s), " + cert.startlag[1] + " s untimed (bound " +
                            cert.startlag[2] + " s)" + (cert.startlag[0] >= 3 ? " -- 3 or more: look at the start" : ""));   // P1697
   if (cert.clk) {

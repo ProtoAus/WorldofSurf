@@ -94,7 +94,8 @@ function row(r) {
   const tags = el("td");
   if (r.pad) tags.appendChild(pill("Controller", "warn"));
   if (Number(r.plat) > 0) { if (r.pad) tags.append(" "); tags.appendChild(pill("Linux", "info")); }
-  if (!r.pad && !(Number(r.plat) > 0)) tags.appendChild(el("span", "muted", "-"));
+  if (r.oldgame) { if (r.pad || Number(r.plat) > 0) tags.append(" "); tags.appendChild(pill("Unchecked", "warn")); }   // P1710
+  if (!r.pad && !(Number(r.plat) > 0) && !r.oldgame) tags.appendChild(el("span", "muted", "-"));
   tr.append(el("td", "num mono", "#" + r.rk), el("td", "", r.map), el("td", "", legLabel(r)), el("td", "", r.style),
             el("td", "", r.name), el("td", "num mono", fmtMs(r.millis)), el("td", "", fmtDate(r.submitted)),
             cell(pill(r.verdict && r.via_run ? r.verdict + " (run)" : r.verdict, VERDICT_CLS[r.verdict],

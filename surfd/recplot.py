@@ -367,6 +367,12 @@ def _parse(fh, max_bytes, max_points):
                 bad_recs += 1
                 continue
             cert["pad"] = 1
+        elif kw == "oldgame":
+            # P1710: the game could not count scripts or controller use, after `pad`; only as `oldgame 1`.
+            if a != ["1"]:
+                bad_recs += 1
+                continue
+            cert["oldgame"] = 1
         elif kw == "clk":
             # Patch 840: bound hyst allow wall stalls credited debt behind (the
             # grammar block over SV_RecOpen).

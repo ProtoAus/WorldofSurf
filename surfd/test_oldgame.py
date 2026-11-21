@@ -54,9 +54,9 @@ def case_schema():
 def case_post_and_board():
     mod = test_board.fresh()
     body = test_board.submit(mod, player="pad", name="Pad", ticks="4000", runid="r-pad", oldgame="1")
-    check("a pad 1 run is stored on the ranked board", isinstance(body, dict) and body.get("stored")
+    check("an oldgame 1 run is stored on the ranked board", isinstance(body, dict) and body.get("stored")
           and body.get("tier") == "ranked", body)
-    check("runs.pad is 1", (row(mod, "pad") or {}).get("oldgame") == 1, row(mod, "pad"))
+    check("runs.oldgame is 1", (row(mod, "pad") or {}).get("oldgame") == 1, row(mod, "pad"))
     test_board.submit(mod, player="kbm", name="Kbm", ticks="4100", runid="r-kbm")
     check("a run without oldgame stores 0", (row(mod, "kbm") or {}).get("oldgame") == 0, row(mod, "kbm"))
     for raw in ("0", "2", "x", "", "1.0"):
@@ -70,10 +70,10 @@ def case_post_and_board():
         conn.close()
     test_board.submit(mod, player="both", name="Both", ticks="4300", runid="r-both", oldgame="1", plat="1")
     b = test_board.board(mod)
-    check("/api/board: the marked row says pad 1", (board_row(b, "pad") or {}).get("oldgame") == 1, board_row(b, "pad"))
-    check("/api/board: an unmarked row has no pad key", board_row(b, "kbm") is not None
+    check("/api/board: the marked row says oldgame 1", (board_row(b, "pad") or {}).get("oldgame") == 1, board_row(b, "pad"))
+    check("/api/board: an unmarked row has no oldgame key", board_row(b, "kbm") is not None
           and "oldgame" not in board_row(b, "kbm"), board_row(b, "kbm"))
-    check("/api/board: a Linux controller run carries both marks",
+    check("/api/board: a Linux unchecked run carries both marks",
           (board_row(b, "both") or {}).get("oldgame") == 1 and (board_row(b, "both") or {}).get("plat") == 1,
           board_row(b, "both"))
     resp = mod.app.test_client().get("/board/api/map", query_string={"map": "surf_test"},
@@ -81,11 +81,11 @@ def case_post_and_board():
     rows = json.loads(resp.get_data(as_text=True)).get("rows", []) if resp.status_code == 200 else []
     pad = [r for r in rows if r.get("name") == "Pad"]
     kbm = [r for r in rows if r.get("name") == "Kbm"]
-    check("/board/api/map: the marked row says pad 1", pad and pad[0].get("oldgame") == 1, (resp.status_code, rows))
-    check("/board/api/map: an unmarked row has no pad key", kbm and "oldgame" not in kbm[0], kbm)
+    check("/board/api/map: the marked row says oldgame 1", pad and pad[0].get("oldgame") == 1, (resp.status_code, rows))
+    check("/board/api/map: an unmarked row has no oldgame key", kbm and "oldgame" not in kbm[0], kbm)
     resp = mod.app.test_client().get("/board/api/maps", environ_base={"REMOTE_ADDR": "127.0.0.1"})
     st = [m for m in json.loads(resp.get_data(as_text=True)).get("maps", []) if m.get("map") == "surf_test"]
-    check("/board/api/maps: a controller WR says pad 1", st and (st[0].get("wr") or {}).get("oldgame") == 1, st)
+    check("/board/api/maps: an unchecked WR says oldgame 1", st and (st[0].get("wr") or {}).get("oldgame") == 1, st)
     test_board.submit(mod, player="pad", name="Pad", ticks="900", leg="2", runid="r-pad", oldgame="1")
     check("a stage row keeps the mark", (board_row(test_board.board(mod, leg=2), "pad") or {}).get("oldgame") == 1)
 
@@ -95,7 +95,7 @@ def case_recording():
     name = put_rec(mod, 4000, "pad", "r-pad", finish_pad=True)
     body = test_board.submit(mod, player="pad", name="Pad", ticks="4000", runid="r-pad", oldgame="1", rec=name)
     rep = row(mod, "pad", "replays")
-    check("a controller run's recording is filed pad 1, bound", isinstance(body, dict) and body.get("rep")
+    check("an unchecked run's recording is filed oldgame 1, bound", isinstance(body, dict) and body.get("rep")
           and rep and rep["oldgame"] == 1 and rep["bound"] == 1, (body, rep))
     name = put_rec(mod, 3990, "low", "r-low", finish_pad=True)
     body = test_board.submit(mod, player="low", name="Low", ticks="3990", runid="r-low", rec=name)
@@ -138,10 +138,10 @@ def case_upsert():
     mod = test_board.fresh()
     test_board.submit(mod, player="flip", name="Flip", ticks="5000", runid="r-f1", oldgame="1")
     test_board.submit(mod, player="flip", name="Flip", ticks="4900", runid="r-f2")
-    check("a controller best beaten by a keyboard run loses the mark", (row(mod, "flip") or {}).get("oldgame") == 0)
+    check("an unchecked best beaten by a checked run loses the mark", (row(mod, "flip") or {}).get("oldgame") == 0)
     resp = mod.app.test_client().get("/board/api/maps", environ_base={"REMOTE_ADDR": "127.0.0.1"})
     st = [m for m in json.loads(resp.get_data(as_text=True)).get("maps", []) if m.get("map") == "surf_test"]
-    check("/board/api/maps: an unmarked WR has no pad key", st and st[0].get("wr") and "oldgame" not in st[0]["wr"], st)
+    check("/board/api/maps: an unmarked WR has no oldgame key", st and st[0].get("wr") and "oldgame" not in st[0]["wr"], st)
 
 
 def main():
