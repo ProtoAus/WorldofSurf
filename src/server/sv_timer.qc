@@ -1960,6 +1960,7 @@ float() SV_RecEnabled =
 // rec_padlast is the last command's count + 1; 0 when a client command carried none (an engine before 1694) or after
 // a load: the next one re-seeds. Engine-made commands (kind 0: fills, TAS steps, NQ moves) are skipped.
 .float  run_t_pad;
+.float  run_t_oldgame;           // P1710: the game could not count scripts or controller use (SV_TimerProfile)
 .float  run_st_pad;
 .float  rec_padlast;
 .float  rec_padok;                      // review 3: a command of this connection carried a count (the gate reads this)
@@ -4133,6 +4134,13 @@ string(float ticks) SV_TimerString = { return Time_TickString(ticks, run_t_tick)
                             1694+; an older one never sets it).  Posted as `pad=1`.
                             Display only (a light fire-red tag).  Saves carry it;
                             not written under held metadata (`cmdseq` absent).
+    oldgame 1               P1710, after `pad`, only when set: the run's profile was
+                            otherwise clean but its game could not count script
+                            presses (no IPG_SCRIPT in `inguard`, before 1646) or sent
+                            no controller count (before 1694), so neither check
+                            could run; not on TAS.  Posted as `oldgame=1`.  Display
+                            only ("unverified"; it ranks).  Not carried by saves: the
+                            finish's own latch sets it.  Off under held metadata.
     clk <bound> <hyst> <allow> <wall> <stalls> <credited> <debt> <behind>
                             the game clock against server time over the run, saves
                             included (SV_ClockFrame): wall seconds measured, packet
@@ -12284,6 +12292,18 @@ float(entity e) SV_ProfileBroken =
 	return SV_ProfileWhy(e) != PW_OK;
 };
 
+// P1710 (Lex, 22 Nov: don't remove records, report that they couldn't be verified): a run whose profile is
+// otherwise clean (the caller's PW_OK) but whose game cannot count script presses (no IPG_SCRIPT, before 1646)
+// or sent no controller count (before 1694) -- where sv_rank_scriptguard / sv_rank_padcount (both 0) would
+// refuse it -- ranks, marked `oldgame`. Its own field, not a TF_ bit (bit 21 is the styles reservation).
+// Not TAS; not a cursor-mode game (TF_NOCOUNTS: it sends no counts at all, so "too old" would be wrong).
+float(entity e) SV_OldGameInput =
+{
+	if ((e.run_t_flags & TF_TAS) || e.rec_mc_sup)
+		return FALSE;
+	return !(e.run_t_ghave & IPG_SCRIPT) || !e.rec_padok;
+};
+
 /*
   ...and the latch.
 
@@ -12334,7 +12354,11 @@ void(entity e, float atstart) SV_TimerProfile =
 	e.run_t_plat = SV_RunPlat(e);       // P1603: every latch caller, so they all agree
 	w = SV_ProfileWhy(e);
 	if (w == PW_OK)
+	{
+		if (!atstart && SV_OldGameInput(e))
+			e.run_t_oldgame = 1;        // P1710: at the finish, before its record and post
 		return;
+	}
 	if (e.run_t_pwhy == PW_OK)
 		e.run_t_pwhy = w;               // Patch 840: the first reason seen, for the finish line
 	e.run_t_flags = e.run_t_flags | TF_NOPROFILE;
@@ -14028,6 +14052,7 @@ void(entity e, float z) SV_TimerArm =
 	e.run_t_pwhy        = PW_OK;
 	e.run_t_plat        = PLAT_VERIFIED;   // P1603
 	e.run_t_pad         = 0;               // P1694
+	e.run_t_oldgame     = 0;               // P1710
 	// Build 74: -1 for the third time, and the reason is the sharpest of the
 	// three -- run_movetick is reset PER MAP, so 0 is not merely a legitimate
 	// value, it is the value every counter holds for the first seconds of every
@@ -14718,6 +14743,8 @@ void(entity e, float ticks) SV_TimerFinish =
 			SV_RecPut(e, sprintf("plat %d", e.run_t_plat));
 		if (e.run_t_pad && !e.rec_rec_nocs)
 			SV_RecPut(e, "pad 1");      // P1694; off under held metadata, as `startlag` (its strict reader)
+		if (e.run_t_oldgame && !e.rec_rec_nocs)
+			SV_RecPut(e, "oldgame 1");  // P1710; likewise
 	}
 	SV_TimerSlowClock(e);
 
@@ -15322,6 +15349,7 @@ void(entity e) SV_TimerStart =
 	e.run_t_pwhy = PW_OK;           // Patch 840: a loaded ARMED save is not armed again
 	e.run_t_plat = PLAT_VERIFIED;   // P1603: likewise; the start's latch below sets it
 	e.run_t_pad = 0;                // P1694
+	e.run_t_oldgame = 0;            // P1710
 	e.run_t_movebig = 0;            // P1083: likewise, not the previous attempt's moves
 
 	// Leaving the start zone is the reset you asked for: the stopped time from

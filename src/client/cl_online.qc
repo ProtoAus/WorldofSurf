@@ -285,6 +285,7 @@ float  *ob_ver;
 // P1603: surfd's `plat`, the run's platform mark (PLAT_*); sent only when non-zero.
 float  *ob_plat;
 float  *ob_pad;            // P1694: surfd's `pad`, 1 = the run used a controller; sent only when set
+float  *ob_oldgame;        // P1710: surfd's `oldgame`, 1 = its game could not count scripts/controller; only when set
 float  *ob_noev;           // P1699: surfd's `noev` (a reason word): a WOS top-10 run whose evidence never arrived
 float  *ob_segs;           // P1615: a segmented row's segment count (surfd `segs`), 0 unknown
 
@@ -318,6 +319,7 @@ void() Online_Alloc =
 	ob_ver = memalloc(sizeof(float) * OB_MAXROW);
 	ob_plat = memalloc(sizeof(float) * OB_MAXROW);
 	ob_pad = memalloc(sizeof(float) * OB_MAXROW);
+	ob_oldgame = memalloc(sizeof(float) * OB_MAXROW);
 	ob_noev = memalloc(sizeof(float) * OB_MAXROW);
 	ob_segs = memalloc(sizeof(float) * OB_MAXROW);
 };
@@ -621,6 +623,7 @@ void(float i, int row) Online_RowSet =
 	ob_ver[i]   = json_get_float(json_find_object_child(row, "ver"));
 	ob_plat[i]  = json_get_float(json_find_object_child(row, "plat"));
 	ob_pad[i]   = json_get_float(json_find_object_child(row, "pad"));
+	ob_oldgame[i] = json_get_float(json_find_object_child(row, "oldgame"));
 	ob_noev[i]  = (json_get_string(json_find_object_child(row, "noev")) != "") ? 1 : 0;
 	ob_segs[i]  = json_get_float(json_find_object_child(row, "segs"));
 	s           = json_get_string(json_find_object_child(row, "tr"));
@@ -652,7 +655,7 @@ void(float to, float from) Online_RowCopy =
 	ob_rep[to] = ob_rep[from]; ob_src[to] = ob_src[from];
 	ob_run[to] = ob_run[from]; ob_ver[to] = ob_ver[from];
 	ob_plat[to] = ob_plat[from]; ob_segs[to] = ob_segs[from];
-	ob_pad[to] = ob_pad[from]; ob_noev[to] = ob_noev[from];
+	ob_pad[to] = ob_pad[from]; ob_noev[to] = ob_noev[from]; ob_oldgame[to] = ob_oldgame[from];
 	bufstr_set(ob_bmap, to, bufstr_get(ob_bmap, from));
 	bufstr_set(ob_bget, to, bufstr_get(ob_bget, from));
 	bufstr_set(ob_bname, to, bufstr_get(ob_bname, from));
@@ -2603,6 +2606,8 @@ void() Online_Status =
 			word = strcat(word, " pad");	// P1694: the name's fire red
 		if (ob_noev[i] > 0)
 			word = strcat(word, " noev");	// P1699: the name's "no evidence"
+		if (ob_oldgame[i] > 0)
+			word = strcat(word, " oldgame");	// P1710: the name's "unchecked"
 		if (ob_segs[i] > 0)
 			word = strcat(word, sprintf(" segs %g", ob_segs[i]));	// P1615: the name's tooltip
 
