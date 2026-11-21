@@ -1,5 +1,25 @@
 # BACKLOG.md
 
+## P1706 high-ping prediction -- what it leaves (21 Nov, worldofsurf-88)
+- Muri's "S does nothing in rewind" is not reproduced: at 350 ms the S key path (Rewind_InputEvent k 0 -> sl_saveat)
+  saved on both builds with WASD binds. Fixed one cause (an S bound to a strafe became a scrub key). Ask for `bind s`
+  and whether `rewind: save N` prints; then trace CL_InputChain ahead of Rewind_InputEvent with that bind.
+- The run line is still swapped at the load's ANSWER (cl_trail.qc SLOP_LOADED): for a round trip after a predicted
+  load the old line (with the path past the save) shows. Load the save's trail.txt at the press (the id is
+  STAT_FS_SLCURID) and confirm at the answer. Trail_Load / Trail_Save read and write the whole file in one frame
+  (P1582: 13-50 ms at p99) and SaveSync_CopyPic re-reads it with buf_loadfile 1 s after a lobby save: at ping those
+  land while moving. Spread them over frames.
+- The stringcmd go (ENTER before the arm is answered) with countdown 0: its release can go blind when the WOPCHAIN
+  string trails the answer by a packet (WarpOp_RelVel), leaving the old catch-up jump for that case only.
+- A refused op go after the countdown has already ended (Esc, or a countdown under a round trip) ends the run
+  (rec_watch 0 void), as Rewind_Close's refused resume does. Rare (the server re-selects the armed row it answered).
+- The rewind's head (ESC "resume where you were") is the line's last sample, a round trip behind the press at ping
+  (cl_trail.qc samples at servercommandframe + TR_LEAD). The pin could ride a command too.
+- Ghost/rewind browsing: the server's second PVS eye follows `rec_watchpos` (cl_keys.qc), a round trip behind the
+  camera: moving entities near a fast ghost camera pop in late. Send the camera's position ahead by its velocity x ping.
+- Ghost: a refusal under a resume phase (run_ms_phase, no client stat) shows as one round trip detached, then back.
+- Noclip speed (Shift+wheel, pm_noclipspeed userinfo) still mispredicts the 1-2 commands in flight (P1040).
+
 ## P1707 follow-ups (22 Nov, worldofsurf-2c)
 - Seen in P1707's test (not caused by it: the menu had not started): the dev client (ftesurf64 git-8974-patch-1698-0-
   g657183e0d) dies with SIGFPE loading surf_cannonball locally, after its `[cc]` colour-correction shader is generated:
@@ -13,6 +33,7 @@
 - m_init is NOT the earliest QC on a launch with `+map`: the server spawns (and SSQC cvar() auto-creates names as "")
   before menu.dat initialises (measured 22 Nov, even behind 300 `wait`s). Audit what assumes otherwise: FS_CvarsMoved
   (old-name migration before any registercvar), the rec_terms publication comment in m_init, lobby_hosts' note.
+
 
 ## P1705 follow-ups (21 Nov, worldofsurf-2c)
 - Game: Archive_Seal / Archive_SealFile (sv_archive.qc) still lose the owner seal when `<run>.rec.owner-p<port>-<n>.part`

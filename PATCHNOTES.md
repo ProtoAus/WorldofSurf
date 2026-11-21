@@ -25,6 +25,15 @@
 - A map you start yourself from the console or a launch option now has the same zones as the lobbies, as the map picker's games already did. bhop_overthinker had none that way.
 - A map you first played on a lobby fetches its zones for your own games too. If a game you host started without zones, it restarts once with them.
 
+### P1706 Noclip, rewind, ghost and loads keep up at high ping
+- Turning noclip on or off now happens on your screen the moment you press it, at any ping. At 350 ms it used to snap you about 650 units when it came on and 50 units when it went off at 2000 u/s.
+- Rewind: resuming lands, counts down and lets go at once on your screen. The jump forward after the countdown at high ping is gone (1200 units at 350 ms with a countdown of 0).
+- The rewind checks the spot under the cursor with the server while you browse, so ENTER acts immediately. Pressed too quickly after moving the cursor, it waits for the server as before.
+- A plain load bind (sl_load, Momentum's mom_saveloc_current) is now predicted like the hold-to-load key: no frozen moment and jump forward at high ping.
+- After a load at high ping your run line no longer loses the first part of the path you rode from the save.
+- Ghost now leaves and returns to your body on the key press, not a round trip later.
+- In rewind, S saves even when your S key is a strafe key.
+
 ### P1705 Lobbies no longer crash at the end of some runs
 - Finishing a run on a few long-named maps (surf_the_gloaming and others, mostly segmented runs) crashed the lobby: everyone froze at the end zone and it came back on another map. Fixed on the lobbies on 21 Nov.
 - Those runs still count and are recorded. Downloading them again from your run history on those maps follows in a later update.

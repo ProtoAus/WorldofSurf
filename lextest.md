@@ -1,5 +1,19 @@
 # lextest.md — things waiting on a human
 
+## P1706 -- noclip, rewind, ghost and loads at high ping (worldofsurf-88) -- with the next lobby update
+Best done by a high-ping player (muri, ~350 ms). Rig numbers are in the engine's ENGINE_PATCHES P1706.
+1. Noclip at speed: fly in noclip with +speed (about 2000 u/s), press noclip to turn it off mid-air. The view keeps
+   going from where it was and falls; no snap a moment later. Turning it on: no jump either.
+2. Rewind with hud_rewind_countdown 0 and 3: open, scrub back, wait half a second, ENTER. The view goes to the spot at
+   once, counts, and lets go with no forward jump. Pressing ENTER right after scrubbing still works (it waits for the
+   server once, as before).
+3. A plain load bind (`bind x sl_load`, or Momentum's mom_saveloc_current): load while moving; no freeze, no jump. The
+   run line behind you after the load starts right at the save.
+4. `ghost`: the camera leaves the body on the press and comes back on the second press.
+5. Noclip while holding the load key: the hold stays; letting go flies (noclip on when you let go) without a snap.
+6. Rewind S on a WASD layout and on ESDF (S = strafe): each press prints `rewind: save N ...`. Muri's "S does nothing"
+   was NOT reproduced (BACKLOG P1706): ask for `bind s` and whether that line appears.
+
 ## P1707 -- zones in every local game (worldofsurf-2c) -- with the next release (menu only)
 1. Console: `map bhop_overthinker`. The zones are there (console: `zones(sv): 7 on bhop_overthinker ... crc 71bf3520`,
    the lobby's). Before, 0.
@@ -7,6 +21,7 @@
    published zones"), then the same 7.
 3. A map you only ever played on a lobby (surf_borderlands_css on your PC): `map` it; a moment after it loads it
    restarts once with its zones (15).
+
 
 ## P1705 -- lobbies no longer crash at the end of some runs (worldofsurf-2c) -- LIVE on the lobbies 21 Nov 12:49Z
 1. Markbeaton54's report (freeze at the end zone, then another map): finish a segmented run on surf_the_gloaming

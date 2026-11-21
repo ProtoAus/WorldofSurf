@@ -1,5 +1,27 @@
 # AGENT_NOTES.md
 
+## P1706 high-ping ops: what they do to test arms (21 Nov 2026, worldofsurf-88)
+
+- New warp ops below WOP_SAVE: WOP_NOCLIPON/OFF 199/198, WOP_RWGO 197, WOP_LOADNOW 196, WOP_GHOSTON/OFF 195/194,
+  each gated by its serverinfo (fs_wopnoclip, fs_woprwgo, fs_woploadnow, fs_wopghost, published with fs_wop). A
+  console `noclip`, `ghost` or plain `sl_load` on a client with prediction now rides a usercmd; `cmd noclip`,
+  `cmd rec_ghost N` and `cmd sl_load` are still the stringcmds. A listen game (no prediction hook) sends the old ones.
+- noclip under a save-lock hold now changes what the release gives back (rec_sl_holdmove) instead of the movetype
+  ("noclip ON when you let go"). Every release into noclip and every op that turns it on calls SV_NoclipWatch.
+- Rewind: browsing sends `rw_arm <serial> <ticks> x y z` (reliable, at most 10/s, not while a scrub key moves the
+  cursor); STAT_FS_RWARM answers. ENTER on an answered cursor is WOP_RWGO and the countdown starts at the press;
+  ENTER before the answer is the old `sl_saveat ... go`. The countdown's own end releases on WOP_RELEASE
+  (Rewind_Finish); every other way out keeps sl_holdoff (Rewind_Abandon). `rewind seek; rewind go` in one line
+  tests the stringcmd go, a wait of a round trip between them the op go.
+- `hud_rewind_countdown` set at launch is migrated back to 3 (Patch 808): set it after the map loads.
+- `prederr:` lines UNDERCOUNT a mode switch: they compare one acknowledged command, so a switch near it reads small
+  while the view, predicted a round trip ahead, jumps far (control fast noclip on: prederr 27.5, view 648 u). Grade
+  snaps from the predicted origin per frame (the arm's probe csprogs, a P1706T line from Trail_Frame).
+- Linux arm: FTESurf-worktrees/ping350-20261122-88/arm/p1706arm.py (lobby.cfg dedicated server with sv_minping,
+  run_evidence_ul 0; client in a headless nested labwc; ready = "trig: prediction hook alive" + "zones: N on", not
+  the welcome line). The nested labwc takes the first free wayland-N: a peer's sway can be another number, and a
+  peer pointing at "wayland-1" can open windows in yours -- give each rig its socket explicitly.
+
 ## P1702 static web board (21 Nov 2026)
 nginx serves the board's page and seven assets (board.html/css/js, link.css, runview.js, watch.*) for /ftesurf/board/
 and /worldofsurf/board/ from /srv/nvme/ftesurf-site/board/current (src/release/ftesurf.nginx); every API/avatar/shot/
