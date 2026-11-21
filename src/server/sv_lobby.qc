@@ -3018,6 +3018,9 @@ void(float reqid, float code, string body) Lobby_RunReply =
 */
 float(entity e) SV_RunPlat;         // P1603, sv_timer.qc
 .float run_t_pad, run_st_pad;       // P1694, sv_timer.qc
+.float run_t_oldgame;               // P1710, sv_timer.qc
+float(entity e) SV_OldGameInput;    // P1710, sv_timer.qc
+float(entity e) SV_ProfileBroken;
 
 // The gates and the form, shared by a finish and a stage post (Patch 360):
 // "" when this server does not submit.
@@ -3244,6 +3247,8 @@ string(entity e, float track, float leg, float ticks, float flags,
 		return "";
 	if (e.run_t_pad)
 		body = strcat(body, "&pad=1");      // P1694: the run used a controller (a stage post: its stage's)
+	if (e.run_t_oldgame)
+		body = strcat(body, "&oldgame=1");  // P1710: its game could not count scripts or controller use
 	if (leg == 0)
 	if (!(flags & TF_MULTISESSION))
 	if (e.lobby_sty_ok)
@@ -3365,6 +3370,8 @@ float(entity e, float track, float leg, float ticks, float flags) Lobby_SubmitSt
 	if (body != "")
 	if (e.run_st_pad)
 		body = strcat(body, "&pad=1");      // P1694 review 1: this stage used a controller
+	if (body != "" && !SV_ProfileBroken(e) && SV_OldGameInput(e))
+		body = strcat(body, "&oldgame=1");  // P1710: as the finish latches it, read at the stage's post
 	if (body == "")
 		return FALSE;
 	url = cvar_string("lobby_master");

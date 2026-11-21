@@ -64,6 +64,8 @@
   var NOEV_TIP = { receipt: 'No evidence: the run\'s receipt was never read',
                    view: 'No evidence: the run\'s view file was never uploaded',
                    journal: 'No evidence: the run\'s input journal never arrived' };
+  // P1710: surfd's `oldgame` (the run's game could not count scripts or controller use): it ranks, marked.
+  var OLDGAME_TIP = 'Unchecked: this run\'s game was too old to report its script and controller checks. It stays up, valid as of its date.';
   function markOf(o) { return o.pad ? ' pad' : (o.plat > 0 ? ' linux' : ''); }
   function markTip(o) {
     return [o.pad ? PAD_TIP : '', o.plat > 0 ? PLAT_TIP : ''].filter(Boolean).join('\n');
@@ -422,6 +424,11 @@
         var ne = el('span', 'noev', 'no evidence');
         ne.title = NOEV_TIP[r.noev] || NOEV_TIP.receipt;
         who.appendChild(ne);
+      }
+      if (r.oldgame) {
+        var og = el('span', 'noev', 'unchecked');
+        og.title = OLDGAME_TIP;
+        who.appendChild(og);
       }
       // P1569: a run continued from other players' shared saves: "+N", every runner on hover.
       if (r.helpers && r.helpers.length) {

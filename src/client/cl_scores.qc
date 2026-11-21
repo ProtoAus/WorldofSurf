@@ -2448,6 +2448,8 @@ string(float idx) Scores_HelpTag =
 {
 	local string h, ev;
 	ev = (ob_noev[idx] > 0) ? " ^x888no evidence^7" : "";     // P1699
+	if (ob_oldgame[idx] > 0)                                    // P1710
+		ev = strcat(ev, " ^x888unchecked^7");
 	h = bufstr_get(ob_bhelp, idx);
 	if (h == "")
 		return ev;
@@ -2479,6 +2481,8 @@ string(float idx) Scores_OnlineTip =
 		t = strcat("Controller", strcmp(t, "") ? "\n" : "", t);
 	if (ob_noev[idx] > 0)           // P1699
 		t = strcat(t, strcmp(t, "") ? "\n" : "", "No evidence: this top-10 run's view file or input journal never arrived");
+	if (ob_oldgame[idx] > 0)        // P1710
+		t = strcat(t, strcmp(t, "") ? "\n" : "", "Unchecked: this run's game was too old to report its script and controller checks; it stays up, valid as of its date");
 	return t;
 };
 
