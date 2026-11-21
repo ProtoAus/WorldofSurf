@@ -1,5 +1,24 @@
 # BACKLOG.md
 
+## P1709 Momentum parity -- what it leaves (22 Nov, worldofsurf-5a; root FTESurf-worktrees/ahopcoast-20261122-5a)
+- DEPLOY ORDER, all together or not at all: the configs (default.cfg pm_fixslopes 2 / pm_groundtracedist 2 / pm_jumpzoffset 0,
+  mode_ahop.cfg 3), a mover-14 lobby engine, surfd's verifier on a mover-14 build (an older one REFUSEs a 14 pin for good:
+  sweep.py marks it checked), and a client release (an older client predicts 2/3 as 1: rubber-banding on every uphill
+  landing, early jumps, ABH snapping back). Lobbies run 13 with the old cfg until then (their cfg/default.cfg is
+  hand-deployed, Oct 12). TAS projects refuse an identity load across the change (the pin moved).
+- Ahop is not Momentum's yet: +walk (150 u/s; Momentum's jump boost limit and air accel use it -- a walked jump here is
+  ~60 u/s slower, air ticks 6.0 u/s, measured on the WR), HL2's duck timings and duck-jump (m_flDuckJumpTime,
+  m_flJumpTime), Momentum's top-of-tick 250 u/s unground rule (ours 140). ahop_coast still plays bhop (its published
+  zone says 2). Falsifier: tools/momstep.py on the ahop WR, jumps with IN_WALK exact.
+- With pm_fixedges on, the top-of-tick landing re-decides an edge-fix refusal with the next tick's buttons (Source
+  re-grounds only a game-moved body; exact fix: carry a game-moved flag from QC/warps). A teleport left rising at
+  134-140 u/s is not re-grounded at the top. Three ahop_coast spots where Momentum stays airborne at 1.75 u (geometry).
+- Jargon: the P1709 alignment covers KSF guides' start replay; Momentum- and own-recording guides keep reading a row as
+  input -> its own state (not measured). The steering start cannot jump fast where the guide jumps close to the box's
+  edge: its straight runway decays to the 260 cap (sandtrap b4's "x" guide: 262 u/s 77 u short; a guide-distance window
+  with a speed gate left the box without a jump, so it was not shipped). tools/momstep.py reads only .mtv; the
+  pm_stepsim seeds lack the duck timer (transition ticks graded apart).
+
 ## P1706 high-ping prediction -- what it leaves (21 Nov, worldofsurf-88)
 - Muri's "S does nothing in rewind" is not reproduced: at 350 ms the S key path (Rewind_InputEvent k 0 -> sl_saveat)
   saved on both builds with WASD binds. Fixed one cause (an S bound to a strafe became a scrub key). Ask for `bind s`
@@ -1713,17 +1732,6 @@ gave 0:12.825 and 5 backtracks on two builds).
   m_main.qc ui_map_tick has had no caller since P1062 (no PB column): its essay is not about anything shown.
 - Nothing deploys data/mapmeta.txt to the Pi (P1369; build.ps1 -Pi copies progs, the release ships
   installs): copy it after a tools/mapmeta.py regeneration.
-
-## Momentum's uphill slope fix in ClipVelocity is not ported (P1367 investigation, 7 Nov)
-
-- mom_gamemovement.cpp ClipVelocity (sv_slope_fix, rngfix off): autobhop + jump held, standable
-  plane, out.z <= 140, moving into the slope and not gaining 2D speed -> out = (in.x, in.y, 0).
-  Ours (engine pm_source.c PMSrc_ClipVelocity) clips plainly; P176 ported only the CategorizePosition
-  half. Hand-computed: 400 u/s landing at vz -200 keeps 354 u/s on a 10 deg slope, 289 on 20 deg;
-  Momentum keeps 400. Owner report: uphill bhops on ahop_coast's displacements feel harder.
-- A mover change: needs a pmsrcver bump, verifier support for both versions, a client release for
-  prediction and evidence review. Not started. Falsifier: scripted uphill hops on a 10-25 deg
-  displacement printing each landing's horizontal speed before/after, current vs ported build.
 
 ## .rec header reads capped at 32 lines in cl_scores.qc (P1367 review, 7 Nov)
 

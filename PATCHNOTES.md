@@ -21,6 +21,12 @@
 
 ## next
 
+### P1709 Hopping up slopes keeps your speed, as in Momentum
+- Bhop and surf landings now match Momentum's current version: you land within 2 units of the ground, and landing on an uphill slope or displacement keeps your speed instead of costing it or bouncing you off.
+- Jumps take off from the floor itself, as Momentum does now (they started 1.5 units up).
+- Ahop maps give Momentum's accelerated-hop boost on every jump, at Half-Life 2's jump height.
+- Jargon starts KSF guide runs on the right tick at the guide's speed: surf_sandtrap2 bonus 4 now makes its first jump and finishes.
+
 ### P1707 Zones in every local game
 - A map you start yourself from the console or a launch option now has the same zones as the lobbies, as the map picker's games already did. bhop_overthinker had none that way.
 - A map you first played on a lobby fetches its zones for your own games too. If a game you host started without zones, it restarts once with them.

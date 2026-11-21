@@ -1,5 +1,14 @@
 # lextest.md — things waiting on a human
 
+## P1709 -- uphill hops keep their speed; Jargon's sandtrap2 bonus 4 start (worldofsurf-5a) -- your dev install
+1. ahop_coast (it plays bhop here): hop up the displacement hills the way you do in Momentum. Uphill landings should
+   keep your speed and you should not get bounced off a slope you meant to land on.
+2. Any bhop or surf map: jumps and landings should feel like Momentum's (you land a little sooner -- within 2 units --
+   and take off from the floor). Ramps themselves should feel exactly as before.
+3. Jargon, surf_sandtrap2 bonus 4, start "By itself" with the top guide run: it makes the first jump onto ramp 1 and
+   finishes (it did 0:07.800 here).
+4. Lobbies keep the old rules until the next release (the lobbies, their verifier and your clients change together).
+
 ## P1706 -- noclip, rewind, ghost and loads at high ping (worldofsurf-88) -- LIVE on the lobbies 21 Nov 15:50Z
 Best done by a high-ping player (muri, ~350 ms). Rig numbers are in the engine's ENGINE_PATCHES P1706.
 1. Noclip at speed: fly in noclip with +speed (about 2000 u/s), press noclip to turn it off mid-air. The view keeps
