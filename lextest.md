@@ -1,6 +1,6 @@
 # lextest.md — things waiting on a human
 
-## P1706 -- noclip, rewind, ghost and loads at high ping (worldofsurf-88) -- with the next lobby update
+## P1706 -- noclip, rewind, ghost and loads at high ping (worldofsurf-88) -- LIVE on the lobbies 21 Nov 15:50Z
 Best done by a high-ping player (muri, ~350 ms). Rig numbers are in the engine's ENGINE_PATCHES P1706.
 1. Noclip at speed: fly in noclip with +speed (about 2000 u/s), press noclip to turn it off mid-air. The view keeps
    going from where it was and falls; no snap a moment later. Turning it on: no jump either.

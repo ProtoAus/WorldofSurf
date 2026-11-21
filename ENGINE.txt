@@ -3,6 +3,8 @@
 # a usercmd (WOP_NOCLIPON/OFF 199/198, WOP_GHOSTON/OFF 195/194, WOP_LOADNOW 196, WOP_RWGO 197 + `rw_arm` /
 # STAT_FS_RWARM 212), and the countdown's release is WOP_RELEASE; serverinfo fs_wopnoclip/fs_wopghost/fs_woploadnow/
 # fs_woprwgo gate them. No engine change. Record: ENGINE_PATCHES P1706. (patch line 1707: main also carries P1707.)
+# LIVE on all 12 lobbies 21 Nov 15:50:49Z (qw 7079778d / cs 3a2ae666 from main 0d6e5ea6; .pre1706-20261121T155017Z kept;
+# codes.txt 170). Players get it on the lobbies at once (their csprogs is the lobby's); local games with the next release.
 # P1705 (engine fs.c; worldofsurf-2c, 21 Nov): FS_Rename refuses a path FS_GetCleanPath rejected instead of passing NULL
 # on (lobbies segfaulted on a 129-character Archive_Seal .owner part). Lobby engine patch-1705 since 21 Nov 12:49Z;
 # clients with the next release. No QC change. Record: ENGINE_PATCHES P1705.
