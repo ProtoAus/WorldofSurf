@@ -1663,6 +1663,7 @@ void(entity e, float argc) SV_TASCommand =
 	// the Jargon panel's Continue poll reads a file: before the gates below, which answered it every 5 s mid-search (review 1528)
 	if (!strcmp(action, "autosurf") && argc == 5 && argv(2) == "saved") { SV_TASAutoCommand(e, argc); return; }
 	if (!strcmp(action, "uploads") && argc == 2) { SV_TASUpList(e); return; }     // P1696: the Upload tab's list
+	if (!strcmp(action, "offer") && argc == 3) { SV_TASUpSetOffer(e, stof(argv(2))); return; }   // P1712: what a new best does
 	// P1531: live edits -- a moved point, an air point -- reach a running Jargon: they change its plan, not the search
 	if (!strcmp(action, "autosurf") && argc == 7 && argv(2) == "move") { SV_TASAutoCommand(e, argc); return; }
 	if (!strcmp(action, "route") && argc >= 3 && argc <= 10) { SV_TASRouteCommand(e, argc); return; }

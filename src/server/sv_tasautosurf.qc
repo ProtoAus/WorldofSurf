@@ -3014,10 +3014,11 @@ void(entity e, float ct, float cl) SV_TASAutoSavedQuery =
 #define TAS_UPSHOW 10
 void(entity e) SV_TASUpList =
 {
-	local float fh, i, n, c, show, local_host;
+	local float fh, i, n, c, show, local_host, mode;
 	local string l;
 	show = -1;
 	local_host = SV_TASUpHost(e);
+	mode = local_host ? SV_TASUpOffer() : 0;      // P1712: the Upload tab shows it
 	n = 0;
 	if (local_host)
 	{
@@ -3039,7 +3040,7 @@ void(entity e) SV_TASUpList =
 	for (i = 0; i < max(1, n); i = i + 1)
 	{
 		WriteByte(MSG_MULTICAST, SVC_CGAMEPACKET); WriteByte(MSG_MULTICAST, TAS_EV_UPLIST);
-		WriteByte(MSG_MULTICAST, i); WriteByte(MSG_MULTICAST, n);
+		WriteByte(MSG_MULTICAST, i); WriteByte(MSG_MULTICAST, n); WriteByte(MSG_MULTICAST, mode);
 		if (n) { c = tokenize(bufstr_get(show, i)); WriteString(MSG_MULTICAST, argv(0)); WriteString(MSG_MULTICAST, argv(1)); }
 		msg_entity = e; multicast(e.origin, MULTICAST_ONE_R);
 	}

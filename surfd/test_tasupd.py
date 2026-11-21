@@ -1121,9 +1121,11 @@ class GameUpload(Service):
             self.assertEqual(db.execute('SELECT steamid, tool FROM runs WHERE id = ?', (j['id'],)).fetchone(), (ALICE, svc.GAME_TOOL))
             self.assertEqual(db.execute("SELECT COUNT(*) FROM nonces WHERE nonce LIKE 'game %'").fetchone()[0], 1)   # spent
 
-    def test_the_offers_own_send_is_taken_unkeyed(self):     # P1712: header 2, kind -7 key 0
+    def test_the_offers_own_send_is_taken_unkeyed(self):     # P1712: header 2, kind -7 key 0, its own label
         j = self.send(ver=2).get_json()
         self.assertEqual((j['ok'], j['state']), (1, 'shown'), j)
+        with contextlib.closing(sqlite3.connect(self.store)) as db:
+            self.assertEqual(db.execute('SELECT tool FROM runs WHERE id = ?', (j['id'],)).fetchone(), (svc.GAME_TOOL_AUTO,))
 
     def test_the_header_and_the_statement_agree(self):       # P1712: neither kind passes under the other's header
         self.refused(self.send(ver=2, kind=svc.GAME_KIND, key=1), 403, 'did not check out')
@@ -1186,6 +1188,9 @@ class GameUpload(Service):
         j = self.upload(c, rec(extra='comment typed\n'), tool=svc.GAME_TOOL.upper()).get_json()
         with contextlib.closing(sqlite3.connect(self.store)) as db:
             self.assertEqual(db.execute('SELECT tool FROM runs WHERE id = ?', (j['id'],)).fetchone()[0], svc.GAME_TOOL.upper() + ' (typed)')
+        j = self.upload(c, rec(extra='comment typed 2\n'), tool=svc.GAME_TOOL_AUTO).get_json()     # P1712's label too
+        with contextlib.closing(sqlite3.connect(self.store)) as db:
+            self.assertEqual(db.execute('SELECT tool FROM runs WHERE id = ?', (j['id'],)).fetchone()[0], svc.GAME_TOOL_AUTO + ' (typed)')
 
     def test_the_owner_can_refuse_any_build(self):
         """deny-code stops a build the service would take (here the lobby's), until allow-code."""

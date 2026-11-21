@@ -103,6 +103,7 @@ GAME_SITE, GAME_KIND = 'play.proto.bar:443', -6
 # P1712: header 2 is the in-game offer sending itself when its countdown ends -- acct_sign kind -7, signed with no key
 # down (statement "key 0"); only this route verifies a -7 statement, and the game code check below still applies
 GAME_AUTO_KIND = -7
+GAME_TOOL_AUTO = 'sent from the game by itself'    # header 2's label: a dispute can tell it from a press (review)
 ACCT_STATEMENT = 'FTESURF-ACCT 1\nserver %s\nnonce %s\nkind %d\nkey %d\ncode %s\n'   # surfd accounts.STATEMENT (a test pins it)
 GAME_TOOL = 'sent from the game'    # how it came, not what made it: any linked key can sign any file (attack review 2)
 CHALLENGE_TTL = 600                 # s a code is good for; it is the service's own MAC, stored only once used
@@ -1194,7 +1195,7 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         if len(data) > MAX_REC: return drained('That file is over %d MB.' % (MAX_REC // 1024 ** 2), 413)
         if not hmac.compare_digest(hashlib.sha256(data).hexdigest(), sha):
             return refuse('The file is not the one confirmed: press Upload again.', 409)
-        return one_at_a_time(sid, lambda: accept(sid, data, None))
+        return one_at_a_time(sid, lambda: accept(sid, data, GAME_TOOL_AUTO if ver == '2' else None))
 
     def one_at_a_time(sid, work):
         with inflight_lock:
@@ -1224,7 +1225,7 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         body = f.read(MAX_REC + 1)
         if len(body) > MAX_REC: return refuse('That file is over %d MB.' % (MAX_REC // 1024 ** 2), 413)
         tool = clean_tool(request.form.get('tool'))
-        if tool.lower() == GAME_TOOL: tool += ' (typed)'   # the game's own label is the game route's (attack review 3)
+        if tool.lower() in (GAME_TOOL, GAME_TOOL_AUTO): tool += ' (typed)'   # the game's own labels are the game route's (attack review 3)
         return accept(sid, body, tool)
 
     def accept(sid, body, tool):

@@ -7224,9 +7224,73 @@ float(string path) SV_TASUpThere =
 };
 // P1712: where a run's name starts (data/runs/<map>/<leg>/<ticks>_..._tas.rec): the last '/'
 float(string p) SV_TASUpCut = { local float i; for (i = strlen(p) - 1; i > 0; i = i - 1) if (str2chr(p, i) == 47) return i; return -1; };
+// its time: the name's ticks at the header's own rate (movetickrate, else tickrate: cl_jargon.qc TASJargon_Head), or -1
+float(string p) SV_TASUpTime =
+{
+	local float fh, i, c, k, ticks, rate, mtr;
+	local string l;
+	k = SV_TASUpCut(p);
+	ticks = (k > 0) ? stof(substring(p, k + 1, -1)) : 0;
+	if (ticks <= 0) return -1;
+	fh = fopen(p, FILE_READ);
+	if (fh < 0) return -1;
+	rate = 0.015; mtr = FALSE;
+	for (i = 0; i < 48; i = i + 1)
+	{
+		l = fgets(fh);
+		if (l == "") continue;
+		c = tokenize(l);
+		if (argv(0) == "begin") break;
+		if (argv(0) == "tickrate" && c == 2 && stof(argv(1)) > 0) { if (!mtr) rate = stof(argv(1)); }
+		else if (argv(0) == "movetickrate" && c == 2 && stof(argv(1)) > 0) { rate = stof(argv(1)); mtr = TRUE; }
+	}
+	fclose(fh);
+	return ticks * rate;
+};
+// no other own TAS run in its course folder as fast: the folder, not uploads.txt (runs before P1696, ones it pruned)
+float(string path) SV_TASUpBest =
+{
+	local float h, i, n, mine, t;
+	local string f;
+	mine = SV_TASUpTime(path);
+	if (mine <= 0) return FALSE;
+	h = search_begin(strcat(substring(path, 0, SV_TASUpCut(path) + 1), "*_tas.rec"), 0, TRUE);
+	if (h < 0) return TRUE;
+	n = min(search_getsize(h), 1000);
+	for (i = 0; i < n; i = i + 1)
+	{
+		f = search_getfilename(h, i);
+		if (!strcasecmp(f, path) || !SV_TASUpLoose(f)) continue;
+		t = SV_TASUpTime(f);
+		if (t > 0 && t <= mine + 0.0005) { search_end(h); return FALSE; }
+	}
+	search_end(h);
+	return TRUE;
+};
+// what a new best does (Upload tab, `cmd tas offer N`): 2 the box, then it sends itself; 1 the box asks; 0 nothing. Kept
+// in data/tasproj/, which no server's csprogs can write, so a server's stuffed cvar cannot undo an opt-out (review)
+string() SV_TASUpOfferPath = { return "data/tasproj/upload_offer.txt"; };
+float() SV_TASUpOffer =
+{
+	local float fh, v;
+	fh = SV_TASUpLoose(SV_TASUpOfferPath()) ? fopen(SV_TASUpOfferPath(), FILE_READ) : -1;
+	if (fh < 0) return 2;
+	v = stof(fgets(fh));
+	fclose(fh);
+	return (v == 0 || v == 1) ? v : 2;
+};
+void(entity e, float v) SV_TASUpSetOffer =
+{
+	local float fh;
+	if (!SV_TASUpHost(e) || (v != 0 && v != 1 && v != 2)) return;
+	fh = fopen(SV_TASUpOfferPath(), FILE_WRITE);
+	if (fh < 0) { dprint("tas upload: cannot write the offer setting\n"); return; }
+	fputs(fh, sprintf("%g\n", v));
+	fclose(fh);
+};
 void(entity e, string path) SV_TASUpNote =
 {
-	local float fh, i, c, size, b, cut, k, mine, best;
+	local float fh, i, c, size, b, mode;
 	local string body, l, list, part;
 	if (!SV_TASUpHost(e) || !SV_TASUpCourse(path) || !SV_TASUpLoose(path)) return;
 	fh = fopen(path, FILE_READ);
@@ -7239,7 +7303,6 @@ void(entity e, string path) SV_TASUpNote =
 	body = fgets(fh);
 	fclose(fh);
 	list = SV_TASUpListPath(); part = strcat(list, ".part");
-	cut = SV_TASUpCut(path); mine = stof(substring(path, cut + 1, -1)); best = (cut > 0 && mine > 0);
 	b = buf_create();
 	bufstr_add(b, strcat(strtolower(digest_hex("SHA256", body)), " ", path), TRUE);     // newest first
 	fh = SV_TASUpLoose(list) ? fopen(list, FILE_READ) : -1;     // a package's list is never carried into ours
@@ -7251,9 +7314,6 @@ void(entity e, string path) SV_TASUpNote =
 			if (l == "") break;
 			c = tokenize(l);
 			if (c != 2 || strlen(argv(0)) != 64 || !strcmp(argv(1), path) || !SV_TASUpThere(argv(1))) continue;   // pruned files go
-			k = SV_TASUpCut(argv(1));     // P1712: a run of this course as fast or faster: not a new best
-			if (k == cut && !strcmp(substring(argv(1), 0, k), substring(path, 0, cut)) && stof(substring(argv(1), k + 1, -1)) <= mine)
-				best = FALSE;
 			bufstr_add(b, l, TRUE);
 		}
 		fclose(fh);
@@ -7265,11 +7325,15 @@ void(entity e, string path) SV_TASUpNote =
 		fclose(fh);
 		fremove(list);
 		if (frename(part, list) != 0) dprint(sprintf("tas upload: cannot rename %s\n", part));
-		else if (best)
-		{	// P1712: the host's own client offers it (TASUp_NewEvent); the list it asks for says what it is
-			WriteByte(MSG_MULTICAST, SVC_CGAMEPACKET); WriteByte(MSG_MULTICAST, TAS_EV_UPNEW);
-			WriteString(MSG_MULTICAST, path);
-			msg_entity = e; multicast(e.origin, MULTICAST_ONE_R);
+		else
+		{	// P1712: a new best goes to the host's own client to offer (TASUp_NewEvent); the list it asks for says what it is
+			mode = SV_TASUpOffer();
+			if (mode > 0 && SV_TASUpBest(path))
+			{
+				WriteByte(MSG_MULTICAST, SVC_CGAMEPACKET); WriteByte(MSG_MULTICAST, TAS_EV_UPNEW);
+				WriteString(MSG_MULTICAST, path); WriteByte(MSG_MULTICAST, mode);
+				msg_entity = e; multicast(e.origin, MULTICAST_ONE_R);
+			}
 		}
 	}
 	else dprint(sprintf("tas upload: cannot write %s\n", part));

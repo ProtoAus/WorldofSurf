@@ -394,7 +394,6 @@ void(float apilevel, string enginename, float engineversion) CSQC_Init =
 	SaveLoc_RegisterCvars();
 	WarpOp_RegisterCvars();         // Patch 753: goto_start, goto_spawn, cl_warpop
 	PE_RegisterCvars();             // Patch 1195: prederror reports
-	TASUp_RegisterCvars();          // P1712: the TAS upload offer
 	CR_Init();                      // P1418: a crash report waiting to be offered
 	registercommand("sp_dump");     // P1387: the server's `cmd spdump` asks for it
 	Gfx_RegisterCvars();

@@ -187,16 +187,20 @@ proofless game upload refused (200, ok=0); releases 0.1.45-0.1.54 learned (none 
 
 ## Built: P1712 the offer (Lex 22 Nov: "an auto popup, like the f6 ... or do it automatically if they don't press anything")
 
-SV_TASUpNote sends the host's client TAS_EV_UPNEW when the run beats every other listed run of its course folder (ticks
-from the file name; ties are not a best). The client (cl_tasupload.qc TASUp_NewEvent) asks for the list, then the
-challenge at once, and shows a box where the F6 report boxes sit (under the finish card when that covers it): F6 sends
-it keyed (kind -6, header 1) in one press, F7 keeps it local. `tas_upload_offer` 2 (default; Upload tab "Auto-upload"):
-when its 12 s run out -- counted only while the box is seen -- it sends itself: `acct_sign(..., -7)`, a kind only the
-engine's P1712 has, always unkeyed ("key 0" in the statement, no press spent), site fixed like -6; header
-FTESURF-TASUP 2 tells tasupd to verify that statement (GAME_AUTO_KIND). Only tasupd verifies a -7 statement; the game
-code check still limits it to our csprogs, which send it only from a game they host, after the box was shown. 1 = the
-box asks only; 0 = no box. Checked headless against a scratch tasupd: auto send taken (held: Jargon's resume records),
-old engine refuses -7 ("not sent by itself"), a finish slower than a listed one gets no box.
+SV_TASUpNote sends the host's client TAS_EV_UPNEW (path, mode) when no other own TAS run in the course folder is as
+fast (SV_TASUpBest: every `*_tas.rec` there, each as its name's ticks at its header's own tick rate; ties are not a
+best). The mode -- 2 the box then it sends itself (default, Upload tab "Auto-upload"), 1 the box asks, 0 nothing -- is
+data/tasproj/upload_offer.txt, set by `cmd tas offer N` from the host (the tab's chips), so no server's csprogs or
+stuffed cvar can change it. The client (cl_tasupload.qc TASUp_NewEvent) asks for the list, then the challenge at once,
+and shows a box where the F6 report boxes sit (under the finish card when that covers it): F6 sends it keyed (kind -6,
+header 1) in one press, F7 keeps it local. In mode 2, when its 12 s run out -- counted only at state 2 while the box is
+seen: not under the scoreboard, the TAS menu or another report box, and the window focused -- it sends itself:
+`acct_sign(..., -7)`, a kind only the engine's P1712 has, always unkeyed ("key 0", no press spent), site fixed like
+-6, and only on a loopback connection; header FTESURF-TASUP 2 tells tasupd to verify that statement (GAME_AUTO_KIND)
+and store the tool "sent from the game by itself". If the engine will not sign it, the box falls back to asking. The
+box acts only on its own run (the tab's Back or another Upload closes it); bests arriving meanwhile wait, one a course.
+Checked headless against a scratch tasupd: auto send taken (held: Jargon's resume records), old engine refuses -7,
+a finish slower than a saved one gets no box.
 
 ## P1700: on the website
 
