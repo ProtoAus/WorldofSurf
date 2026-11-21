@@ -28,6 +28,8 @@ float predinput_entgravity;     // P1211: preloaded with the server's gravity; W
 float predinput_version;        // P1211: 1211+ on an engine that takes WOP_GRAVITY (older ones reject the mask)
 
 #define WOP_PM_NORMAL 0
+#define WOP_PM_OLDSPEC 1                // P1706: engine PM_OLD_SPECTATOR (a server's noclip for old clients)
+#define WOP_PM_SPECTATOR 2              // P1706: PM_SPECTATOR, what the server sends for MOVETYPE_NOCLIP
 #define WOP_PM_NONE   5
 #define WOP_BODY  1
 #define WOP_MODE  2
@@ -82,9 +84,20 @@ float  wop_slot;                // the slot WarpOp_Queue just filled
 vector wop_tgorg, wop_tgang, wop_tgvel;   // WarpOp_Row's answer: origin, pitch/yaw/duck, speed
 float  wop_tok, wop_tokt;       // SV_SaveLocRate's bucket, mirrored
 string wop_why;                 // Patch 1207: why the last WarpOp_Able/Reset said no (a constant)
+float  wop_pmt, wop_pmt_seq, wop_pmt_t; // P1706: the newest replayed command's movetype after its ops
+float  wop_ncat;                // P1706: cltime a noclip op was last carried (PE_ServerPrint)
+float  wop_holdnc;              // P1706: the mode a noclip op under a hold asked its release for; -1 none
+vector wop_predload_org;        // P1706: where that predicted load lands (WarpOp_PredLoad matches its event)
+float  wop_predload;            // P1706: the command of the last load-type op carried predicted; -1 blind
+float  wop_relpred;             // P1706: ...and of the last release carried predicted; 0 blind
+float  wop_rwgo_on;             // P1706: the hold is a WOP_RWGO's (its release speed is wop_rwgo_vel)
+vector wop_rwgo_vel;
+void(float seq) Rewind_OpGoCarried;     // cl_rewind.qc
+void() Rewind_OpGoExpired;
 
 void() WarpOp_RegisterCvars =
 {
+	wop_holdnc = -1;                // P1706
 	registercvar("cl_warpop", "1");
 	registercommand("goto_start");
 	registercommand("reset");
@@ -102,7 +115,11 @@ float() WarpOp_HookAlive =
 	       && cltime - wop_premove_t <= min(2, max(0.5, 2.5 * clframetime));
 };
 
-float() WarpOp_Able =
+// P1706: rwgo TRUE for the rewind's own go: it is sent under rw_on, and the command that carries it is the
+// first the countdown lets through (CSQC_Input_Frame sends none while browsing, so wop_inputt is stale).
+#define WOPA_RW    1                // the rewind's go, under rw_on
+#define WOPA_GHOST 2                // a ghost op, under rec_gh_on
+float(float rwgo) WarpOp_AbleEx =
 {
 	wop_why = "off (cl_warpop 0, or the server has no fs_wop)";
 	if (!cvar("cl_warpop") || serverkey("fs_wop") != "1")
@@ -113,10 +130,15 @@ float() WarpOp_Able =
 	if (!WarpOp_HookAlive())
 		return FALSE;
 	wop_why = "no input frame to carry it";
+	if (!(rwgo & WOPA_RW))
 	if (cltime - wop_inputt > 0.25 || cltime < wop_inputt)
 		return FALSE;                   // nothing would carry the op to the server
 	wop_why = "spectating, watching or rewinding";
-	if (!LT_StatsAreMine() || Spec_Active() || rec_wt_on || rec_wt_open || rec_gh_on || rw_on)
+	if (!LT_StatsAreMine() || Spec_Active() || rec_wt_on || rec_wt_open)
+		return FALSE;
+	if (rec_gh_on && !(rwgo & WOPA_GHOST))
+		return FALSE;
+	if (rw_on && !(rwgo & WOPA_RW))
 		return FALSE;
 	wop_why = "";
 	if (!wop_seq)
@@ -134,6 +156,8 @@ float() WarpOp_Able =
 	}
 	return TRUE;
 };
+
+float() WarpOp_Able = { return WarpOp_AbleEx(FALSE); };
 
 #define WOPB_BLIND   1              // wop_blind: sent unpredicted; the server's answer moves it
 #define WOPB_REFUSED 2              // ...and SV_SaveLocRate will refuse it: no move at all
@@ -293,14 +317,14 @@ float(float what) WarpOp_Pending =
 			return TRUE;
 		if (what == WOPP_RESET && (op == WOP_RESET || op == WOP_SPAWN || op >= WOP_STAGE1))
 			return TRUE;
-		if (what == WOPP_LIST && (op == WOP_LOAD || (op >= WOP_NEXT && op <= WOP_LAST)))
+		if (what == WOPP_LIST && (op == WOP_LOAD || op == WOP_LOADNOW || (op >= WOP_NEXT && op <= WOP_LAST)))
 			return TRUE;
 		if (what == WOPP_BLINDLOAD && op == WOP_LOAD && wop_blind[i] == WOPB_BLIND)
 			return TRUE;
 		if (what == WOPP_STEP && op >= WOP_NEXT && op <= WOP_LAST)
 			return TRUE;
 		if (what == WOPP_HOLDROW && wop_blind[i] != WOPB_REFUSED)
-			if (op == WOP_LOAD || (op >= WOP_NEXT && op <= WOP_LAST))
+			if (op == WOP_LOAD || op == WOP_LOADNOW || (op >= WOP_NEXT && op <= WOP_LAST))
 				return TRUE;
 	}
 	return FALSE;
@@ -366,7 +390,7 @@ float(float op) WarpOp_Row =
 	j = WarpOp_SaveSlot();
 	if (j >= 0)
 	{
-		if (op != WOP_LOAD || !wop_cap[j])
+		if ((op != WOP_LOAD && op != WOP_LOADNOW) || !wop_cap[j])
 			return FALSE;
 		SaveLoc_Resync();
 		if (rec_sl_sent != getstatf(STAT_FS_SLACK))
@@ -395,7 +419,7 @@ float(float op) WarpOp_Row =
 	{
 		j = -1;
 		for (i = 0; i < WOP_RING; i = i + 1)
-			if (wop_op[i] == WOP_LOAD || (wop_op[i] >= WOP_NEXT && wop_op[i] <= WOP_LAST))
+			if (wop_op[i] == WOP_LOAD || wop_op[i] == WOP_LOADNOW || (wop_op[i] >= WOP_NEXT && wop_op[i] <= WOP_LAST))
 			if (wop_q[i] > bq && WarpOp_Unanswered(i))
 			{
 				if (j < 0)
@@ -638,6 +662,53 @@ float(float op) WarpOp_Reset =
 void() WarpOp_HoldAdopt =
 {
 	wop_resetq = wop_resetseq = wop_resetat = 0;
+	if (!rec_sl_holding)
+		wop_holdnc = -1;            // P1706: a fresh hold gives back the mode it starts in
+};
+
+// P1706: the rewind's go on a command (cl_rewind.qc Rewind_OpGo): the armed body, two of SV_SaveLocRate's
+// tokens (the stringcmd's sl_ charge and the go's), FALSE for the stringcmd.
+float(vector org, vector vel, vector ang) WarpOp_GoRw =
+{
+	if (!WarpOp_AbleEx(WOPA_RW))
+		return FALSE;
+	if (WarpOp_Pending(WOPP_ANY))
+	{
+		wop_why = "an op is unanswered";
+		return FALSE;
+	}
+	if (!WarpOp_Charge())
+		return FALSE;
+	if (!WarpOp_Charge())
+	{
+		wop_tok = wop_tok + 1;
+		return FALSE;
+	}
+	if (!WarpOp_Queue(WOP_RWGO, org, '0 0 0', [ang_x, ang_y, 1], ang_z))
+	{
+		wop_tok = wop_tok + 2;
+		return FALSE;
+	}
+	WarpOp_HoldAdopt();
+	wop_rwgo_on = TRUE;
+	wop_rwgo_vel = vel;
+	wop_loadpred = FALSE;
+	wop_loadseq = wop_loadackat = 0;
+	wop_relseq = 0;
+	return TRUE;
+};
+
+// P1706: a refused or expired op go: its hold never came, and a release queued behind it moves nothing.
+void() WarpOp_GoRwDrop =
+{
+	local float i;
+	wop_rwgo_on = FALSE;
+	if (!wop_seq)
+		return;
+	for (i = 0; i < WOP_RING; i = i + 1)
+		if (wop_seq[i] == -1 && wop_op[i] == WOP_RELEASE)
+			wop_seq[i] = 0;
+	wop_relseq = wop_relat = 0;
 };
 
 float() WarpOp_Load =
@@ -648,6 +719,7 @@ float() WarpOp_Load =
 	// otherwise a hold the server still reports is not ours to stack on.
 	relpending = (wop_relseq != 0);
 	WarpOp_HoldAdopt(); // a newer load owns any subsequent hold
+	wop_rwgo_on = FALSE;            // P1706
 	wop_relseq = 0;                     // a new hold: the last release's backstop is moot
 	wop_loadpred = FALSE;
 	if (!WarpOp_Able())
@@ -840,6 +912,54 @@ float(float op, float rep) WarpOp_Step =
 	return TRUE;
 };
 
+// P1706: a plain `sl_load` (SaveLoc_Command): WarpOp_Step's gates and walk for the cursor's own row.
+// FALSE: the stringcmd and its camera preview, as before.
+float() WarpOp_LoadNow =
+{
+	local float blind, charged;
+
+	wop_why = "the server has no fs_woploadnow";
+	if (serverkey("fs_woploadnow") != "1")
+		return FALSE;
+	if (!WarpOp_Able())
+		return FALSE;
+	wop_why = "a save is waiting for its answer";
+	if (Trail_RequestBusy() && !Trail_RequestOpSave())
+		return FALSE;
+	SaveLoc_Resync();
+	wop_why = "a save-list command is unanswered";
+	if (rec_sl_sent != getstatf(STAT_FS_SLACK))
+		return FALSE;
+	wop_why = "no saves";
+	if (WarpOp_SaveSlot() < 0)
+	if (getstatf(STAT_FS_SAVECOUNT) < 1 || getstatf(STAT_FS_SAVEINDEX) < 1)
+		return FALSE;
+	wop_why = "";
+	blind = WarpOp_Row(WOP_LOADNOW) ? 0 : WOPB_BLIND;
+	charged = WarpOp_Charge();
+	if (!charged)
+		blind = WOPB_REFUSED;
+	if (!WarpOp_Queue(WOP_LOADNOW, wop_tgorg, wop_tgvel, [wop_tgang_x, wop_tgang_y, !blind], wop_tgang_z))
+	{
+		if (charged)
+			wop_tok = wop_tok + 1;
+		wop_why = "the op ring is full";
+		return FALSE;
+	}
+	wop_blind[wop_slot] = blind;
+	wop_rwgo_on = FALSE;
+	if (!blind)
+	if (rec_sl_holding)
+	{
+		rec_sl_holdang = [wop_tgang_x, wop_tgang_y, 0];
+		rec_sl_holdang_ok = TRUE;
+		wop_loadvel = wop_tgvel;
+	}
+	if (blind == WOPB_BLIND)
+		PE_Expect("a plain load sent blind (its row was not published yet)");
+	return TRUE;
+};
+
 // Letting go of a predicted hold.  The speed is the held row's, once the server
 // says which row that is (3-6 can move it while held).  FALSE: send sl_holdoff.
 vector wop_relv;
@@ -851,6 +971,13 @@ float() WarpOp_RelVel =
 
 	v = wop_loadvel;
 	blind = FALSE;
+	// P1706: the rewind's op go: its armed release speed is the held row's (SV_SaveLocRelease's rec_sl_vel,
+	// the same four-decimal row) until another load or step moves the hold.
+	if (wop_rwgo_on)
+	{
+		wop_relv = wop_rwgo_vel;
+		return FALSE;
+	}
 	// A refused load advances the cursor without retargeting the hold. Only
 	// pending non-refused loads/steps may predict a new row; otherwise use the
 	// actual held speed in the SAME snapshot, never the cursor or stale HOLDVEL.
@@ -886,6 +1013,8 @@ float() WarpOp_Release =
 	blind = WarpOp_RelVel();
 	if (!WarpOp_Queue(WOP_RELEASE, '0 0 0', wop_relv, '0 0 0', 0))
 		return FALSE;
+	wop_rwgo_on = FALSE;            // P1706
+	wop_holdnc = -1;
 	if (blind)
 		wop_blind[wop_slot] = WOPB_BLIND;
 	wop_relseq = -1;
@@ -1057,6 +1186,19 @@ void() WarpOp_Frame =
 				}
 				else if (op == WOP_SAVE)
 					WarpOp_SaveExpired();
+				else if (op == WOP_NOCLIPON || op == WOP_NOCLIPOFF)
+				{
+					// P1706: the toggle, only when the server's movetype is not already what it asked for.
+					if ((op == WOP_NOCLIPON) != (getstatf(STAT_FS_MOVETYPE) == MOVETYPE_NOCLIP))
+						localcmd("cmd noclip\n");
+				}
+				else if (op == WOP_RWGO)
+				{
+					wop_rwgo_on = FALSE;
+					Rewind_OpGoExpired();
+				}
+				else if (op == WOP_GHOSTON || op == WOP_GHOSTOFF)
+					Ghost_OpExpired(op == WOP_GHOSTON);
 			}
 		}
 
@@ -1076,6 +1218,29 @@ void() WarpOp_Frame =
 		wop_relseq = 0;
 		SaveLoc_Cmd("sl_holdoff");
 	}
+};
+
+// P1706: cl_trail.qc's load event -- the command of the predicted load it answers, else 0 (not one, sent
+// blind, or not this answer: the newest load op must be acknowledged, and recent).
+float() WarpOp_PredLoad =
+{
+	local float l;
+	if (wop_predload <= 0 || servercommandframe < wop_predload || servercommandframe - wop_predload > 120)
+		return 0;
+	if (vlen(SaveEvent_Origin() - wop_predload_org) > 2)
+		return 0;                   // another load's event (a server's, a typed one)
+	l = wop_predload;
+	wop_predload = -1;              // one event
+	return l;
+};
+
+// P1706: SaveLoc_Cmd sent a load as a stringcmd: whatever event comes next is not an op's.
+void() WarpOp_StringLoad = { wop_predload = -1; };
+
+// P1706: kept frame n follows a predicted release the stats in hand are older than (TF_FROZEN is stale).
+float(float n) WarpOp_FrozenStale =
+{
+	return (wop_relpred > 0 && n > wop_relpred && servercommandframe < wop_relpred);
 };
 
 // The load's command has been acknowledged and no hold came: it was refused.
@@ -1112,6 +1277,8 @@ float() WarpOp_ReleaseString =
 	if (!WarpOp_Able())
 		return FALSE;
 	wop_heldmode = WOP_PM_NONE;     // its movetype is the server's: walk, as SV_SaveLocRelease defaults
+	if (wop_holdnc >= 0)
+		wop_heldmode = wop_holdnc;  // P1706: ...unless a noclip op under the hold chose the mode it gives back
 	return WarpOp_Release();
 };
 
@@ -1166,6 +1333,24 @@ void() WarpOp_InputFrame =
 		wop_loadseq = wop_loadlast = clientcommandframe;
 	if (wop_op[best] == WOP_RELEASE)
 		wop_relseq = wop_rellast = clientcommandframe;
+	if (wop_op[best] == WOP_NOCLIPON || wop_op[best] == WOP_NOCLIPOFF)
+		wop_ncat = cltime;
+	if (wop_op[best] == WOP_RWGO)
+	{
+		wop_loadlast = clientcommandframe;     // P1238's stale-hold guard: this hold's load
+		Rewind_OpGoCarried(clientcommandframe);
+	}
+	// P1706: cl_trail.qc keeps the frames after a predicted load and release (WarpOp_PredLoad/FrozenStale).
+	if (wop_op[best] == WOP_LOAD || wop_op[best] == WOP_LOADNOW || wop_op[best] == WOP_RWGO ||
+	    (wop_op[best] >= WOP_NEXT && wop_op[best] <= WOP_LAST))
+	{
+		wop_predload = wop_blind[best] ? -1 : clientcommandframe;
+		wop_predload_org = wop_org[best];
+	}
+	if (wop_op[best] == WOP_RELEASE)
+		wop_relpred = wop_blind[best] ? 0 : clientcommandframe;
+	if (wop_op[best] == WOP_GHOSTON || wop_op[best] == WOP_GHOSTOFF)
+		Ghost_OpCarried(clientcommandframe);
 	if (wop_op[best] == WOP_SAVE)
 	{
 		Trail_OpSaveCarried(clientcommandframe);
@@ -1209,6 +1394,19 @@ void(float op, float i) WarpOp_Apply =
 	}
 	if (wop_blind[i])
 		return;
+	if (op == WOP_NOCLIPON || op == WOP_NOCLIPOFF)
+	{
+		// P1706: SV_NoclipSet -- the movetype alone; origin, speed, ground and hull carry on. Under a
+		// save-lock hold (PM_NONE) the body stays held and the switch is what its release gives back.
+		if (predinput_pmtype == WOP_PM_NONE)
+		{
+			wop_heldmode = wop_holdnc = (op == WOP_NOCLIPON) ? WOP_PM_SPECTATOR : WOP_PM_NORMAL;
+			return;
+		}
+		predinput_apply = predinput_apply | WOP_MODE;
+		predinput_pmtype = (op == WOP_NOCLIPON) ? WOP_PM_SPECTATOR : WOP_PM_NORMAL;
+		return;
+	}
 	if (op == WOP_RESET || op == WOP_SPAWN || op >= WOP_STAGE1)
 	{
 		// SV_ZoneMoveAt: origin, speed zero, carrier cleared, ground and duck kept.
@@ -1221,6 +1419,19 @@ void(float op, float i) WarpOp_Apply =
 			predinput_pmtype = WOP_PM_NORMAL;
 		}
 	}
+	else if (op == WOP_RWGO)
+	{
+		// P1706: SV_SaveLocGo -- the pin lets go, the armed row is loaded and held: its origin and duck,
+		// still, off the ground, carrier cleared, MOVETYPE_NONE; the release gives back walking (the pin's
+		// mode, which P682's builder requires to be walking).
+		predinput_apply = WOP_BODY | WOP_MODE | WOP_DUCK | WOP_CLEARCARRIER;
+		predinput_origin = wop_org[i];
+		predinput_velocity = '0 0 0';
+		predinput_onground = 0;
+		wop_heldmode = WOP_PM_NORMAL;
+		predinput_pmtype = WOP_PM_NONE;
+		predinput_forceduck = wop_duck[i] ? 2 : 1;
+	}
 	else if (op == WOP_LOAD)
 	{
 		// SV_SaveLocPlace + SV_SaveLocHold: the save's origin and duck, off the
@@ -1229,14 +1440,17 @@ void(float op, float i) WarpOp_Apply =
 		predinput_origin = wop_org[i];
 		predinput_velocity = '0 0 0';
 		predinput_onground = 0;
-		wop_heldmode = predinput_pmtype;    // SV_SaveLocHold's rec_sl_holdmove
+		// SV_SaveLocHold's rec_sl_holdmove; P1706: a load under a hold keeps the hold's (an already-held
+		// SV_SaveLocHold returns at once), so a noclip asked for under it survives.
+		if (predinput_pmtype != WOP_PM_NONE)
+			wop_heldmode = predinput_pmtype;
 		predinput_pmtype = WOP_PM_NONE;
 		predinput_forceduck = wop_duck[i] ? 2 : 1;
 	}
-	else if (op >= WOP_NEXT && op <= WOP_LAST)
+	else if ((op >= WOP_NEXT && op <= WOP_LAST) || op == WOP_LOADNOW)
 	{
 		// SV_SaveLocLoad: the row's origin, speed and duck, off the ground,
-		// carrier cleared; a hold stays held at speed zero.
+		// carrier cleared; a hold stays held at speed zero.  P1706: WOP_LOADNOW, the cursor's row.
 		predinput_apply = WOP_BODY | WOP_DUCK | WOP_CLEARCARRIER;
 		predinput_origin = wop_org[i];
 		predinput_velocity = (predinput_pmtype == WOP_PM_NONE) ? '0 0 0' : wop_vel[i];
@@ -1304,6 +1518,16 @@ void(float seat, float seq, float seconds, float offset) CSQC_PredictPlayerPreMo
 				WarpOp_Apply(wop_op[i], i);
 				break;
 			}
+	// P1706: what WarpOp_Noclip reads to choose on or off: the newest command's movetype after its ops.
+	if (!seat)
+	if (seq >= wop_pmt_seq || cltime - wop_pmt_t > 0.5 || cltime < wop_pmt_t)
+	{
+		wop_pmt_seq = seq;
+		wop_pmt_t = cltime;
+		wop_pmt = predinput_pmtype;
+		if (wop_pmt == WOP_PM_NONE)
+			wop_pmt = -1 - wop_heldmode;    // held: -1 - the mode its release gives back
+	}
 	// The spectate hold runs no ticks and touches nothing (run_pmhold, msec 0);
 	// a save-lock hold runs PM_NONE ticks and triggers, so it is not held here.
 	if (predinput_pmtype == WOP_PM_NONE)
@@ -1488,6 +1712,64 @@ float(string w) WarpOp_Goto =
 	return TRUE;
 };
 
+// P1706: cl_ghost.qc's Ghost_Request: `ghost` on a command. FALSE: `cmd rec_ghost N` as before. The server
+// refuses a ghost under a save-lock hold, a replay, spectate or a resume phase (SV_GhostSet); the first three
+// are known here, and a refused one is put right by STAT_FS_GHOST (Ghost_Frame).
+float(float on) WarpOp_Ghost =
+{
+	if (serverkey("fs_wopghost") != "1")
+		return FALSE;
+	if (!WarpOp_AbleEx(WOPA_GHOST))
+		return FALSE;
+	if (on && rec_sl_holding)
+		return FALSE;
+	return WarpOp_Queue(on ? WOP_GHOSTON : WOP_GHOSTOFF, '0 0 0', '0 0 0', '0 0 0', 0);
+};
+
+// P1706: the `noclip` bind (`bind v noclip`). The engine's client registers `noclip` with no function,
+// so CSQC_ConsoleCommand is offered it before it is forwarded; FALSE sends the old stringcmd.
+// On or off is chosen here from what the player sees: the last queued noclip op, else the newest replayed
+// command's movetype (wop_pmt; held: the mode the release gives back, as SV_NoclipSet decides under a hold).
+float() WarpOp_Noclip =
+{
+	local float i, j, m, on;
+
+	if (serverkey("fs_wopnoclip") != "1")
+	{
+		wop_why = "the server has no fs_wopnoclip";
+		return FALSE;
+	}
+	if (!WarpOp_Able())
+		return FALSE;
+	// An impulse escapes a TAS pause and stops a tape or plan (sv_tas.h SV_TASPlan): the stringcmd does not.
+	wop_why = "TAS";
+	if ((getstatf(STAT_FS_TIMERFLAGS) & TF_TAS) || getstatf(STAT_FS_TASPAUSE) || getstatf(STAT_FS_TASPENDING) ||
+	    getstatf(STAT_FS_TASPLANMODE) || getstatf(STAT_FS_TASREPLAY) == TAS_TAPE_ACTIVE ||
+	    getstatf(STAT_FS_TASREPLAY) == TAS_TAPE_STAGING)
+		return FALSE;
+	wop_why = "no predicted movetype yet";
+	if (cltime - wop_pmt_t > 0.5 || cltime < wop_pmt_t)
+		return FALSE;
+	m = wop_pmt;
+	if (m < 0)
+		m = -1 - m;
+	on = !(m == WOP_PM_SPECTATOR || m == WOP_PM_OLDSPEC);
+	j = -1;
+	for (i = 0; i < WOP_RING; i = i + 1)
+		if (wop_seq[i] == -1)
+		if (wop_op[i] == WOP_NOCLIPON || wop_op[i] == WOP_NOCLIPOFF)
+		if (j < 0 || wop_q[i] > wop_q[j])
+			j = i;
+	if (j >= 0)
+		on = (wop_op[j] == WOP_NOCLIPOFF);
+	if (!WarpOp_Queue(on ? WOP_NOCLIPON : WOP_NOCLIPOFF, '0 0 0', '0 0 0', '0 0 0', 0))
+	{
+		wop_why = "the op ring is full";
+		return FALSE;
+	}
+	return TRUE;
+};
+
 float() WarpOp_Console =
 {
 	local float n;
@@ -1558,6 +1840,15 @@ float() WarpOp_Console =
 		if (!WarpOp_Reset(WOP_RESET))
 			localcmd("cmd zone_reset\n");
 		return TRUE;
+	}
+	// P1706: a bare `noclip` rides a usercmd; anything else (or no op) goes to the server as before.
+	if (argv(0) == "noclip")
+	if (argv_start_index(1) < 0)
+	{
+		if (WarpOp_Noclip())
+			return TRUE;
+		PE_Expect(strcat("noclip not on a command: ", wop_why));
+		return FALSE;
 	}
 	if (argv(0) == "goto_spawn")
 		return WarpOp_Goto("spawn");

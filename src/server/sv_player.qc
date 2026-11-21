@@ -1991,34 +1991,11 @@ void(string cmd) SV_ParseClientCommand =
 
 	if (c == "noclip")
 	{
-		// Patch 499: refused under the replay/rewind pin, which owns the
-		// movetype until it lets go (SV_WatchHoldMove).  DEAD for `cmd noclip`
-		// on every build, exactly as the note above this branch says -- the
-		// engine's own SV_Noclip_f answers it -- so the half that does the work
-		// is the re-imposition in the two thinks.  Kept for the client that
-		// reaches it, and there the pin must still refuse rather than fly.
-		if (self.rec_wt_hold)
-		{
-			self.movetype = MOVETYPE_NONE;
-			sprint(self, PRINT_HIGH,
-			       "^3rewind: noclip does nothing while a replay or the rewind holds you\n");
-			return;
-		}
-		if (self.movetype == MOVETYPE_NOCLIP)
-		{
-			self.movetype = MOVETYPE_WALK;
-			sprint(self, PRINT_HIGH, "noclip OFF\n");
-		}
-		else
-		{
-			self.movetype = MOVETYPE_NOCLIP;
-			sprint(self, PRINT_HIGH, "noclip ON\n");
-			// TF_PRACTICE is set by SV_NoclipWatch, not here -- this branch is
-			// dead code on any build where the engine registers `noclip`
-			// itself, which is every build.  Kept because a client CAN reach
-			// it (`cmd noclip` from a build without the engine command) and
-			// because the watcher makes it harmless either way.
-		}
+		// Patch 499: refused under the replay/rewind pin.  This branch IS what answers a client's
+		// `noclip` on every server: the engine's ucmds entry hands the command to QC first
+		// (sv_user.c, noqchandling 0), and its own Cmd_Noclip_f runs only through clientcommand.
+		// P1706: the body is shared with WOP_NOCLIP (sv_warpop.qc).
+		SV_NoclipSet(self, -1);
 		return;
 	}
 
@@ -2200,6 +2177,13 @@ void(string cmd) SV_ParseClientCommand =
 		if (SV_SaveLocCreateAt(self, 0, '0 0 0', FALSE, go, TRUE))
 		if (go)
 			SV_SaveLocGo(self);
+		return;
+	}
+	// P1706: `rw_arm <serial> <ticks> <x> <y> <z>` -- the rewind cursor's resume, answered in STAT_FS_RWARM
+	// (sv_warpop.qc).  Read-only; not an sl_ command, so it pays no charge and moves no count.
+	if (c == "rw_arm" && cmdargc == 6)
+	{
+		SV_RewindArm(self, stof(argv(1)), stof(argv(2)), [stof(argv(3)), stof(argv(4)), stof(argv(5))]);
 		return;
 	}
 	// Patch 477: `sl_saveat <ticks> [x y z [go]]` -- see REWIND in sv_saveloc.qc.

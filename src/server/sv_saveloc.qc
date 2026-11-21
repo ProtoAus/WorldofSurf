@@ -5266,6 +5266,7 @@ void(entity e, float n) SV_SaveLocLoad =
   called from the key-up, from the deadman below, from PutClientInServer and
   from anything else that needs to be sure.
 */
+void(entity e) SV_NoclipWatch;      // P1706: sv_player.qc
 void(entity e) SV_SaveLocRelease =
 {
 	SV_SaveLeadEyeDetach(e);
@@ -5279,6 +5280,11 @@ void(entity e) SV_SaveLocRelease =
 	// usefully be here and is what PutClientInServer sets.
 	e.movetype = e.rec_sl_holdmove ? e.rec_sl_holdmove : MOVETYPE_WALK;
 	e.rec_sl_holdmove = 0;
+	// P1706: whatever ends the hold (the key, WOP_RELEASE, a delete under it, the deadman), a release into
+	// noclip is practice from here: a WOP_NOCLIPOFF on a later command of the same packet would leave the
+	// watch in the thinks (once a packet) nothing to see.
+	if (e.movetype == MOVETYPE_NOCLIP)
+		SV_NoclipWatch(e);
 
 	/*
 	  Hand back the save's velocity.  While frozen it was zero; letting go has

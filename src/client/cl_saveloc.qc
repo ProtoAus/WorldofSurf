@@ -298,6 +298,7 @@ float() Trail_RequestDispatching;
 float() WarpOp_Charge;
 float(float charged) WarpOp_Save;
 void() WarpOp_LoadNote;
+void() WarpOp_StringLoad;               // P1706
 // P1547: cltime a body-moving stringcmd went (a reset's fallback, zone_goto, ms_resume): WarpOp_Save
 // waits it out, as that reliable could still be run after a save on a later command.
 float wop_strat;
@@ -327,6 +328,7 @@ void(string c) SaveLoc_Cmd =
 	if (c == "sl_load" || c == "sl_next" || c == "sl_prev" ||
 	    c == "sl_first" || c == "sl_last" || substring(c, 0, 8) == "sl_goto ")
 	{
+		WarpOp_StringLoad();        // P1706: the next load event is not a predicted op's
 		holding = rec_sl_holding; key = rec_sl_holdkey; rep = rec_sl_holdrep;
 		upwait = rec_sl_upwait; t0 = rec_sl_holdt0;     // P1227 review 1: a key let go stays let go
 		// Only an immediate load owns the preview made by this press.
@@ -446,6 +448,7 @@ float() WarpOp_LoadAnswered;
 float() WarpOp_LoadLead;
 void() WarpOp_Frame;
 float(float op, float rep) WarpOp_Step;
+float() WarpOp_LoadNow;                 // P1706
 
 // Patch 759: 3/4/5/6 ride one command when they can (WarpOp_Step); rep is a
 // key's auto-repeat.
@@ -1146,6 +1149,20 @@ float() SaveLoc_Console =
 		{
 			SaveLoc_Refuse(0);      // 0: no scancode to suppress repeats of
 			return TRUE;
+		}
+		// P1706: on a command, predicted like a step's row (Momentum's mom_saveloc_current is this bind).
+		if (c == "sl_load")
+		{
+			if (rec_sl_holding)
+			{
+				rec_sl_heldstep = TRUE;     // the hold moves to the cursor's row (SaveLoc_Step's reason)
+				SaveLead_Clear();
+				rec_sl_leadans = FALSE;
+				rec_sl_stept0 = cltime;
+			}
+			if (WarpOp_LoadNow())
+				return TRUE;
+			WarpOp_LoadNote();
 		}
 		if (c == "sl_load")
 			SaveLoc_PredictLoad();  // Patch 430: draw the load at once

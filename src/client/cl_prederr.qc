@@ -158,6 +158,7 @@ void(string why) PE_Expect =
 void(string msg) PE_ServerPrint =
 {
 	if (msg == "noclip ON\n" || msg == "noclip OFF\n")
+	if (cltime - wop_ncat > 2 || cltime < wop_ncat)    // P1706: a noclip op's switch was predicted
 	{
 		PE_ExpectAt(cltime, servercommandframe - 2, "noclip turned on or off");
 		PE_Note(sprintf("expect at cltime %.3f: noclip turned on or off", cltime));

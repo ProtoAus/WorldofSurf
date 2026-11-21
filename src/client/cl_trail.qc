@@ -98,6 +98,9 @@ vector *tr_kv;                  // ...and [position, velocity, wish]
 float  tr_kept;                 // the newest command frame kept
 float  tr_kfrom;                // frames before this one are not where the server had the body
 float  tr_emit;                 // the command frame of the last sample
+float  tr_predload;             // P1706: the stitch is a predicted load's: its kept frames are the server's path
+float(float n) WarpOp_FrozenStale;  // P1706, cl_warpop.qc
+float() WarpOp_PredLoad;
 float  tr_lastramp;             // ...and the ramp stat it carried
 // This run: samples taken from an older frame, samples between two snapshots,
 // and frames that brought no new server state.
@@ -290,8 +293,11 @@ void() Trail_Keep =
 		if (tg_teleseq < n - 3 || tg_teleseq > n)
 			tr_kfrom = n;
 	}
-	// A held body is drawn where the server has it, not predicted.
+	// A held body is drawn where the server has it, not predicted.  P1706: not a frame after a predicted
+	// release while the stats are still from before it -- the freeze ends at that same command on the
+	// server, and dropping them left a round trip of travel out of the line after every load at ping.
 	if (getstatf(STAT_FS_TIMERFLAGS) & TF_FROZEN)
+	if (!WarpOp_FrozenStale(n))
 		tr_kfrom = n + 1;
 
 	bits = 0;
@@ -376,6 +382,7 @@ float(float f, float t, float riding) Trail_Take =
 	  the body did.
 	*/
 	if (tr_stitch && cltime < tr_settle)
+	if (!tr_predload)               // P1706: a predicted load's kept frames are after its own command
 	if (vlen(o - tr_loadorg) > TR_JUMP)
 		return TRUE;                // load clock arrived ahead of the body
 	if (!tr_nsamp)
@@ -418,6 +425,7 @@ float(float f, float t, float riding) Trail_Take =
 	tr_eref = HUD_EnergyRef();
 	Trail_Record(o, v, fl, t, brk, tr_stitch, [yaw, nrm_z, wsh * nrm]);
 	tr_stitch = FALSE;
+	tr_predload = FALSE;
 
 	tr_lastt = t;
 	tr_lastp = o;
@@ -542,7 +550,23 @@ void() Trail_Frame =
 			tr_loadorg = SaveEvent_Origin();
 			// Patch 611: the server moved the body; its state is drawn from the
 			// next frame on (the engine applies a snapshot a frame after its stats).
-			tr_kfrom = clientcommandframe + 1;
+			// P1706: unless this client predicted it on command L (a load op not sent blind): the frames
+			// kept after L are where the server has the body -- the hold, the release and the travel since,
+			// a round trip of it at ping that "now" threw away.  Ones already drawn into the old line are
+			// taken again into the new one.
+			tr_predload = WarpOp_PredLoad();
+			if (tr_predload > 0)
+			{
+				tr_kfrom = tr_predload + 1;
+				if (tr_emit > tr_predload)
+					tr_emit = tr_predload;
+				tr_predload = TRUE;
+			}
+			else
+			{
+				tr_kfrom = clientcommandframe + 1;
+				tr_predload = FALSE;
+			}
 			// P1087: only a TAS go restores this run's own line. Every other load cancels TAS
 			// (SV_TASCancel); a project load pauses again, so this client's stamp tells it.
 			if (!Trail_TASGo(st))

@@ -435,6 +435,7 @@ void() SV_RegisterStats =
 	clientstat(STAT_FS_RUNTICKS,    EV_FLOAT,  rec_rec_ticks);
 	clientstat(STAT_FS_RUNFILE,     EV_STRING, rec_rec_leaf);
 	clientstat(STAT_FS_RUNID,       EV_STRING, rec_rec_rid);
+	clientstat(STAT_FS_RWARM,       EV_STRING, rwa_stat);          // P1706
 
 	/*
 	  BUILD 24: a stage lifted out of a main run, and the four values the client

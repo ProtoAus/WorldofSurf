@@ -73,6 +73,24 @@ float  rw_krep;                 // ...and the event in hand repeats one already 
 float  rw_pinseen;              // this open's pin seen (STAT_FS_PIN lands a round trip later)
 float  rw_serial;               // this open's number, sent with its pin and published back as STAT_FS_PIN
 float  rw_openat;               // cltime of the open: a pin unseen RW_LOST after it is gone (round 19)
+// P1706: the armed resume.  Browsing sends `rw_arm` for the cursor at rest (Rewind_ArmFrame); the server
+// answers with the exact body its go would land (STAT_FS_RWARM); Enter on an answered cursor is WOP_RWGO,
+// predicted from the press with its countdown, and the release follows on a later command in order.
+#define RWA_N 8
+float  rwa_ser[RWA_N];          // the requests sent, by serial % RWA_N...
+string rwa_reqs[RWA_N];         // ...as Rewind_At() strings
+float  rwa_serial, rwa_lastsend;
+string rwa_lastreq, rwa_src, rwa_areq;
+float  rwa_ok;                  // rwa_areq's answer is a body
+float  rwa_aser;                // ...and its serial: only the newest request's is the server's armed one
+vector rwa_org, rwa_vel, rwa_ang;   // origin, release velocity, pitch/yaw/duck
+float  rw_opgo;                 // an op go awaits its answer
+float  rw_opgoseq, rw_opgoat;   // its command (-1 queued), and since when it is acked unanswered
+float  rw_opgoabandon;          // ...and a way out other than the countdown's end came first (Rewind_Abandon)
+float  rw_oldresi, rw_oldresgen, rw_oldresn;    // the last resume before it, back on a refusal
+float(vector org, vector vel, vector ang) WarpOp_GoRw;  // cl_warpop.qc
+void() WarpOp_GoRwDrop;
+void() WarpOp_StringLoad;
 
 void() Rewind_RegisterCvars =
 {
@@ -126,7 +144,9 @@ float(float scan) Rewind_KeyIx =
 	dir = 0;
 	if (!strcmp(bind, "+moveleft")) dir = -1;
 	if (!strcmp(bind, "+moveright")) dir = 1;
-	if (dir && scan)
+	// P1706: not S -- the hint says S saves, and "S stays this mode's whatever it is bound to" (the input
+	// handler's note): on a layout where S strafes (ESDF) it became a scrub key and S saved nothing.
+	if (dir && scan && scan != 's')
 		for (i = 0; i < RW_NAVN; i = i + 1)
 			if (!rw_navscan[i] || (!rw_kdown[6 + i] && !rw_kst[6 + i]))
 			{
@@ -370,6 +390,12 @@ float() Rewind_Open =
 
 	if (rw_on)
 		return FALSE;
+	// P1706: a late refusal of the last op go would act on this open's mode and pin.
+	if (rw_opgo)
+	{
+		print("^3rewind:^7 the last resume has not been answered yet\n");
+		return FALSE;
+	}
 	Trail_Settle();                 // P1384
 	if (!tr_on || ln_n[tr_live] < 2)
 	{
@@ -405,6 +431,9 @@ float() Rewind_Open =
 	rw_st0 = getstatf(STAT_FS_TIMERSTATE);
 	rw_seen = SaveEvent_Seq();
 	rw_ack = rw_cd = rw_dir = rw_leave = rw_pinseen = 0;
+	rwa_ok = FALSE;                 // P1706: an answer is for one pin (SV_RewindOpGo checks its serial)
+	if (rwa_lastreq != "") strunzone(rwa_lastreq);
+	rwa_lastreq = "";
 	rw_openat = cltime;
 	rw_nativeok = FALSE;
 	rw_serial = rw_serial + 1;
@@ -468,15 +497,49 @@ void() Rewind_Close =
 
 // Out of the mode whatever the server did: neither command does anything to a
 // body that is not pinned or held.
+// Every other way out (a load key or a replay over the countdown, an answer that never came): the release
+// is sl_holdoff, on the reliable channel ahead of whatever the caller sends next -- the load key's sl_load
+// and sl_hold, the replay's rec_watch 1 -- under rw_on, as before P1706.  P1706: an op go's hold too
+// (rec_sl_wophold cleared first), and no void ahead of its unanswered command: a reliable is parsed before
+// the usercmds of its packet and could end the run the go resumes (Rewind_OpAnswer settles it).
+void() WarpOp_GoRwDrop;
 void() Rewind_Abandon =
 {
-	localcmd("cmd rec_watch 0 void\n");
+	if (rw_opgo)
+		rw_opgoabandon = TRUE;
+	else
+		localcmd("cmd rec_watch 0 void\n");
 	if (rec_sl_holding)
-		SaveLoc_Release();          // which sends sl_holdoff itself
+	{
+		rec_sl_wophold = FALSE;
+		WarpOp_GoRwDrop();
+		SaveLoc_Release();          // which sends sl_holdoff itself (WarpOp_Able refuses under rw_on)
+	}
 	else
 		SaveLoc_Cmd("sl_holdoff");
 	rw_on = rw_ack = rw_cd = rw_dir = rw_leave = 0;
 	tr_cur_on = FALSE;
+};
+
+// P1706: the countdown's own end (and Esc in it).  The go was answered (the stringcmd's countdown starts at
+// its answer) or rides a command ahead of this (an op go), so the hold is the server's and the release rides
+// a command: WOP_RELEASE, predicted from the held row's speed, in order behind the go.  The mode comes down
+// first -- WarpOp_Able refuses under rw_on, and sl_holdoff left the body parked a round trip and then jumped
+// it forward by that round trip's travel (muri, 350 ms).  rec_watch 0 void is a no-op once SV_SaveLocGo has
+// let the pin go (SV_WatchVoid needs the pin); it is held back while an op go is unanswered.
+void() Rewind_Finish =
+{
+	local float held;
+
+	held = rec_sl_holding;
+	rw_on = rw_ack = rw_cd = rw_dir = rw_leave = 0;
+	tr_cur_on = FALSE;
+	if (!rw_opgo)
+		localcmd("cmd rec_watch 0 void\n");
+	if (held)
+		SaveLoc_Release();          // WOP_RELEASE, or sl_holdoff when no command can carry it
+	else
+		SaveLoc_Cmd("sl_holdoff");
 };
 
 // The cursor as `<ticks> <x> <y> <z>`.  The position picks which of the
@@ -495,6 +558,224 @@ void() Rewind_Save =
 	SaveLoc_Cmd("sl_save");
 };
 
+// P1706: the answer in STAT_FS_RWARM, matched to the request it answers by serial.
+void() Rewind_ArmParse =
+{
+	local string s;
+	local float n, ser, i, bad;
+	local vector v;
+
+	s = getstats(STAT_FS_RWARM);
+	if (!strcmp(s, rwa_src))
+		return;
+	if (rwa_src != "") strunzone(rwa_src);
+	rwa_src = strzone(s);
+	n = tokenize(s);
+	if (n < 3 || strcmp(argv(0), "A"))
+		return;
+	ser = stof(argv(1));
+	if (!(ser >= 1) || rwa_ser[ser % RWA_N] != ser)
+		return;
+	if (rwa_areq != "") strunzone(rwa_areq);
+	rwa_areq = strzone(rwa_reqs[ser % RWA_N]);
+	rwa_aser = ser;
+	rwa_ok = FALSE;
+	if (n != 11)
+		return;                         // "-": the go is not predictable here; the stringcmd goes
+	bad = FALSE;
+	for (i = 2; i < 11; i = i + 1)
+	{
+		v_x = stof(argv(i));
+		if (v_x != v_x || fabs(v_x) > 1000000)
+			bad = TRUE;
+	}
+	if (bad)
+		return;
+	rwa_org = [stof(argv(2)), stof(argv(3)), stof(argv(4))];
+	rwa_vel = [stof(argv(5)), stof(argv(6)), stof(argv(7))];
+	rwa_ang = [stof(argv(8)), stof(argv(9)), stof(argv(10)) ? 1 : 0];
+	rwa_ok = TRUE;
+};
+
+float() Rewind_OpGoOn =
+{
+	return (cvar("cl_warpop") && serverkey("fs_woprwgo") == "1" && !rw_tas && !tr_practice);
+};
+
+// Browsing, every frame: arm the cursor where it rests (not while a scrub key moves it), at most ten a
+// second.  Reliable, so a pin sent before it is run before it.
+void() Rewind_ArmFrame =
+{
+	local string req;
+
+	if (!Rewind_OpGoOn())
+		return;
+	Rewind_ArmParse();
+	if (rw_dir)
+		return;
+	req = Rewind_At();
+	if (!strcmp(req, rwa_lastreq))
+		return;
+	if (cltime - rwa_lastsend < 0.1 && cltime >= rwa_lastsend)
+		return;
+	rwa_serial = (rwa_serial < 16000000) ? rwa_serial + 1 : 1;
+	rwa_ser[rwa_serial % RWA_N] = rwa_serial;
+	if (rwa_reqs[rwa_serial % RWA_N] != "") strunzone(rwa_reqs[rwa_serial % RWA_N]);
+	rwa_reqs[rwa_serial % RWA_N] = strzone(req);
+	if (rwa_lastreq != "") strunzone(rwa_lastreq);
+	rwa_lastreq = strzone(req);
+	rwa_lastsend = cltime;
+	localcmd(sprintf("cmd rw_arm %d %s\n", rwa_serial, req));
+};
+
+void() Rewind_Cursor;
+// P1706: Enter on a cursor whose answer is in: the go rides a command (WOP_RWGO) and everything Rewind_Answer
+// did at the answer happens now -- the camera is on the held body, the countdown runs from the press, the
+// release will be WOP_RELEASE.  FALSE: the stringcmd go as before.
+float() Rewind_OpGo =
+{
+	if (!Rewind_OpGoOn())
+		return FALSE;
+	Rewind_ArmParse();
+	// The server arms each request as it runs, the last one standing: an answer for an older one while a
+	// newer one is in flight could be replaced under the go.
+	if (!rwa_ok || rwa_aser != rwa_serial || strcmp(Rewind_At(), rwa_areq))
+		return FALSE;
+	if (!WarpOp_GoRw(rwa_org, rwa_vel, rwa_ang))
+		return FALSE;
+	rw_seq = SaveEvent_Seq();
+	rw_goi = floor(rw_i);
+	rw_gop = tr_cur_p;
+	rec_rp_golines = rec_rp_lines;
+	rw_reqtick = tr_tick;
+	rw_reqticks = (tr_tick > 0) ? rint(tr_cur_t / tr_tick) : 0;
+	rw_go_practice = FALSE;
+	rw_go_ticket = 0;               // the command's (FS_SaveOpTag), bound when one carries it
+	rw_nativeok = FALSE;
+	Trail_ReplayClear();
+	tr_timedgo_ack = -1;
+	tr_go_visual_t = tr_cur_t;
+	rec_sl_holdack   = 0;
+	rec_sl_holdackat = 0;
+	rec_sl_holding   = TRUE;
+	rec_sl_wophold   = TRUE;
+	rec_sl_holdkey   = 0;
+	rec_sl_holdseen  = rec_sl_holdt0 = cltime;
+	rec_sl_upwait    = FALSE;
+	rec_sl_holdrep   = FALSE;
+	rec_sl_holdang   = [rwa_ang_x, rwa_ang_y, 0];
+	rec_sl_holdang_ok = TRUE;
+	rw_oldresi = rw_resi;
+	rw_oldresgen = rw_resgen;
+	rw_oldresn = rw_resn;
+	rw_resi    = rw_goi;
+	rw_resgen  = tr_gen;
+	rw_resn    = tr_nsamp;
+	rw_ack = 0;
+	rw_dir = 0;
+	tr_cur_on = FALSE;
+	rw_cd  = cltime + max(0, cvar("hud_rewind_countdown"));
+	rw_opgo = TRUE;
+	rw_opgoabandon = FALSE;
+	rw_opgoseq = -1;
+	rw_opgoat = 0;
+	rwa_ok = FALSE;                 // one go per answer, as the server's
+	return TRUE;
+};
+
+// P1706: cl_warpop.qc's WarpOp_InputFrame: the go rode command `seq`; its save's ticket is that command's.
+void(float seq) Rewind_OpGoCarried =
+{
+	local float tag;
+	tag = FS_SaveOpTag(seq);
+	rw_opgoseq = seq;
+	rw_go_ticket = tag;
+	tr_ticket = tr_saveack = tr_timedgo_ack = tag;
+};
+
+// P1706: the op go's answer, every frame until it comes (the mode may be down by then: a countdown shorter
+// than the round trip).  Loaded: Rewind_Answer's labels.  Refused: the pin still holds the body at the head;
+// browsing again while the count runs, else the way out Rewind_Close takes.
+void() Rewind_OpGoRefused =
+{
+	rw_opgo = 0;
+	rw_resi = rw_oldresi;
+	rw_resgen = rw_oldresgen;
+	rw_resn = rw_oldresn;
+	if (rwa_lastreq != "") strunzone(rwa_lastreq);
+	rwa_lastreq = "";               // arm the cursor again
+	if (rw_opgoabandon)
+		return;                     // a load key or a replay took over: its own commands own the body now
+	WarpOp_GoRwDrop();
+	if (rw_on && rw_cd)
+	{
+		rw_cd = 0;
+		rec_sl_holding = rec_sl_wophold = rec_sl_holdang_ok = FALSE;
+		tr_cur_on = TRUE;
+		Rewind_Cursor();
+		return;
+	}
+	localcmd("cmd rec_watch 0 void\n");
+	SaveLoc_Cmd("sl_holdoff");
+};
+
+void() Rewind_OpAnswer =
+{
+	if (!rw_opgo)
+		return;
+	if (rw_opgoseq < 0)
+		return;                         // not carried yet (WarpOp_Frame expires it to Rewind_OpGoExpired)
+	if (servercommandframe < rw_opgoseq)
+		return;
+	if (!rw_opgoat)
+		rw_opgoat = cltime;
+	if (SaveEvent_Pending() && cltime - rw_opgoat < RW_LOST)
+		return;
+	// The go's own load: its ticket (the server keeps it through SV_SaveLocGo), not a load the player's keys made.
+	if (SaveEvent_Seq() != rw_seq && FS_SlopOp(SaveEvent_Slop()) == SLOP_LOADED && rw_go_ticket > 0
+	    && SaveEvent_Tag() == rw_go_ticket)
+	{
+		rw_opgo = 0;
+		rw_gosl = SaveEvent_Seq();
+		// Abandoned meanwhile with nothing holding since (a replay that opened over it): its hold is nobody's.
+		if (rw_opgoabandon)
+		if (!rec_sl_holding)
+			SaveLoc_Cmd("sl_holdoff");
+		if (rw_go_ticket > 0)
+		if (SaveEvent_Tag() == rw_go_ticket)
+		{
+			rw_nativeticks = SaveEvent_Ticks();
+			rw_nativetick = serverkeyfloat("pm_ticrate");
+			rw_nativeok = (rw_nativeticks >= 0 && rw_nativetick > 0 && rw_reqtick > 0);
+		}
+		return;
+	}
+	// The command is acknowledged and no load came: a refusal, once a packet or two has had the chance to
+	// bring an event the ack outran.
+	if (cltime - rw_opgoat >= 0.15 || cltime < rw_opgoat)
+		Rewind_OpGoRefused();
+};
+
+// P1706: WarpOp_Frame: no command carried the go in time.  Nothing reached the server: browse again.
+void() Rewind_OpGoExpired =
+{
+	if (!rw_opgo)
+		return;
+	rw_opgo = 0;
+	if (rw_on && rw_cd)
+	{
+		rw_cd = 0;
+		rec_sl_holding = rec_sl_wophold = rec_sl_holdang_ok = FALSE;
+		tr_cur_on = TRUE;
+		Rewind_Cursor();
+	}
+	else
+	{
+		localcmd("cmd rec_watch 0 void\n");
+		SaveLoc_Cmd("sl_holdoff");
+	}
+};
+
 // One command; Rewind_Answer reads what came of it from the load event.
 void() Rewind_Go =
 {
@@ -504,6 +785,8 @@ void() Rewind_Go =
 		print("^3rewind: waiting for the pending save\n");
 		return;
 	}
+	if (Rewind_OpGo())              // P1706
+		return;
 	rw_seq = SaveEvent_Seq();
 	rw_goi = floor(rw_i);
 	rw_gop = tr_cur_p;
@@ -513,6 +796,7 @@ void() Rewind_Go =
 	rw_go_practice = tr_practice;
 	rw_nativeok = FALSE;
 	Trail_ReplayClear();
+	WarpOp_StringLoad();            // P1706: its load event is not a predicted op's
 	if (tr_practice)
 	{
 		c = SaveLoc_SaveCommand();
@@ -629,7 +913,7 @@ void() Rewind_Answer =
 */
 float(float seq) Rewind_GoLoaded =
 {
-	if (!rw_ack)
+	if (!rw_ack && !rw_opgo)        // P1706: an op go's load event can be read before Rewind_OpAnswer
 	if (!rw_gosl || seq != rw_gosl)
 		return FALSE;
 	// The current save cursor can move or be deleted before this event arrives.
@@ -654,7 +938,7 @@ float() Rewind_Cursoring =
 // A go in flight or the countdown: a replay opened now would miss the handover.
 float() Rewind_Busy =
 {
-	return rw_ack || rw_cd;
+	return rw_ack || rw_cd || rw_opgo;
 };
 
 float() Rewind_Waiting = { return rw_ack; };
@@ -683,6 +967,7 @@ void(float navfocus) Rewind_Frame =
 		if (rw_kst[k])
 		if (!rw_kdown[k])
 			rw_kst[k] = 0;
+	Rewind_OpAnswer();              // P1706: before the mode check -- it can be down before the answer
 	if (!rw_on)
 		return;
 	dt = cltime - rw_last;
@@ -696,7 +981,9 @@ void(float navfocus) Rewind_Frame =
 	{
 		// Let go early (Esc, or SaveLoc_Idle with the console up), or the hold's
 		// deadman saw no hold: either way the load is over.
-		if (!rec_sl_holding || cltime >= rw_cd)
+		if (cltime >= rw_cd)
+			Rewind_Finish();        // P1706: the release on a command
+		else if (!rec_sl_holding)
 			Rewind_Abandon();       // sl_holdoff: the server hands back the save's velocity
 		return;
 	}
@@ -773,6 +1060,7 @@ void(float navfocus) Rewind_Frame =
 		}
 	}
 	Rewind_Cursor();
+	Rewind_ArmFrame();              // P1706
 };
 
 // CSQC_UpdateView, beside the replay's camera.  A chase view behind the cursor,

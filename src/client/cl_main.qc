@@ -1337,6 +1337,7 @@ void() CSQC_Input_Frame =
 	if (rec_gh_on)
 	{
 		Ghost_InputFrame();
+		WarpOp_InputFrame();        // P1706: the ghost's own op rides the first command it empties
 		TimeScale_InputFrame();
 		return;
 	}

@@ -69,6 +69,10 @@ float  rec_gh_buttons;           // input_buttons, same
 float  rec_gh_lastt;             // cltime of the previous ghost frame
 entity rec_gh_body;              // the drawn stand-in, spawned once
 float  rec_gh_angsnaps;          // forced view angles absorbed this map
+// P1706: a ghost op in flight (WOP_GHOSTON/OFF) -- the state this client switched to at the press, which
+// rec_gh_on follows until the server has run that command; then STAT_FS_GHOST again (a refusal shows there).
+float  rec_gh_pred, rec_gh_predon, rec_gh_predseq, rec_gh_predack;
+float(float on) WarpOp_Ghost;           // cl_warpop.qc
 
 // Patch 340, defined in cl_avatar.qc (which compiles after this file): dress
 // the stand-in in this player's resolved colour, glow, trail and motes.
@@ -367,6 +371,41 @@ vector(vector org, vector ang, vector move, float btn, float dt) Ghost_Fly =
   what makes getproperty(VF_ORIGIN) the engine's own predicted eye for the body
   rather than last frame's override.
 */
+// P1706: WarpOp_InputFrame -- the op rode command `seq`.
+void(float seq) Ghost_OpCarried =
+{
+	if (rec_gh_pred)
+		rec_gh_predseq = seq;
+};
+
+// P1706: WarpOp_Frame -- no command carried it: the stringcmd, and the stat decides again.
+void(float on) Ghost_OpExpired =
+{
+	rec_gh_pred = FALSE;
+	localcmd(sprintf("cmd rec_ghost %g\n", on));
+};
+
+// P1706: what the detach below follows: the op's state while it is in flight, and a quarter second past
+// its command for the stat that answers it to arrive; then the stat.
+float() Ghost_Want =
+{
+	if (rec_gh_pred)
+	{
+		if (rec_gh_predseq > 0 && servercommandframe >= rec_gh_predseq)
+		{
+			if (!rec_gh_predack)
+				rec_gh_predack = cltime;
+			if (getstatf(STAT_FS_GHOST) ? rec_gh_predon : !rec_gh_predon)
+				rec_gh_pred = FALSE;    // answered as predicted
+			else if (cltime - rec_gh_predack > 0.25 || cltime < rec_gh_predack)
+				rec_gh_pred = FALSE;    // refused: the stat is the answer
+		}
+		if (rec_gh_pred)
+			return rec_gh_predon;
+	}
+	return getstatf(STAT_FS_GHOST) ? TRUE : FALSE;
+};
+
 void() Ghost_Frame =
 {
 	local float now, dt, eye;
@@ -382,7 +421,7 @@ void() Ghost_Frame =
 	  happens -- not where `ghost` was typed -- so the camera and the aim pin are
 	  seeded from the frame the server agreed on.
 	*/
-	if (getstatf(STAT_FS_GHOST))
+	if (Ghost_Want())               // P1706: the press's state while its op is in flight
 	{
 		if (!rec_gh_on)
 		{
@@ -535,6 +574,18 @@ float(vector newang, float isdelta) Ghost_SetAngles =
 void(float on) Ghost_Request =
 {
 	rec_gh_want = on ? TRUE : FALSE;
+	// P1706: on a command, both sides switch at it: the detach is on the press, and the server's zone gate
+	// starts at the very command whose movement this client empties (Ghost_InputFrame) -- the window the
+	// header refuses an optimistic detach for does not exist.
+	if (WarpOp_Ghost(rec_gh_want))
+	{
+		rec_gh_pred = TRUE;
+		rec_gh_predon = rec_gh_want;
+		rec_gh_predseq = -1;
+		rec_gh_predack = 0;
+		Ghost_Frame();              // detach / re-attach now, before this frame's input is built
+		return;
+	}
 	localcmd(sprintf("cmd rec_ghost %g\n", rec_gh_want));
 };
 

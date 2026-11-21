@@ -339,6 +339,9 @@
 // P1559: the writer's exact collision-safe completed leaf, not a client guess.
 #define STAT_FS_RUNFILE     210  // EV_STRING; paired with RUNLEG/RUNTAG/RUNTICKS
 #define STAT_FS_RUNID       211  // EV_STRING; local VIEW capture's attempt identity
+// P1706: the rewind cursor's armed resume (rw_arm): "A <serial> <ox oy oz> <vx vy vz> <pitch> <yaw> <duck>",
+// the body WOP_RWGO lands and holds (P682's SV_MovePrepRewind), or "A <serial> -" when it cannot say.
+#define STAT_FS_RWARM       212
 
 /*
 ===========================================================================
@@ -656,6 +659,21 @@
 // only under serverinfo fs_wopsave. Its picture ticket is its command's (FS_SaveOpTag), as no
 // stringcmd carries one.
 #define WOP_SAVE    200
+// P1706: noclip on / off at one command, so the client predicts the change of flight. Absolute, not a toggle:
+// the client's baseline movetype can be a round trip stale (P1238). Below WOP_SAVE (an older server ignores
+// them); sent only under serverinfo fs_wopnoclip.
+#define WOP_NOCLIPON  199
+#define WOP_NOCLIPOFF 198
+// P1706: the rewind's resume (`sl_saveat <armed request> go`) at one command, so the client lands, holds and
+// counts down from the press and its release (WOP_RELEASE) follows in order. Sent under serverinfo fs_woprwgo.
+#define WOP_RWGO      197
+// P1706: a plain `sl_load` (no hold: Momentum's mom_saveloc_current) at one command, predicted like 3-6's
+// rows. Sent under serverinfo fs_woploadnow.
+#define WOP_LOADNOW   196
+// P1706: `ghost` on / off at one command: the client detaches (and sends the body empty commands) from that
+// command, as the server's zone gate does. Sent under serverinfo fs_wopghost.
+#define WOP_GHOSTON   195
+#define WOP_GHOSTOFF  194
 float(float seq) FS_SaveOpTag = { return seq - 16000000 * floor(seq / 16000000) + 1; };
 
 

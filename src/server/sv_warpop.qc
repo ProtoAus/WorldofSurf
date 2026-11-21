@@ -49,6 +49,148 @@ void(entity e) SV_WarpOpResetChanged =
 string  wop_legcrc;              // the zone set wop_nstage/wop_nbonus were counted on
 float   wop_legcount, wop_nstage, wop_nbonus, wop_leggen;
 
+/*
+  P1706: `noclip`, one body for the stringcmd (SV_ParseClientCommand's branch, which the engine hands
+  QC first: sv_user.c's ucmds entry has no noqchandling) and WOP_NOCLIPON/OFF.  want: -1 toggle (the
+  stringcmd), 1 on, 0 off.  Refused under the replay/rewind pin, which owns the movetype until it lets
+  go (Patch 499, SV_WatchHoldMove).  Under a save-lock hold the hold keeps the body and the switch goes
+  to the movetype its release gives back (rec_sl_holdmove; it overwrote the hold's NONE before, and the
+  release then put walking back).  cl_warpop.qc's WarpOp_Apply mirrors all three at the op's command.
+  Turning it on taints the run HERE, at the command (SV_NoclipWatch): the watch in the thinks reads the
+  movetype once a packet, and an op pair inside one packet would otherwise fly one command unmarked.
+  SV_SaveLocRelease does the same for every release into noclip (its prototype is in sv_saveloc.qc).
+*/
+void(entity e, float want) SV_NoclipSet =
+{
+	local float on;
+
+	if (e.rec_wt_hold)
+	{
+		e.movetype = MOVETYPE_NONE;
+		sprint(e, PRINT_HIGH,
+		       "^3rewind: noclip does nothing while a replay or the rewind holds you\n");
+		return;
+	}
+	if (e.rec_sl_hold)
+	{
+		on = (want < 0) ? (e.rec_sl_holdmove != MOVETYPE_NOCLIP) : want;
+		e.rec_sl_holdmove = on ? MOVETYPE_NOCLIP : MOVETYPE_WALK;
+		sprint(e, PRINT_HIGH, on ? "noclip ON when you let go\n" : "noclip OFF when you let go\n");
+		return;
+	}
+	on = (want < 0) ? (e.movetype != MOVETYPE_NOCLIP) : want;
+	if (!on)
+	{
+		if (e.movetype != MOVETYPE_NOCLIP)
+			return;                     // already off: an op's repeat of what the player sees
+		e.movetype = MOVETYPE_WALK;
+		sprint(e, PRINT_HIGH, "noclip OFF\n");
+		return;
+	}
+	if (e.movetype == MOVETYPE_NOCLIP)
+		return;
+	e.movetype = MOVETYPE_NOCLIP;
+	sprint(e, PRINT_HIGH, "noclip ON\n");
+	SV_NoclipWatch(e);                  // practice from this command (TF_PRACTICE, run_t_placed)
+};
+
+/*
+  P1706: the rewind cursor, armed.  `rw_arm <serial> <ticks> <x> <y> <z>` is sent while browsing whenever
+  the cursor settles somewhere new (cl_rewind.qc Rewind_ArmFrame); the answer is the body `sl_saveat <ticks>
+  x y z go` would land and hold -- P682's read-only SV_MovePrepRewind, the go's own ring selection
+  (SV_RewindSelectRead = SV_RewindFind's) through the save writer's four-decimal round trip -- published as
+  STAT_FS_RWARM.  WOP_RWGO then does exactly what that stringcmd does, with this request, at one command.
+  Nothing here is trusted from the client but the request: the go re-selects from the server's own ring and
+  writes, reads back, loads and holds as before; a refusal there is answered like the stringcmd's.
+*/
+.float  rwa_serial, rwa_t, rwa_pin;
+.float  rwa_tok, rwa_tokt;          // a bucket of 30, 30 a second: the client sends at most ~12 a second
+.vector rwa_p;
+.string rwa_stat;
+moveprep_t *rwa_mp;
+void(entity e) SV_SaveLocGo;            // sv_player.qc
+
+void(entity e, string s) SV_RewindArmPublish =
+{
+	if (e.rwa_stat != "")
+		strunzone(e.rwa_stat);
+	e.rwa_stat = strzone(s);
+};
+
+void(entity e, float serial, float t, vector p) SV_RewindArm =
+{
+	local float r;
+	local vector o, v, a;
+
+	if (!(serial >= 1 && serial < 16777216 && serial == floor(serial)))
+		return;
+	e.rwa_serial = 0;
+	e.rwa_tok = min(30, e.rwa_tok + (time - e.rwa_tokt) * 30);
+	e.rwa_tokt = time;
+	if (e.rwa_tok < 1 || !e.rw_pin || !e.rec_wt_hold)
+	{
+		SV_RewindArmPublish(e, sprintf("A %d -", serial));
+		return;
+	}
+	e.rwa_tok = e.rwa_tok - 1;
+	if (!rwa_mp)
+		rwa_mp = SV_MovePrepAlloc();
+	mp_rw_bodyonly = TRUE;
+	r = SV_MovePrepRewind(e, t, p, TRUE, TRUE, rwa_mp);
+	mp_rw_bodyonly = FALSE;
+	if (r != MP_READY)
+	{
+		SV_RewindArmPublish(e, sprintf("A %d -", serial));
+		return;
+	}
+	e.rwa_serial = serial;
+	e.rwa_t = t;
+	e.rwa_p = p;
+	e.rwa_pin = e.rec_wt_pin;
+	o = rwa_mp->origin;
+	v = rwa_mp->release_velocity;
+	a = rwa_mp->angles;
+	a_z = (rwa_mp->forceduck == FD_DUCK) ? 1 : 0;
+	// sprintf takes eight values: two strings of them.
+	SV_RewindArmPublish(e, strcat(sprintf("A %d %.4f %.4f %.4f ", serial, o_x, o_y, o_z),
+	                              sprintf("%.4f %.4f %.4f %.4f %.4f %g", v_x, v_y, v_z, a_x, a_y, a_z)));
+};
+
+// WOP_RWGO: SV_ParseClientCommand's `sl_saveat ... go` with the armed request.  The terminal answer is
+// set first under this command's ticket (FS_SaveOpTag), as WOP_SAVE's is: a refusal answers too.
+void(entity e) SV_RewindOpGo =
+{
+	local float ok;
+
+	if (!e.rwa_serial || e.rwa_pin != e.rec_wt_pin)
+	{
+		sprint(e, PRINT_HIGH, "^3rewind:^7 that resume was not armed -- press it again\n");
+		e.rwa_serial = 0;
+		return;
+	}
+	e.rwa_serial = 0;                   // one go per answer
+	if (!e.rw_pin)
+	{
+		sprint(e, PRINT_HIGH, "^3rewind:^7 not rewinding -- open the rewind again\n");
+		return;
+	}
+	if (e.run_tas_rwpin)
+		return;                         // TAS resumes select an exact native tick: the stringcmd only
+	// The stringcmd pays the sl_ preamble's charge and the go's own (review round 4 of P477).
+	if (!SV_SaveLocRate(e))
+		return;
+	if (!SV_SaveLocRate(e))
+		return;
+	e.rec_sl_auto = FALSE;              // Patch 899: the player's own command
+	// The ticket stays through the load, as the stringcmd's does until its next command: the LOADED event
+	// carries it (SV_SaveLocEvent), so the client trims its line there and saves the go's picture.
+	e.rec_sl_requesttag = e.rec_sl_answer_tag;
+	ok = SV_SaveLocCreateAtMode(e, e.rwa_t, e.rwa_p, TRUE, TRUE, FALSE, FALSE);
+	if (ok)
+		SV_SaveLocGo(e);
+	e.rec_sl_requesttag = 0;
+};
+
 void() SV_WarpOpCommand =
 {
 	local float op;
@@ -59,7 +201,8 @@ void() SV_WarpOpCommand =
 	op = input_impulse;
 	if (input_cmd_kind != 1 && input_cmd_kind != 2)
 	{
-		if ((op >= WOP_RESET && op <= WOP_TOP) || op == WOP_SAVE)
+		if ((op >= WOP_RESET && op <= WOP_TOP) || op == WOP_SAVE || op == WOP_NOCLIPON || op == WOP_NOCLIPOFF
+		    || op == WOP_RWGO || op == WOP_LOADNOW || op == WOP_GHOSTON || op == WOP_GHOSTOFF)
 			if (SV_DevOn())
 				dprint(sprintf("warpop: %g dropped, not a decoded command\n", op));
 		return;
@@ -69,8 +212,12 @@ void() SV_WarpOpCommand =
 		wop_live = TRUE;
 		forceinfokey(world, "fs_wop", "1");
 		forceinfokey(world, "fs_wopsave", "1");     // P1547
+		forceinfokey(world, "fs_wopnoclip", "1");   // P1706
+		forceinfokey(world, "fs_woprwgo", "1");     // P1706
+		forceinfokey(world, "fs_woploadnow", "1");  // P1706
+		forceinfokey(world, "fs_wopghost", "1");    // P1706
 	}
-	if (op != WOP_SAVE)
+	if (op != WOP_SAVE && (op < WOP_GHOSTOFF || op > WOP_NOCLIPON))   // P1706: 194..199
 	if (op < WOP_RESET || op > WOP_TOP)
 		return;
 	if (input_cmd_sequence_hi < self.wop_hi)
@@ -81,10 +228,11 @@ void() SV_WarpOpCommand =
 	self.wop_lo = input_cmd_sequence_lo;
 	// Patch 759: STAT_FS_WOPACK, sent with the rows this op moves, run or refused.
 	self.wop_ack = input_cmd_sequence_hi * 65536 + input_cmd_sequence_lo;
-	if (op == WOP_SAVE)
+	if (op == WOP_SAVE || op == WOP_RWGO)
 	{
 		// P1547: sl_save's preamble (SV_ParseClientCommand) under this command's ticket, before anything
 		// can refuse it: a terminal answer even then. No STAT_FS_SLACK count: no stringcmd was sent.
+		// P1706: the rewind's resume creates a save as well, under the same kind of ticket.
 		self.rec_sl_answer_tag = FS_SaveOpTag(self.wop_ack);
 		self.rec_sl_answer_op = SLOP_NONE;
 		self.rec_sl_answer_tick = -1;
@@ -97,6 +245,33 @@ void() SV_WarpOpCommand =
 	if (op == WOP_RELEASE)
 	{
 		SV_SaveLocHold(self, FALSE);
+		return;
+	}
+	// P1706: what the `noclip` stringcmd does, at this command (no sl_ charge: it never had one).
+	if (op == WOP_NOCLIPON || op == WOP_NOCLIPOFF)
+	{
+		SV_NoclipSet(self, op == WOP_NOCLIPON);
+		return;
+	}
+	if (op == WOP_RWGO)
+	{
+		SV_RewindOpGo(self);
+		return;
+	}
+	if (op == WOP_GHOSTON || op == WOP_GHOSTOFF)
+	{
+		// P1706: `cmd rec_ghost 1/0` (SV_ParseClientCommand), at this command.
+		SV_GhostSet(self, op == WOP_GHOSTON);
+		return;
+	}
+	if (op == WOP_LOADNOW)
+	{
+		// P1706: `sl_load`'s charge and what it calls (SV_ParseClientCommand), at this command.
+		if (!SV_SaveLocRate(self))
+			return;
+		self.rec_sl_requesttag = 0;
+		self.rec_sl_auto = FALSE;
+		SV_SaveLocLoad(self, self.rec_sl_index);
 		return;
 	}
 	if (op == WOP_SAVE)

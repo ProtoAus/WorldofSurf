@@ -295,6 +295,10 @@ float(float v) MP_SaveDecimal =
 // Pure save, cold/forked prefix and previous-go replacement paths abstain.
 // READY is BODY POLICY ONLY: no ID/sequence reservation, prefix/copy/file promise,
 // prediction permission or future reuse claim. Every check is bounded/read-only.
+// P1706: TRUE for rw_arm (sv_warpop.qc), which needs only the body: a go replaces the last resume's row
+// (SV_RewindDropGo) and lands the same ring sample, so a previous go or a list full of saves but that row
+// does not change what the body would be.
+float mp_rw_bodyonly;
 float(entity e, float t, vector near, float usenear, float go, moveprep_t *out) SV_MovePrepRewind =
 {
 	local float slot, blk, b, i, r, mode;
@@ -330,7 +334,11 @@ float(entity e, float t, vector near, float usenear, float go, moveprep_t *out) 
 	if (!(rec_sl_nb[blk] >= 0 && rec_sl_nb[blk] <= SL_Cap(blk)
 		&& rec_sl_nb[blk] == floor(rec_sl_nb[blk]))) return MP_STALE;
 	if (!(rec_sl_ns[blk] >= 0 && rec_sl_ns[blk] < 16777215 && rec_sl_ns[blk] == floor(rec_sl_ns[blk]))) return MP_STALE;
-	if (rec_sl_nb[blk] == SL_Cap(blk) || e.rw_goid || e.rw_goseq) return MP_UNSUPPORTED;
+	if (mp_rw_bodyonly)
+	{
+		if (rec_sl_nb[blk] >= SL_Cap(blk) && !e.rw_goid) return MP_UNSUPPORTED;
+	}
+	else if (rec_sl_nb[blk] == SL_Cap(blk) || e.rw_goid || e.rw_goseq) return MP_UNSUPPORTED;
 	for (i = 0; i < rec_sl_nb[blk]; i += 1)
 	{
 		r = SL_Base(blk) + i;
