@@ -284,6 +284,7 @@ void() TASSearch_Event;       // P1449 search panel (cl_tasoptui.qc)
 void() TASJargon_PlanEvent;   // P1449 Jargon's route (cl_jargon.qc)
 void() TASJargon_SavedEvent;  // the Jargon panel's Continue (cl_jargon.qc)
 void() TASUp_ListEvent;       // P1696: the Upload tab's runs (cl_tasupload.qc)
+void() TASUp_NewEvent;        // P1712: the upload offer (cl_tasupload.qc)
 void() TASProject_Event;
 
 void() CSQC_Parse_Event =
@@ -304,6 +305,7 @@ void() CSQC_Parse_Event =
 	if (t == TAS_EV_JPLAN) { TASJargon_PlanEvent(); return; }  // P1449 Jargon's route
 	if (t == TAS_EV_JSAVED) { TASJargon_SavedEvent(); return; }   // the Jargon panel's Continue
 	if (t == TAS_EV_UPLIST) { TASUp_ListEvent(); return; }        // P1696: runs this game finished, for Upload
+	if (t == TAS_EV_UPNEW) { TASUp_NewEvent(); return; }          // P1712: a run just finished: the upload offer
 	if (t == TAS_EV_PROJECT) { TASProject_Event(); return; }
 	if (t >= AR_EV_ROW && t <= AR_EV_STREAM)
 	{

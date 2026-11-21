@@ -1029,6 +1029,8 @@ string(string s) Results_NoteText =
 	return s;
 };
 
+vector rs_card_lo, rs_card_hi;   // P1712: where the card was last drawn, and when (the TAS upload offer moves off it)
+float rs_card_t;
 void(vector scr) Results_Draw =
 {
 	local float a, u, x, y, w, hgt, pad, tick, lsz, tsz, msz, hsz, rowh, wellh, ph, tw;
@@ -1085,6 +1087,7 @@ void(vector scr) Results_Draw =
 	x = bound(4 * u, scr_x * cvar("hud_results_x") - w * 0.5, max(4 * u, scr_x - w - 4 * u));
 	y = bound(4 * u, scr_y * cvar("hud_results_y") - hgt * 0.5, max(4 * u, scr_y - hgt - 4 * u));
 	p = [floor(x), floor(y), 0];
+	rs_card_lo = p; rs_card_hi = p + [w, hgt, 0]; rs_card_t = cltime;
 
 	tcol = Timer_Color(TS_FINISHED, ui_rs_ticks, ui_rs_pb, ui_rs_flags, 0);
 	sui_style_hud(scr);

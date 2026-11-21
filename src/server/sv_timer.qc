@@ -7222,9 +7222,11 @@ float(string path) SV_TASUpThere =
 	fclose(fh);
 	return TRUE;
 };
+// P1712: where a run's name starts (data/runs/<map>/<leg>/<ticks>_..._tas.rec): the last '/'
+float(string p) SV_TASUpCut = { local float i; for (i = strlen(p) - 1; i > 0; i = i - 1) if (str2chr(p, i) == 47) return i; return -1; };
 void(entity e, string path) SV_TASUpNote =
 {
-	local float fh, i, c, size, b;
+	local float fh, i, c, size, b, cut, k, mine, best;
 	local string body, l, list, part;
 	if (!SV_TASUpHost(e) || !SV_TASUpCourse(path) || !SV_TASUpLoose(path)) return;
 	fh = fopen(path, FILE_READ);
@@ -7237,6 +7239,7 @@ void(entity e, string path) SV_TASUpNote =
 	body = fgets(fh);
 	fclose(fh);
 	list = SV_TASUpListPath(); part = strcat(list, ".part");
+	cut = SV_TASUpCut(path); mine = stof(substring(path, cut + 1, -1)); best = (cut > 0 && mine > 0);
 	b = buf_create();
 	bufstr_add(b, strcat(strtolower(digest_hex("SHA256", body)), " ", path), TRUE);     // newest first
 	fh = SV_TASUpLoose(list) ? fopen(list, FILE_READ) : -1;     // a package's list is never carried into ours
@@ -7248,6 +7251,9 @@ void(entity e, string path) SV_TASUpNote =
 			if (l == "") break;
 			c = tokenize(l);
 			if (c != 2 || strlen(argv(0)) != 64 || !strcmp(argv(1), path) || !SV_TASUpThere(argv(1))) continue;   // pruned files go
+			k = SV_TASUpCut(argv(1));     // P1712: a run of this course as fast or faster: not a new best
+			if (k == cut && !strcmp(substring(argv(1), 0, k), substring(path, 0, cut)) && stof(substring(argv(1), k + 1, -1)) <= mine)
+				best = FALSE;
 			bufstr_add(b, l, TRUE);
 		}
 		fclose(fh);
@@ -7259,6 +7265,12 @@ void(entity e, string path) SV_TASUpNote =
 		fclose(fh);
 		fremove(list);
 		if (frename(part, list) != 0) dprint(sprintf("tas upload: cannot rename %s\n", part));
+		else if (best)
+		{	// P1712: the host's own client offers it (TASUp_NewEvent); the list it asks for says what it is
+			WriteByte(MSG_MULTICAST, SVC_CGAMEPACKET); WriteByte(MSG_MULTICAST, TAS_EV_UPNEW);
+			WriteString(MSG_MULTICAST, path);
+			msg_entity = e; multicast(e.origin, MULTICAST_ONE_R);
+		}
 	}
 	else dprint(sprintf("tas upload: cannot write %s\n", part));
 	buf_del(b);

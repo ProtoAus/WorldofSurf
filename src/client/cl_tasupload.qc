@@ -20,6 +20,10 @@ float tup_state;                // 0 the list, 1 asking for a code, 2 confirm, 3
 float tup_req, tup_until, tup_armed, tup_size;
 float tup_pend, tup_pendt;       // `tas upload N` waiting for the list (row N-1, or -2: `tas upload`, to print it) until tup_pendt
 string tup_path, tup_label, tup_nonce, tup_sha, tup_note;
+string tup_short;               // P1712: the answer in a few words, for the offer box
+float tupb_box, tupb_auto, tupb_left, tupb_seen, tupb_end, tupb_want;   // P1712's offer: up, sends itself, countdown left
+                                // (runs only while it is seen), last frame, closes, list due
+string tupb_path, tupb_next;    // the run offered; a newer best that came while one was on its way
 
 string(string old, string value) TASUp_Keep =
 {
@@ -72,6 +76,7 @@ void(string p, string sha) TASUp_Add =
 	tup_n = tup_n + 1;
 };
 void() TASUp_Pending;
+void() TASUp_OfferList;
 // SV_TASUpList's events: index, count, then the run's sha and path; the list is replaced once the last arrives
 void() TASUp_ListEvent =
 {
@@ -88,6 +93,7 @@ void() TASUp_ListEvent =
 	tup_n = 0;
 	for (k = 0; k < tupe_n; k = k + 1) TASUp_Add(tupe_p[k], tupe_s[k]);
 	if (tup_pendt) TASUp_Pending();         // the console verb, answered by this list (flow review 3: it read the last one)
+	if (tupb_want) TASUp_OfferList();
 };
 // asks the local game for its list: when the map changes, and every 3 s while the tab is drawn
 void() TASUp_List =
@@ -105,6 +111,8 @@ void(string note) TASUp_Answer =
 {
 	tup_state = 4; tup_req = 0;
 	tup_note = TASUp_Keep(tup_note, strcat(strtoupper(substring(note, 0, 1)), substring(note, 1, -1)));
+	tup_short = TASUp_Keep(tup_short, "not uploaded: see the console");
+	if (tupb_box) tupb_end = cltime + 8;
 	print(sprintf("tas upload: %s\n", note));
 };
 // the file as it is now, or "" (missing, too big, or a NUL in it)
@@ -144,27 +152,31 @@ void(float i) TASUp_Ask =
 	print(sprintf("tas upload: asked for a code for %s (%g bytes)\n", tup_path, tup_size));
 };
 
-// Send: called from TASUI_Input on a device's press over the button, the one moment the engine signs
-void() TASUp_Send =
+// Send: called from TASUI_Input on a device's press over the button (or F6 on the offer), the one moment the engine signs;
+// byitself: the offer's countdown ran out under tas_upload_offer 2 -- signed unkeyed, acct_sign kind -7 (P1712)
+void(float byitself) TASUp_Send =
 {
 	local string body, p, env;
-	if (tup_state != 2 || !cl_input_real) return;
-	if (gettime(0) < tup_armed) return;     // no press carried in from the Upload click
+	if (tup_state != 2) return;
+	if (!byitself && (!cl_input_real || gettime(0) < tup_armed)) return;     // no press carried in from the Upload click
 	if (!isserver()) { TASUp_Answer("upload from a game you host, not while on a server; nothing was sent"); return; }
 	body = TASUp_Read(tup_path);
 	if (body == "" || strcmp(strtolower(digest_hex("SHA256", body)), tup_sha))
 	{
 		TASUp_Answer("the file changed after Upload: press Upload again; nothing was sent"); return;
 	}
-	p = acct_sign(TASUp_Signed(tup_nonce, tup_sha), -6);
+	p = acct_sign(TASUp_Signed(tup_nonce, tup_sha), byitself ? -7 : -6);
 	if (p == "" || tokenize(p) != 5)
 	{
-		TASUp_Answer("the game would not sign the upload: it needs a linked Steam account (Settings), the latest engine and a "
+		if (byitself)
+			TASUp_Answer("not sent by itself: it needs a linked Steam account (Settings) and the latest game; F6 sends it");
+		else TASUp_Answer("the game would not sign the upload: it needs a linked Steam account (Settings), the latest engine and a "
 			"real click; nothing was sent");
 		return;
 	}
 	// tasupd.GAME_HEAD: the proof is checked before the file is read; then the bytes the code was asked for, raw
-	env = strcat("FTESURF-TASUP 1\nnonce ", tup_nonce, "\nsha ", tup_sha, "\npub ", argv(0), "\nsig ", argv(2));
+	env = strcat(byitself ? "FTESURF-TASUP 2" : "FTESURF-TASUP 1", "\nnonce ", tup_nonce, "\nsha ", tup_sha, "\npub ", argv(0));   // 2: kind -7
+	env = strcat(env, "\nsig ", argv(2));
 	env = strcat(env, "\ngame ", argv(4), "\n", body);
 	tup_req = Online_NextReq();
 	if (!uri_post(strcat(TUP_BASE, "upload"), tup_req, "application/x-ftesurf-tasup", env))
@@ -172,11 +184,12 @@ void() TASUp_Send =
 		TASUp_Answer("the upload service could not be reached; nothing was sent"); return;
 	}
 	tup_state = 3; tup_until = gettime(0) + 180;
-	print(sprintf("tas upload: sent %s (%g bytes), signed under a real press\n", tup_path, tup_size));
+	print(sprintf("tas upload: sent %s (%g bytes), %s\n", tup_path, tup_size, byitself ? "by itself when the offer ran out"
+		: "signed under a real press"));
 };
 void() TASUp_Press =
 {
-	if (tup_state == 2 && sui_is_hovered("tup_send")) TASUp_Send();
+	if (tup_state == 2 && sui_is_hovered("tup_send")) TASUp_Send(FALSE);
 };
 
 float(float reqid, float code, string body) TASUp_Reply =
@@ -199,7 +212,7 @@ float(float reqid, float code, string body) TASUp_Reply =
 		if (ok == 1 && TASUp_Hex(s, 32) && !strcmp(json_get_string(json_find_object_child(root, "sha")), tup_sha))
 		{
 			tup_nonce = TASUp_Keep(tup_nonce, s);
-			tup_state = 2; tup_armed = gettime(0) + 0.5;
+			tup_state = 2; tup_armed = gettime(0) + (tupb_box ? 0 : 0.5);   // the offer's code came by itself, not a click
 			print(sprintf("tas upload: ready to send %s: click Send\n", tup_path));
 		}
 		else TASUp_Answer(strcat("not uploaded: ", (why != "") ? why : "the service did not give a code"));
@@ -220,10 +233,16 @@ float(float reqid, float code, string body) TASUp_Reply =
 		{
 			t = json_get_float(json_find_object_child(root, "id"));
 			if (json_get_string(json_find_object_child(root, "state")) == "shown")
+			{
 				TASUp_Answer(sprintf("on the TAS board, physics checked: run %g, %.3fs. play.proto.bar/tasup/run/%g", t,
 					json_get_float(json_find_object_child(root, "time")), t));
+				tup_short = TASUp_Keep(tup_short, sprintf("on the TAS board: run %g", t));
+			}
 			else
+			{
 				TASUp_Answer(sprintf("uploaded, waiting for review: run %g (%s). play.proto.bar/tasup/run/%g", t, s, t));
+				tup_short = TASUp_Keep(tup_short, sprintf("uploaded: run %g waits for review", t));
+			}
 		}
 		else TASUp_Answer(strcat("not uploaded: ", (why != "") ? why : "the service refused it", (s != "") ? strcat(" -- ", s) : ""));
 	}
@@ -239,6 +258,24 @@ void() TASUp_Pump =
 	if (tup_state == 2 && gettime(0) > tup_armed + 590) TASUp_Answer("the confirmation expired: press Upload again");   // tasupd.CHALLENGE_TTL
 };
 
+// P1712: what a new TAS best does -- tas_upload_offer 2 the box, then it sends itself; 1 the box asks; 0 nothing
+vector(vector at, float width, float tsz, float hint, float row) TASUp_OfferChips =
+{
+	local float i, v, lw, w;
+	local string lab;
+	lab = "After a new best:";
+	lw = stringwidth(lab, TRUE, [hint, hint]) + 8;
+	sui_text(at + [0, (row - hint) * 0.5, 0], [hint, hint], lab, SUI_THEME_DIM, 1, 0);
+	w = (width - lw - 8) / 3;
+	v = cvar("tas_upload_offer");
+	for (i = 0; i < 3; i = i + 1)
+		if (Profile_Chip(sprintf("tup_offer%g", i), at + [lw + i * (w + 4), 0, 0], [w, row, 0],
+		                 (i == 0) ? "Auto-upload" : (i == 1) ? "Ask" : "Off", tsz, v == 2 - i))
+			localcmd(sprintf("seta tas_upload_offer %g\n", 2 - i));
+	at_y = at_y + row + 6;
+	return at;
+};
+
 void(vector at, float width, float tsz, float hint, float row) TASUp_Draw =
 {
 	local float i;
@@ -247,6 +284,7 @@ void(vector at, float width, float tsz, float hint, float row) TASUp_Draw =
 	at_y = ZonePub_Wrap(at, width, hint, "Send a finished TAS run of this map to the TAS board at play.proto.bar/tasup, as your "
 		"Steam account. It is checked against the game's movement physics: runs that check out are listed there with their "
 		"file; a new record, or anything the check cannot clear, waits for review.", SUI_THEME_DIM, TRUE) + hint;
+	at = TASUp_OfferChips(at, width, tsz, hint, row);
 	half = [(width - 6) / 2, row, 0];
 	if (tup_state == 0)
 	{
@@ -323,4 +361,120 @@ void(float argc) TASUp_Verb =
 	if (!isserver()) { print("tas upload: in a game you host\n"); return; }
 	tup_pend = i; tup_pendt = cltime + 5;
 	tup_at = 0; TASUp_List();
+};
+
+// P1712: the offer -- after a local TAS finish that beats this course's other saved TAS runs (SV_TASUpNote), a box where
+// the F6 report boxes sit. Its code is asked for as it opens, so F6 signs and sends at once; F7 keeps the run local.
+#define TUPB_SECS 12
+float() PE_BoxUp;
+float() CR_BoxUp;
+void() TASUp_RegisterCvars = { registercvar("tas_upload_offer", "2", CVAR_ARCHIVE); };
+float() TASUp_BoxUp = { return tupb_box && !rec_sb_open && !PE_BoxUp() && !CR_BoxUp(); };
+void(string path) TASUp_Offer =
+{
+	tupb_path = TASUp_Keep(tupb_path, path);
+	tupb_want = cltime + 5;
+	tup_at = 0; TASUp_List();
+};
+void() TASUp_NewEvent =
+{
+	local string path;
+	path = readstring();
+	if (!isserver() || cvar("tas_upload_offer") <= 0) return;
+	if (ui_consent_ver < FS_TERMS_ONLINE && cvar("rec_terms") < FS_TERMS_ONLINE) return;   // TASShare_Allowed, without its print
+	if (tup_state == 1 || tup_state == 3 || (tup_state == 2 && !tupb_box))   // one on its way, or the tab's own Send
+		{ tupb_next = TASUp_Keep(tupb_next, path); return; }
+	TASUp_Offer(path);         // a newer best replaces one still waiting for F6
+};
+void() TASUp_OfferList =
+{
+	local float i;
+	if (cltime > tupb_want) { tupb_want = 0; return; }
+	tupb_want = 0;
+	for (i = 0; i < tup_n; i = i + 1) if (!strcmp(tup_p[i], tupb_path)) break;
+	if (i >= tup_n) return;
+	tup_state = 0;
+	tupb_box = TRUE; tupb_auto = (cvar("tas_upload_offer") >= 2);
+	tupb_left = TUPB_SECS; tupb_seen = cltime; tupb_end = 0;
+	TASUp_Ask(i);              // a refusal answers in the box
+};
+void() TASUp_BoxClose =
+{
+	local string path;
+	tupb_box = FALSE;
+	if (tup_state == 1 || tup_state == 2) { tup_state = 0; tup_req = 0; }    // a late code is ignored
+	if (tupb_next != "")
+	{
+		path = strcat(tupb_next); strunzone(tupb_next); tupb_next = "";
+		TASUp_Offer(path);
+	}
+};
+void(string why) TASUp_BoxKeep =
+{
+	print(sprintf("tas upload: %s kept on this PC (%s); the TAS menu's Upload tab still has it\n", tup_label, why));
+	TASUp_BoxClose();
+};
+float(float scanx) TASUp_Key =
+{
+	if ((scanx != K_F6 && scanx != K_F7) || !TASUp_BoxUp() || tup_state == 3 || tup_state == 4) return FALSE;
+	if (scanx == K_F7) { TASUp_BoxKeep("F7"); return TRUE; }
+	if (tup_state == 2) TASUp_Send(FALSE);
+	return TRUE;               // state 1: the code is on its way; the box says so
+};
+void(vector scr) TASUp_DrawBox =
+{
+	local vector p;
+	local float sc, w, h, hh, lsz, y, ask, bh;
+	local string st;
+	if (!tupb_box)
+	{
+		if (tupb_next != "" && (tup_state == 0 || tup_state == 4)) TASUp_BoxClose();   // a best that waited on the tab's send
+		return;
+	}
+	TASUp_Pump();
+	ask = (tup_state == 1 || tup_state == 2);
+	if (ask && TASUp_BoxUp()) tupb_left = tupb_left - min(cltime - tupb_seen, 0.25);   // not while hidden or stalled
+	tupb_seen = cltime;
+	if (ask && tupb_left <= 0)
+	{
+		if (!tupb_auto) { TASUp_BoxKeep("no key pressed"); return; }
+		if (tup_state == 2) TASUp_Send(TRUE);          // state 1 waits for its code (TASUp_Pump times it out)
+		ask = (tup_state == 1 || tup_state == 2);
+	}
+	if (tup_state == 4 && cltime >= tupb_end) { TASUp_BoxClose(); return; }
+	if (!TASUp_BoxUp()) return;
+	sc = ui_cv_scale;
+	Font_Set(ui_font_ui);
+	lsz = Font_Px(8 * sc);
+	h = 14 * sc;
+	hh = 15 * sc;
+	w = 176 * sc;
+	bh = 3 * sc + hh + (ask ? 4 : 2) * h + 3 * sc;
+	p = [scr_x - w - 8 * sc, scr_y * 0.42, 0];
+	// the finish card (drawn later, over this) sits on that spot after a finish: under it, else above it
+	if (Results_Drawn() && rs_card_t >= cltime - 0.25 && p_x < rs_card_hi_x && p_x + w > rs_card_lo_x)
+		p_y = (rs_card_hi_y + 6 * sc + bh <= scr_y - 4 * sc) ? rs_card_hi_y + 6 * sc : max(4 * sc, rs_card_lo_y - 6 * sc - bh);
+	_sui_round_draw(p, [w, bh, 0], 5 * sc, SUI_THEME_PANEL, 0.90);
+	y = p_y + 3 * sc;
+	HUD_Text([p_x + 6 * sc, y + (hh - 2 * sc - lsz) * 0.5], "New TAS best", lsz, SUI_THEME_TEXT, 1);
+	if (ask)
+		HUD_TextR([p_x + w - 6 * sc, y + (hh - 2 * sc - lsz) * 0.5], sprintf("%gs", ceil(max(0, tupb_left))),
+		          lsz, SUI_THEME_WARN, 1);
+	drawfill([p_x + 4 * sc, y + hh - 2 * sc, 0], [w - 8 * sc, 1, 0], SUI_THEME_EDGE_HI, 0.7, 0);
+	y = y + hh;
+	HUD_Text([p_x + 6 * sc, y + (h - lsz) * 0.5], tup_label, lsz, SUI_THEME_DIM, 1);
+	y = y + h;
+	if (tup_state == 1) st = "getting the upload ready...";
+	else if (tup_state == 2) st = tupb_auto ? "uploads itself when the timer ends" : "upload it to the TAS board?";
+	else if (tup_state == 3) st = "sending and checking...";
+	else st = tup_short;
+	HUD_Text([p_x + 6 * sc, y + (h - lsz) * 0.5], st, lsz, SUI_THEME_DIM, 1);
+	y = y + h;
+	if (ask)
+	{
+		KeyMenu_Row([p_x, y], w, h, "F6", "Upload to the TAS board", (tup_state == 2) ? KM_HOT : KM_INERT, lsz, sc);
+		y = y + h;
+		KeyMenu_Row([p_x, y], w, h, "F7", "Keep it on this PC", KM_HOT, lsz, sc);
+	}
+	Font_Reset();
 };

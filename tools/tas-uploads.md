@@ -185,6 +185,19 @@ old unit kept as its unit.prev). Checked live: health and X-Tasupd-Source 732293
 proofless game upload refused (200, ok=0); releases 0.1.45-0.1.54 learned (none carries the upload flow yet);
 `allow-code 4af237be...` for Lex's dev install (main 73229378). Players: from the first release with P1696.
 
+## Built: P1712 the offer (Lex 22 Nov: "an auto popup, like the f6 ... or do it automatically if they don't press anything")
+
+SV_TASUpNote sends the host's client TAS_EV_UPNEW when the run beats every other listed run of its course folder (ticks
+from the file name; ties are not a best). The client (cl_tasupload.qc TASUp_NewEvent) asks for the list, then the
+challenge at once, and shows a box where the F6 report boxes sit (under the finish card when that covers it): F6 sends
+it keyed (kind -6, header 1) in one press, F7 keeps it local. `tas_upload_offer` 2 (default; Upload tab "Auto-upload"):
+when its 12 s run out -- counted only while the box is seen -- it sends itself: `acct_sign(..., -7)`, a kind only the
+engine's P1712 has, always unkeyed ("key 0" in the statement, no press spent), site fixed like -6; header
+FTESURF-TASUP 2 tells tasupd to verify that statement (GAME_AUTO_KIND). Only tasupd verifies a -7 statement; the game
+code check still limits it to our csprogs, which send it only from a game they host, after the box was shown. 1 = the
+box asks only; 0 = no box. Checked headless against a scratch tasupd: auto send taken (held: Jargon's resume records),
+old engine refuses -7 ("not sent by itself"), a finish slower than a listed one gets no box.
+
 ## P1700: on the website
 
 tasupd's pages carry the site's menu (SITE_NAV, `TAS uploads` current) and every site page links here (the release

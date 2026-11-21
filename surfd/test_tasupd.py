@@ -1084,12 +1084,14 @@ class GameUpload(Service):
         self.assertEqual(r.status_code, 200)
         return r.get_json()
 
-    def game_body(self, body, nonce, seed=SEED_ALICE, code=None, signed=None, sha=None, head_sha=None):
+    def game_body(self, body, nonce, seed=SEED_ALICE, code=None, signed=None, sha=None, head_sha=None, ver=1, kind=None, key=None):
         code = code or self.code
         sha = sha or hashlib.sha256(body).hexdigest()          # the file the proof names
         signed = signed or svc.game_nonce(nonce, sha)
-        sig = ed.sign(seed, (svc.ACCT_STATEMENT % (svc.GAME_SITE, signed, svc.GAME_KIND, 1, code)).encode())
-        return b'FTESURF-TASUP 1\nnonce %s\nsha %s\npub %s\nsig %s\ngame %s\n' % (
+        kind = kind if kind is not None else (svc.GAME_AUTO_KIND if ver == 2 else svc.GAME_KIND)
+        key = key if key is not None else (0 if ver == 2 else 1)
+        sig = ed.sign(seed, (svc.ACCT_STATEMENT % (svc.GAME_SITE, signed, kind, key, code)).encode())
+        return b'FTESURF-TASUP %d\nnonce %s\nsha %s\npub %s\nsig %s\ngame %s\n' % (ver,
             nonce.encode(), (head_sha or sha).encode(), ed.publickey(seed).hex().encode(), sig.hex().encode(), code.encode()) + body
 
     def post(self, c, data):
@@ -1118,6 +1120,15 @@ class GameUpload(Service):
         with contextlib.closing(sqlite3.connect(self.store)) as db:
             self.assertEqual(db.execute('SELECT steamid, tool FROM runs WHERE id = ?', (j['id'],)).fetchone(), (ALICE, svc.GAME_TOOL))
             self.assertEqual(db.execute("SELECT COUNT(*) FROM nonces WHERE nonce LIKE 'game %'").fetchone()[0], 1)   # spent
+
+    def test_the_offers_own_send_is_taken_unkeyed(self):     # P1712: header 2, kind -7 key 0
+        j = self.send(ver=2).get_json()
+        self.assertEqual((j['ok'], j['state']), (1, 'shown'), j)
+
+    def test_the_header_and_the_statement_agree(self):       # P1712: neither kind passes under the other's header
+        self.refused(self.send(ver=2, kind=svc.GAME_KIND, key=1), 403, 'did not check out')
+        self.refused(self.send(ver=1, kind=svc.GAME_AUTO_KIND, key=0), 403, 'did not check out')
+        self.refused(self.send(ver=2, kind=svc.GAME_AUTO_KIND, key=1), 403, 'did not check out')
 
     def test_a_confirmation_is_used_once(self):
         c, body = self.app.test_client(), rec()

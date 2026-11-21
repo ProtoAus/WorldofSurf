@@ -1,5 +1,13 @@
 # lextest.md — things waiting on a human
 
+## P1712 -- a new TAS best offers itself for the TAS board (worldofsurf-5a) -- your dev install, after the Pi update
+1. Finish a TAS run (Jargon or manual) faster than your other saved TAS runs of that course: a "New TAS best" box
+   appears under the finish card with a 12 s timer; F6 uploads at once ("uploaded: run N ..."); F7 keeps it local.
+2. Press nothing: at 0 it uploads itself (console: "sent ... by itself when the offer ran out").
+3. A finish that is not faster than a saved run of that course: no box (it is still in the Upload tab).
+4. TAS menu > Upload: "After a new best: Auto-upload / Ask / Off" (tas_upload_offer 2 / 1 / 0).
+5. Uploaded runs wait in `tasupd.py list --state held` for your approve unless the physics check clears them.
+
 ## P1711 -- Jargon's start and its aim (worldofsurf-5a) -- your dev install
 1. surf_sandtrap2 bonus 4, Jargon "By itself" with any of the three guide runs (agentflwrs, farsh, x): the console note
    says "the guide's jump N u from its takeoff point, at 287/288 u/s (it 287/288)" and it boards ramp 1.

@@ -394,6 +394,7 @@ void(float apilevel, string enginename, float engineversion) CSQC_Init =
 	SaveLoc_RegisterCvars();
 	WarpOp_RegisterCvars();         // Patch 753: goto_start, goto_spawn, cl_warpop
 	PE_RegisterCvars();             // Patch 1195: prederror reports
+	TASUp_RegisterCvars();          // P1712: the TAS upload offer
 	CR_Init();                      // P1418: a crash report waiting to be offered
 	registercommand("sp_dump");     // P1387: the server's `cmd spdump` asks for it
 	Gfx_RegisterCvars();
@@ -1662,6 +1663,9 @@ float(float evtype, float scanx, float chary, float devid) CL_InputChain =
 		if (evtype == IE_KEYDOWN)
 		if (CR_Key(scanx))              // P1418: F6 sends a crash report, while its box is up
 			return TRUE;
+		if (evtype == IE_KEYDOWN)
+		if (TASUp_Key(scanx))           // P1712: F6 uploads a new TAS best, while its box is up
+			return TRUE;
 		if (rec_sl_open || (rec_sl_holding && rec_sl_holdkey && scanx == rec_sl_holdkey))
 		if (SaveLoc_Key(scanx, evtype == IE_KEYDOWN))
 			return TRUE;
@@ -1717,6 +1721,8 @@ float(float evtype, float scanx, float chary, float devid) CL_InputChain =
 		if (PE_Key(scanx))              // P1195: F6 sends a prederror report, only while its box is up
 			return TRUE;
 		if (CR_Key(scanx))              // P1418
+			return TRUE;
+		if (TASUp_Key(scanx))           // P1712
 			return TRUE;
 		// ESC puts the inspector overlay away; its toggle is the ent_cursor bind
 		// (Patch 809).  After the card, which keeps ESC while one is up.
@@ -2407,6 +2413,7 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
 		StoryToast_Draw(scr);           // Patch 856: a medal the lobby just told
 		PE_Draw(scr);                   // Patch 1195: the prederror report box
 		CR_Draw(scr);                   // P1418: the crash report box (not while that one is up)
+		TASUp_DrawBox(scr);             // P1712: the TAS upload offer
 
 		/*
 		  PATCH 340: the avatar customizer, under the leaderboard and over the

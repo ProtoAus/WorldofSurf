@@ -96,10 +96,13 @@ IMPORT_KEYS = frozenset(('foreign', 'demodata', 'ksfdemo', 'ksfground', 'ksfmove
 # publishing signs (acct_sign kind -6, the site fixed) but over game_nonce(): this purpose and the file's hash, so neither
 # service takes the other's proof and no game code before P1696 can make one.
 GAME_MIME = 'application/x-ftesurf-tasup'
-GAME_HEAD = re.compile(rb'FTESURF-TASUP 1\nnonce ([0-9a-f]{32})\nsha ([0-9a-f]{64})\npub ([0-9a-f]{64})\nsig ([0-9a-f]{128})\n'
+GAME_HEAD = re.compile(rb'FTESURF-TASUP ([12])\nnonce ([0-9a-f]{32})\nsha ([0-9a-f]{64})\npub ([0-9a-f]{64})\nsig ([0-9a-f]{128})\n'
                        rb'game ([0-9a-f]{64})\n')
 GAME_HEAD_LEN = 16 + 39 + 69 + 69 + 133 + 70     # the proof is read and checked before the file (P1696 ops review)
 GAME_SITE, GAME_KIND = 'play.proto.bar:443', -6
+# P1712: header 2 is the in-game offer sending itself when its countdown ends -- acct_sign kind -7, signed with no key
+# down (statement "key 0"); only this route verifies a -7 statement, and the game code check below still applies
+GAME_AUTO_KIND = -7
 ACCT_STATEMENT = 'FTESURF-ACCT 1\nserver %s\nnonce %s\nkind %d\nkey %d\ncode %s\n'   # surfd accounts.STATEMENT (a test pins it)
 GAME_TOOL = 'sent from the game'    # how it came, not what made it: any linked key can sign any file (attack review 2)
 CHALLENGE_TTL = 600                 # s a code is good for; it is the service's own MAC, stored only once used
@@ -1125,11 +1128,12 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
 
     verifier = []
 
-    def signature(pub, signed, code, sig):
+    def signature(pub, signed, code, sig, byitself=False):
         if not verifier:
             try: verifier.append(verify.verify if verify is not None else ed25519_verifier())
             except ImportError: return None
-        message = (ACCT_STATEMENT % (GAME_SITE, signed, GAME_KIND, 1, code)).encode()
+        message = (ACCT_STATEMENT % ((GAME_SITE, signed, GAME_AUTO_KIND, 0, code) if byitself
+                                     else (GAME_SITE, signed, GAME_KIND, 1, code))).encode()
         try: return bool(verifier[0](bytes.fromhex(pub), message, bytes.fromhex(sig)))
         except Exception: return False
 
@@ -1156,7 +1160,7 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         head = request.stream.read(GAME_HEAD_LEN)
         m = GAME_HEAD.fullmatch(head)
         if not m: return drained('That upload carries no account proof: update your game.', 400)
-        nonce, sha, pub, sig, code = (x.decode('ascii') for x in m.groups())
+        ver, nonce, sha, pub, sig, code = (x.decode('ascii') for x in m.groups())
         now, stamp = int(clock()), int(nonce[:8], 16)
         if not (0 <= now - stamp <= CHALLENGE_TTL and hmac.compare_digest(nonce, game_token(stamp, nonce[8:16], sha))):
             return drained('That upload\'s confirmation expired or is not this file\'s: press Upload again.', 409)
@@ -1170,7 +1174,7 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         # the key's account before its signature: an unlinked key costs a query, not a pure-Python verify (attack review 4)
         sid, banned = key_account(pub)
         if not sid: return drained('Link your Steam account first (proto.bar/ftesurf/board/link), then upload again.', 403)
-        good = signature(pub, game_nonce(nonce, sha), code, sig)
+        good = signature(pub, game_nonce(nonce, sha), code, sig, byitself=(ver == '2'))
         if good is None: return drained('The upload service cannot check account proofs right now.', 503)
         if not good: return drained('The account proof did not check out.', 403)
         if banned: return drained('This Steam account cannot upload.', 403)   # after the proof: a ban is not anyone's to probe

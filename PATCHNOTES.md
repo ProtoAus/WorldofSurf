@@ -21,6 +21,11 @@
 
 ## next
 
+### P1712 A new TAS best offers itself for the TAS board
+- When a TAS run (Jargon or manual) beats your other saved TAS runs of that course, a box pops up where the F6 report box sits: F6 uploads it to the TAS board at once, F7 keeps it on your PC. Press nothing and it uploads itself when its 12-second timer ends.
+- The TAS menu's Upload tab chooses what a new best does: Auto-upload (the default), Ask, or Off.
+- Runs the physics check clears appear on the board; a new record or anything it cannot clear waits for review, as before.
+
 ### P1711 Jargon starts like its guide run, and you choose what it aims for
 - Jargon's start now replays a KSF guide run's prestrafe tick for tick, so it jumps where and as fast as the guide did (surf_sandtrap2 bonus 4 used to jump early and fall short of ramp 1).
 - A guide run that starts already moving now gets the same start instead of Jargon's own run-up.
