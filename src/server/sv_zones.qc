@@ -417,7 +417,7 @@ void() SV_ZoneLoad =
 	}
 
 
-	// P815, a game the map picker started (it sets sv_zones_curated): this install's own
+	// P815, a game this client hosts (P1707: the menu sets sv_zones_curated at m_init; the picker did): this install's own
 	// edit, then the curated refresh it just made -- the PUBLISHED copy, which must beat
 	// the shipped library under the same maps/zones/local name -- then that library.
 	// Anything else, lobbies and sweep.py's verifier alike, keeps the order it had, so

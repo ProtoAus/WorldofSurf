@@ -91,8 +91,8 @@ most once a minute per map, and switches to whichever copy it holds (dl,
 curated, shipped, online) whose crc equals the server's -- never mid-run or
 while the zone editor is open or unsaved (cl_zones.qc `Zone_SyncServer`). An
 own edit is a loose `data/maps/zones/local` file (`whichpack` ""), never one in
-a pack. Load order on the client, and on a server the map picker started (its
-Play sets `sv_zones_curated 1`): own edit, the menu's curated refresh, the
+a pack. Load order on the client, and on a server the client hosts (the menu
+sets `sv_zones_curated 1` at start, P1707; before it only the picker's Play did): own edit, the menu's curated refresh, the
 shipped library, Momentum's online set, then (client only) dl/. Every other
 server -- the lobbies and sweep.py's verifier alike, so they read one table --
 keeps the old order, maps/zones/local then online then the BSP. A picker game

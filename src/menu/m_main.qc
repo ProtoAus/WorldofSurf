@@ -8513,6 +8513,17 @@ void() m_init =
 		print("Tool brushes: hidden again (Shown in Graphics lasts one session)\n");
 	}
 	registercvar("ls_wireangle", "0", 32);     // P1453: loading-screen map models, degrees above side on
+	// P1707 (Lex, 22 Nov): a console `map` read no zones on bhop_overthinker (0; the picker's game 7, crc = the lobby's).
+	// Every game this client hosts reads the published copy (sv_zones.qc; sv_phys.c's caps too); dedicated servers --
+	// lobbies, sweep.py's verifier, a player's own -- never run the menu, so they keep one order. Not archived. A
+	// launch option's +map spawns BEFORE m_init and its cvar() auto-creates this as "" (measured): that is set too
+	// and Mzd_Watch restarts that map once; a value someone set, e.g. +set sv_zones_curated 0, stays.
+	registercvar("sv_zones_curated", "1", 0);
+	if (cvar_string("sv_zones_curated") == "")
+	{
+		cvar_set("sv_zones_curated", "1");
+		mzd_boot = TRUE;
+	}
 	Crash_Init();       // P1418: a crash report from the engine's Sys_Error record, if one is waiting
 
 	Font_Init();
@@ -8799,6 +8810,8 @@ void(vector screensize) m_draw =
 	}
 	Mgs_Ask();                      // P1658: the GoldSrc catalogue, the same way
 	Mzd_Pump();
+	if (clientstate() == 2)
+		Mzd_Watch(serverkey("map"), serverkey("zonecrc"), isserver() && !isdemo());
 	ui_boot_preload();
 	ui_dlkb_step();                 // Patch 999
 

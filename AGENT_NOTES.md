@@ -5018,8 +5018,8 @@ renderer; source and build in `src/viewer/` (its README). The bundle
   - `serverkey("ip")` containing QLoopBack is forgeable (ICE connect names, demo file names):
     hosting is `isserver() && !isdemo()` and the address BEGINNING with QLoopBack.
   - A server's choice of zone sources must not key on lobby cvars: sweep.py's verifier runs
-    without lobby.cfg, so it read another table. Picker games set `sv_zones_curated`; every
-    other server keeps one order.
+    without lobby.cfg, so it read another table. Picker games set `sv_zones_curated` (P1707: the
+    menu sets it at m_init for every game the client hosts); every other server keeps one order.
   - /lobbies.json drops a silent lobby instead of saying it cannot be heard; read surfd's
     `lobbies` table (any row older than 30 s = nothing known). The sweeper can stall for over
     an hour: gate on its ledger (OWED_SQL = sweep.pending's predicate), not on a fixed window.
