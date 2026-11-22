@@ -1192,8 +1192,8 @@ void(vector rp, vector rs, float L, float i, float on, float hot) Sty_LevelRow =
 	sui_text([nx + 92, rp_y + 7], SZ_ROW, nm, ((on || hot) && !locked) ? COL_ACCENT : COL_TEXT, a, 0);
 	tm = Sty_Facts(row, FALSE);     // P1728: "Tier 2, Linear", fainter, in what the name leaves
 	mw = stringwidth(nm, TRUE, SZ_ROW) + 12;
-	if (tm != "" && tw - mw >= 48)
-		sui_text([nx + 92 + mw, rp_y + 8], '14 14 0', ui_fit_text(tm, tw - mw, '14 14 0'), COL_DIM, 0.7 * a, 0);
+	if (tm != "" && tw - mw >= 48)  // P1738: the name's own 16 (14 is not a loaded size: FONT_UI_SIZES)
+		sui_text([nx + 92 + mw, rp_y + 7], SZ_ROW, ui_fit_text(tm, tw - mw, SZ_ROW), COL_DIM, 0.7 * a, 0);
 	sub = Sty_Population(Sty_LivePlayers(L, map));
 	if (track)
 		sub = strcat(sub, sub == "" ? "" : "  ", sprintf("bonus %g", track));
