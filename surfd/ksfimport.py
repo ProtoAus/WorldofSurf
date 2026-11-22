@@ -1491,7 +1491,7 @@ def main():
     ap.add_argument("--watch", action="store_true",
                     help="one unattended crawl tick, for cron (see the docstring)")
     ap.add_argument("--demos", action="store_true",
-                    help="--watch --go: download up to DEMO_MAX (24) advertised demos after the board requests")
+                    help="--watch --go: download up to DEMO_MAX (24) advertised demos after the board requests\n(at least half of a small --max)")
     ap.add_argument("--delay", type=float, default=None,
                     help="--from-maps/--watch: seconds between requests\n(default %.1f, --watch %.1f)"
                     % (KSF_DELAY_MS / 1000.0, WATCH_DELAY))
@@ -1551,7 +1551,9 @@ def main():
 
     demo_max = 0
     if args.watch and args.go and args.demos:
-        demo_max = min(DEMO_MAX, max(0, args.max - WATCH_BOARDS))   # boards keep the first WATCH_BOARDS
+        # Boards keep the first WATCH_BOARDS, but never more than half: P1734, the 17 Nov cron row's
+        # --max 8 left demos 0 under the old rule. 40 stays 16 + 24; 8 is 4 + 4.
+        demo_max = min(DEMO_MAX, max(0, args.max - WATCH_BOARDS, args.max // 2))
         args.max -= demo_max
     lock = take_lock(cache)
     if lock is None:

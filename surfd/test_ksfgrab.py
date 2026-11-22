@@ -642,7 +642,8 @@ class Tests(unittest.TestCase):
                 argv = ['ksfimport.py', '--watch', '--go', '--demos', '--cache', self.cache,
                         '--max', '2']
                 try:
-                    with patch.object(sys, 'argv', argv), \
+                    # Two board requests and no download budget (before P1734 --max 2 alone gave that).
+                    with patch.object(sys, 'argv', argv), patch.object(K, 'DEMO_MAX', 0), \
                          patch.object(K, 'playable_maps', return_value={'surf_test'}), \
                          patch.object(K, 'catalog_step', return_value={'names':['surf_test'], 'done':False}), \
                          patch.object(K, 'wanted_maps', return_value=set()), \
@@ -940,8 +941,14 @@ class Tests(unittest.TestCase):
             self.assertIsNone(K.take_lock(cache))  # The real main lock still acts.
             seen.append(('demos', maximum))
         # P1240: boards keep the first 16 requests of a tick, downloads get up to 24 above.
-        for extra, want in ((['--max', '6'], [('boards', 6), ('demos', 0)]),
-                            (['--max', '20'], [('boards', 16), ('demos', 4)]),
+        # P1734: but never more than half, so the cron row's --max 8 still downloads demos.
+        for extra, want in ((['--max', '8'], [('boards', 4), ('demos', 4)]),
+                            (['--max', '6'], [('boards', 3), ('demos', 3)]),
+                            (['--max', '1'], [('boards', 1), ('demos', 0)]),
+                            (['--max', '20'], [('boards', 10), ('demos', 10)]),
+                            (['--max', '32'], [('boards', 16), ('demos', 16)]),
+                            (['--max', '36'], [('boards', 16), ('demos', 20)]),
+                            (['--max', '60'], [('boards', 36), ('demos', 24)]),
                             ([], [('boards', 16), ('demos', 24)])):
             seen.clear()
             argv = ['ksfimport.py','--watch','--go','--demos','--cache',self.cache] + extra
