@@ -364,13 +364,18 @@ def _in_bbox(o, b):
 
 
 def check(run, zones=None, maxvel=None):
-    out = {"verdict": PASS, "reasons": [], "stats": {}, "unlisted": 0}
+    # P1716: "suspect" -- a HOLD that says the physics looks wrong, listed or not; unseen=True marks one that only says
+    # the checker could not see (tasupd publishes those without review, holds the suspect ones)
+    out = {"verdict": PASS, "reasons": [], "stats": {}, "unlisted": 0, "suspect": False}
 
-    def note(level, t, what):
+    def note(level, t, what, unseen=False):
         if len(out["reasons"]) < REASON_KEEP:
             out["reasons"].append({"level": level, "t": round(t, 4) if t is not None else None, "what": what})
+            if unseen: out["reasons"][-1]["unseen"] = True
         else:
             out["unlisted"] += 1
+        if level == HOLD and not unseen:
+            out["suspect"] = True
         if level == FAIL or (level == HOLD and out["verdict"] == PASS):
             out["verdict"] = level
 
@@ -411,7 +416,7 @@ def check(run, zones=None, maxvel=None):
     fin = run.end * rate
     track, startseg = hdr_int(run.hdr, "track"), hdr_int(run.hdr, "startseg")
     if startseg:
-        note(HOLD, None, f"stage leg (startseg {startseg}): this checker covers whole courses")
+        note(HOLD, None, f"stage leg (startseg {startseg}): this checker covers whole courses", unseen=True)
         zones = None
     zr = _zone_regions(zones, track)
     seq, limit_start = zr if zr else (None, False)
@@ -430,7 +435,7 @@ def check(run, zones=None, maxvel=None):
             return out
     native = sorted(run.records.intersection(NATIVE_STATE))
     if native:
-        note(HOLD, None, "has " + ", ".join(native) + " records (saves/loads/warps): needs the exact verifier")
+        note(HOLD, None, "has " + ", ".join(native) + " records (saves/loads/warps): needs the exact verifier", unseen=True)
     if s[-1][0] < fin - 2 * rate - 1e-6:   # a tail of exactly 2 ticks printed in decimals (review 6)
         note(FAIL, s[-1][0], f"samples stop at {s[-1][0]:.3f}s before the {fin:.3f}s finish")
         return out
@@ -460,7 +465,7 @@ def check(run, zones=None, maxvel=None):
     run.decimals = min(dec)
     if run.decimals < MIN_DECIMALS:
         note(HOLD, None, f"{'positions' if dec[0] <= dec[1] else 'velocities'} printed with at most"
-             f" {run.decimals} decimals: the bounds need {MIN_DECIMALS} or more")
+             f" {run.decimals} decimals: the bounds need {MIN_DECIMALS} or more", unseen=True)
     # Velocity rules use q; the energy test's height term uses q_pos (a %g printer rounds deep z coarser). Each
     # pair's from its own two samples (review 6: one coarse number anywhere in the window widened every pair).
     # A 6-significant-digit printer (%g) shows itself on some number of the group in the window; then every number's
@@ -529,7 +534,7 @@ def check(run, zones=None, maxvel=None):
             # HOLD, not FAIL: the cap given may be lower than the map's (cfg/maps, a trigger, a stage).
             note(HOLD, b[0], f"velocity {b[2][over_cap]:.1f} past sv_maxvelocity {maxvel:.0f}")
         if k > MAX_GAP:
-            note(HOLD, t, f"{k}-tick gap between samples: cannot check it")
+            note(HOLD, t, f"{k}-tick gap between samples: cannot check it", unseen=True)
             drift = []
             continue
         nchk += 1
@@ -737,7 +742,7 @@ def check(run, zones=None, maxvel=None):
                 ratios3.append(x3)
     clock = sorted(ratios)[len(ratios) // 2] if len(ratios) >= 20 else None
     if clock is None:
-        note(HOLD, None, "too little movement to check the clock")
+        note(HOLD, None, "too little movement to check the clock", unseen=True)
     elif not CLOCK_RATIO[0] <= clock <= CLOCK_RATIO[1]:
         note(HOLD, None, f"the body moves {clock:.4f}x what its speed and clock allow: clock edited?")
     else:
@@ -751,17 +756,17 @@ def check(run, zones=None, maxvel=None):
                 note(HOLD, None, f"{fast} steps cover more than {CLOCK_PAIR}x the {word} their speed allows: ticks dropped?")
     if gaps > 1:
         note(HOLD, None, f"{gaps} lost packets after the start (each could hide a tick or two): the owner reviews it;"
-             " a recording with a sample every tick is checked by itself")
+             " a recording with a sample every tick is checked by itself", unseen=True)
     # The allowance counts samples from t=0: padding the pre-start must not buy skipped ticks (review 4).
     if offtick > 2 + sum(1 for x in win if x[0] >= 0) // 500:   # packet timing: 1-2 in 3 of 164 of ours
         note(HOLD, None, f"{offtick} sample steps are not one whole tick: the per-tick bounds cannot be applied"
-             " (one sample a tick, please; native recordings need the exact verifier)")
+             " (one sample a tick, please; native recordings need the exact verifier)", unseen=True)
 
     # Zones: start, every checkpoint in order, finish.
     t0s = min(s, key=lambda x: abs(x[0]))
     h0 = math.hypot(t0s[2][0], t0s[2][1])
     if seq is None:
-        note(HOLD, None, "no zones for this map/track: start and finish not checked")
+        note(HOLD, None, "no zones for this map/track: start and finish not checked", unseen=True)
     else:
         travel = lambda x: math.sqrt(sum(c * c for c in x[2])) * rate  # noqa: E731
         pad = lambda x: ZONE_PAD + travel(x)  # noqa: E731

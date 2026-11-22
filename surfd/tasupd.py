@@ -53,9 +53,11 @@ TICK = 0.015                        # the board is the game's 66.67 Hz; another 
 MAX_TRACK = 99
 USER_DAY, DAY_ITEMS, DAY_BYTES = 30, 1000, 1024 ** 3   # uploads an account / everyone a day
 HELD_CAP = 10                       # an account's runs waiting for the owner
-# P1716 (Lex 22 Nov, on a made-up record staying up until he notices: "thats fine"): what the checker does not refuse is
-# shown at once -- a physics HOLD and a new record too, their reasons on the run. A copy of another player's motion and a
-# checker that could not run still wait. create_app(review=True) / TASUPD_REVIEW=1 holds them all as before.
+# P1716 (Lex 22 Nov, on a made-up record staying up until he notices: "thats fine"; 20 Nov: "as long as the run makes
+# sense physics wise"): a new record, and a HOLD that only says the checker could not see (tasplaus unseen: resumes, gaps,
+# lost packets, no zones), are shown at once as "not fully checked" (runs.unchecked), their reasons on the run. Still held:
+# a HOLD saying the physics looks wrong (tasplaus suspect), a copy of another player's motion, a checker that could not
+# run. create_app(review=True) / TASUPD_REVIEW=1 holds as before.
 REVIEW_DEFAULT = False
 STORE_CAP = 4 * 1024 ** 3
 SESSION_TTL, STATE_TTL = 12 * 3600, 600
@@ -73,8 +75,8 @@ TOOL_MAX = 64
 REASONS_MAX = 40                    # kept and shown per run; a bad file can give one a tick
 # Pages never load `sig` (up to MBs a row): these columns only.
 ROW = ('id, sha, steamid, map, track, ticks, verdict, state, reasons, stats, tool, size, uploaded_at,'
-       ' reviewed_at, note')
-LIST = 'id, steamid, map, track, ticks, verdict, state, tool, uploaded_at, note, reviewed_at'
+       ' reviewed_at, note, unchecked')
+LIST = 'id, steamid, map, track, ticks, verdict, state, tool, uploaded_at, note, reviewed_at, unchecked'
 COPY_CANDIDATES, COPY_PER_PLAYER = 60, 10   # per upload; per other account (review 8: 3 of a victim's own nearer runs hid the copied one)
 COPY_BUDGET = 20.0                  # s per copy_of call (up to four an upload), then a person looks (review 7: ~60-100 s on the Pi worst case)
 COPY_TICKS, COPY_FULL = 3000, 5     # ticks compared per pass; full passes per upload before a person looks
@@ -86,7 +88,7 @@ HITS_MAX = 50000                    # rate-limit keys a minute; past it new addr
 # The course record a PASS must not reach: trusted tiers' clean runs only. Community rows are demoted,
 # banned:* hidden, and surfd marks any TF_TAS run style tas (cheat or practice history too).
 TIERS_RECORD, STYLES_RECORD = ('ranked', 'momentum', 'ksf'), ('clean',)
-SCHEMA = 2                          # PRAGMA user_version `init` leaves; a release needs at least its own (2: P1696)
+SCHEMA = 3                          # PRAGMA user_version `init` leaves; a release needs at least its own (2: P1696, 3: P1716)
 MAPNAME = re.compile(r'[a-z0-9_][a-z0-9_.+-]{0,63}')
 STATE_RE = re.compile(r'[0-9a-f]{32}')
 _CTRL = re.compile(r'[\x00-\x1f\x7f]')
@@ -128,7 +130,8 @@ CREATE TABLE IF NOT EXISTS runs(id INTEGER PRIMARY KEY AUTOINCREMENT, sha TEXT N
  samples_sha TEXT NOT NULL, steamid TEXT NOT NULL, map TEXT NOT NULL, track INTEGER NOT NULL,
  ticks INTEGER NOT NULL, verdict TEXT NOT NULL, state TEXT NOT NULL, reasons TEXT NOT NULL,
  stats TEXT NOT NULL, tool TEXT NOT NULL, size INTEGER NOT NULL, uploaded_at INTEGER NOT NULL,
- reviewed_at INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '', sig BLOB NOT NULL);
+ reviewed_at INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '', sig BLOB NOT NULL,
+ unchecked INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS runs_board ON runs(map, track, state, ticks);
 CREATE INDEX IF NOT EXISTS runs_course ON runs(map, track, ticks);
 CREATE INDEX IF NOT EXISTS runs_owner ON runs(steamid, id);
@@ -229,6 +232,8 @@ def initialize(path):
     try:
         db.execute('PRAGMA journal_mode=WAL')
         with db: db.executescript(SQL)
+        if 'unchecked' not in {r[1] for r in db.execute('PRAGMA table_info(runs)')}:   # P1716 (schema 3)
+            with db: db.execute('ALTER TABLE runs ADD COLUMN unchecked INTEGER NOT NULL DEFAULT 0')
         with db: db.execute("INSERT OR IGNORE INTO meta(k, v) VALUES ('secret', ?)", (secrets.token_hex(32),))
         if db.execute('PRAGMA user_version').fetchone()[0] < SCHEMA: db.execute('PRAGMA user_version = %d' % SCHEMA)
     finally:
@@ -467,8 +472,8 @@ LABEL = {'shown': 'physics checked', 'held': 'waiting for review', 'rejected': '
 
 
 def label(r):
-    if r['state'] == 'shown' and r['verdict'] != 'PASS':
-        return 'owner approved' if r['reviewed_at'] else 'not fully checked'   # P1716: published without review
+    if r['state'] == 'shown' and r['unchecked'] and not r['reviewed_at']: return 'not fully checked'   # P1716
+    if r['state'] == 'shown' and (r['verdict'] != 'PASS' or r['unchecked']): return 'owner approved'
     return LABEL[r['state']]
 
 
@@ -746,8 +751,9 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
 
     INTRO = ('<h1>Uploaded TAS records</h1><p class="lede">Made a run with your own bot, a fork, or by hand? Upload its '
              '<code>.rec</code>. It is checked against the game\'s movement physics (gravity, air acceleration, ground '
-             'speed, start, checkpoints and end zone). Runs that check out are listed here; anything the check cannot '
-             'clear waits for review. TAS runs stay off the normal leaderboards.</p>')
+             'speed, start, checkpoints and end zone). Runs are listed here at once; one the check could not fully '
+             'confirm, or a new record, says so ("not fully checked"), and one whose physics looks wrong waits for review. '
+             'TAS runs stay off the normal leaderboards.</p>')
 
     def upload_card(sid):
         """Sign in, or (signed in) the upload form: on every page that shows boards, so picking a map does not lose it
@@ -784,7 +790,7 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                '<h2>2. Upload your run</h2>' + upload_card(sid)]
         if mine:
             out.append('<h2>Your uploads</h2>' + runs_table(mine, accts, mine=True))
-        out.append('<h2>Recently checked</h2>' + runs_table(recent, accts))
+        out.append('<h2>Recent uploads</h2>' + runs_table(recent, accts))
         return page('TAS uploads', '\n'.join(out))
 
     @app.get(base + '/board')
@@ -1315,7 +1321,8 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         if res['verdict'] == tp.FAIL:
             return refuse('The physics check refused it.', 422, reasons)
         series, trail = unpack_sig(sig)
-        state = 'shown' if res['verdict'] == tp.PASS or not (review or res.get('crashed')) else 'held'   # P1716
+        suspect = res.get('suspect', res['verdict'] == tp.HOLD)   # P1716: a checker without the flag: every HOLD
+        state = 'shown' if res['verdict'] == tp.PASS or not (review or res.get('crashed') or suspect) else 'held'
         lo, hi = end - max(30, end // 10), end + max(30, end // 10)
         # At most COPY_PER_PLAYER nearest in length per other account, shown and removed ones first: a few
         # accounts' parked runs cannot push the run being copied out of the candidates (review 4).
@@ -1432,7 +1439,7 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                        'no other time on this course to compare with: the first upload waits for the owner' if best is None else
                        '%s the best known time on this course (%s): a new record waits for the owner'
                        % ('matches' if mine > best - 0.5 else 'faster than', fmt_time(best / 1000)) if mine <= best + 0.5 else None)
-                if why and not review:   # P1716: said on the run, not held
+                if why and not review and state == 'shown':   # P1716: said on the run, not held
                     why = (why.replace(': the first upload waits for the owner', ', published without review')
                               .replace(': a new record waits for the owner', ': a new record, published without review'))
                     if record_why: why += ', published without review'
@@ -1447,10 +1454,11 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                 if stored(db) + len(body) + len(sig) > STORE_CAP:   # the motion blob is on the same disk
                     app.logger.warning('tasupd store full (%d bytes): uploads refused until runs are removed', STORE_CAP)
                     return refuse('The upload store is full; try again later.', 507)
+                unchecked = int(state == 'shown' and any(x['level'] == tp.HOLD for x in reasons))   # P1716
                 cur = db.execute('INSERT INTO runs(sha, samples_sha, steamid, map, track, ticks, verdict, state, reasons,'
-                                 ' stats, tool, size, uploaded_at, sig) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                                 ' stats, tool, size, uploaded_at, sig, unchecked) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                                  (sha, digest, sid, mapname, track, end, res['verdict'], state,
-                                  json.dumps(reasons), json.dumps(res['stats']), tool, len(body), now, sig))
+                                  json.dumps(reasons), json.dumps(res['stats']), tool, len(body), now, sig, unchecked))
                 rid = cur.lastrowid
                 kept(db, sid, len(body) + len(sig), now)
                 tmp = path.with_name(path.name + '.%s.tmp' % secrets.token_hex(4))
@@ -1477,7 +1485,7 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                 with connect(store) as db:
                     if not db.execute('SELECT 1 FROM runs WHERE sha = ?', (sha,)).fetchone(): path.unlink()
         if wants_json():
-            return jsonify(ok=1, id=rid, state=state, verdict=res['verdict'], reasons=reasons, time=round(end * TICK, 3),
+            return jsonify(ok=1, id=rid, state=state, verdict=res['verdict'], unchecked=unchecked, reasons=reasons, time=round(end * TICK, 3),
                            map=mapname, track=track, page='%s/run/%d' % (base_url.rstrip('/'), rid))
         return redirect('%s/run/%d' % (base, rid), 303)
 
@@ -1489,7 +1497,7 @@ def main(argv=None):
     ap.add_argument('--store', required=True)
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('init')
-    ls = sub.add_parser('list'); ls.add_argument('--state', default='held', choices=STATES + ('all',)); ls.add_argument('--limit', type=int, default=50)
+    ls = sub.add_parser('list'); ls.add_argument('--state', default='held', choices=STATES + ('all', 'unreviewed')); ls.add_argument('--limit', type=int, default=50)
     sh = sub.add_parser('show'); sh.add_argument('id', type=int)
     for name in ('approve', 'reject', 'remove', 'unblock'):
         p = sub.add_parser(name); p.add_argument('id', type=int); p.add_argument('--note', default='')
@@ -1524,10 +1532,13 @@ def main(argv=None):
                 print('%s  %-24s %s' % (r['sha'][:16], r['version'][:24], day_of(r['got_at'])))
             return 0
         if a.cmd == 'list':
-            q = 'SELECT * FROM runs' + ('' if a.state == 'all' else ' WHERE state = ?') + ' ORDER BY id DESC LIMIT ?'
-            for r in db.execute(q, ((a.state,) if a.state != 'all' else ()) + (a.limit,)):
+            # P1716: unreviewed = shown without review ("not fully checked"); approve marks it owner approved
+            where = {'all': '', 'unreviewed': " WHERE state = 'shown' AND unchecked = 1 AND reviewed_at = 0"}.get(a.state, ' WHERE state = ?')
+            q = 'SELECT * FROM runs' + where + ' ORDER BY id DESC LIMIT ?'
+            for r in db.execute(q, ((a.state,) if where == ' WHERE state = ?' else ()) + (a.limit,)):
                 print('%5d %-8s %-4s %s %-28s %-8s %9s  %s  %s' % (
-                    r['id'], r['state'], r['verdict'], day_of(r['uploaded_at']), r['map'], course(r['track']),
+                    r['id'], 'unchckd' if r['state'] == 'shown' and r['unchecked'] and not r['reviewed_at'] else r['state'],
+                    r['verdict'], day_of(r['uploaded_at']), r['map'], course(r['track']),
                     fmt_time(r['ticks'] * TICK), r['steamid'], r['tool']))
             return 0
         r = db.execute('SELECT ' + ROW + ', samples_sha FROM runs WHERE id = ?', (a.id,)).fetchone()
@@ -1544,6 +1555,10 @@ def main(argv=None):
         to = {'approve': 'shown', 'reject': 'rejected', 'remove': 'removed', 'unblock': 'rejected'}[a.cmd]
         allowed = {'approve': ('held', 'rejected'), 'reject': ('held', 'shown'), 'unblock': ('removed',),
                    'remove': tuple(x for x in STATES if x != 'removed')}[a.cmd]   # approve undoes a reject
+        if a.cmd == 'approve' and r['state'] == 'shown' and r['unchecked'] and not r['reviewed_at']:   # P1716
+            with writing(db):
+                db.execute("UPDATE runs SET reviewed_at = ?, note = ? WHERE id = ?", (int(time.time()), a.note[:200], a.id))
+            print('run %d: owner approved' % a.id); return 0
         if r['state'] not in allowed: print('run %d is %s; %s needs %s' % (a.id, r['state'], a.cmd, '/'.join(allowed))); return 1
         if a.cmd == 'approve' and not r['size']: print('run %d has no file (it was removed): it cannot be shown' % a.id); return 1
         with writing(db):

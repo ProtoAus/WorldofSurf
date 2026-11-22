@@ -256,9 +256,9 @@ float(float reqid, float code, string body) TASUp_Reply =
 		{
 			t = json_get_float(json_find_object_child(root, "id"));
 			if (json_get_string(json_find_object_child(root, "state")) == "shown")
-			{	// P1716: shown without review when the check could not clear everything
+			{	// P1716: shown without review when the check could not see everything, or a new record
 				TASUp_Answer(sprintf("on the TAS board, %s: run %g, %.3fs. play.proto.bar/tasup/run/%g",
-					(json_get_string(json_find_object_child(root, "verdict")) == "PASS") ? "physics checked" : "not fully checked",
+					(json_get_float(json_find_object_child(root, "unchecked")) == 1) ? "not fully checked" : "physics checked",
 					t, json_get_float(json_find_object_child(root, "time")), t));
 				tup_short = TASUp_Keep(tup_short, sprintf("on the TAS board: run %g", t));
 			}

@@ -12,7 +12,7 @@ app = create_app(os.environ['TASUPD_STORE'], os.environ['TASUPD_ACCOUNTS'],
                  game_files=json.loads(os.environ.get('TASUPD_GAMES', '[]')),
                  releases=os.environ.get('TASUPD_RELEASES') or None,
                  mapmeta=os.environ.get('TASUPD_MAPMETA') or None,   # P1700: the course finder
-                 review=os.environ.get('TASUPD_REVIEW') == '1')      # P1716: 1 holds HOLDs and records for the owner
+                 review=os.environ.get('TASUPD_REVIEW', '').strip().lower() in ('1', 'true', 'yes', 'on'))   # P1716
 # The nginx location replaces X-Forwarded-For with its connection's address.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 source = os.environ['TASUPD_SOURCE']

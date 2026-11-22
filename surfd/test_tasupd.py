@@ -637,27 +637,39 @@ class Service(unittest.TestCase):
     def auto(self):   # P1716: the service as it runs by default
         self.app = svc.create_app(self.store, self.accounts, self.zdirs, BASE, http=self.fake_http, clock=self.clock, review=False)
 
-    def test_published_at_once_a_physics_hold_says_so(self):
+    def test_published_at_once_when_the_checker_could_not_see(self):
         self.auto()
         c, _ = self.sign_in(ALICE)
-        j = self.upload(c, edited_speed()).get_json()
-        self.assertEqual((j['verdict'], j['state']), ('HOLD', 'shown'), j)
+        j = self.upload(c, rec(mapname='surf_nozones')).get_json()     # "no zones": unseen, not suspect
+        self.assertEqual((j['verdict'], j['state'], j['unchecked']), ('HOLD', 'shown', 1), j)
         anon = self.app.test_client()
-        self.assertEqual([x['id'] for x in anon.get('/tasup/api/board?map=synth&track=0').get_json()['runs']], [j['id']])
+        self.assertEqual([x['id'] for x in anon.get('/tasup/api/board?map=surf_nozones&track=0').get_json()['runs']], [j['id']])
         page = anon.get('/tasup/run/%d' % j['id']).get_data(as_text=True)
         self.assertIn('not fully checked', page)
-        self.assertIn('energy', page)                                   # the reasons are on the public page
-        self.assertIn('not fully checked', anon.get('/tasup/board?map=synth&track=0').get_data(as_text=True))
-        self.cli('approve', str(j['id']))                               # already shown: approve has nothing to do
-        self.assertIn('not fully checked', anon.get('/tasup/run/%d' % j['id']).get_data(as_text=True))
+        self.assertIn('no zones', page)                                 # the reasons are on the public page
+        self.assertIn('not fully checked', anon.get('/tasup/board?map=surf_nozones&track=0').get_data(as_text=True))
+        code, out = self.cli('list', '--state', 'unreviewed')
+        self.assertIn('unchckd', out)
+        self.assertEqual(self.cli('approve', str(j['id']), '--note', 'looked at it')[0], 0)
+        page = anon.get('/tasup/run/%d' % j['id']).get_data(as_text=True)
+        self.assertIn('owner approved', page)
+        self.assertNotIn('unchckd', self.cli('list', '--state', 'unreviewed')[1])
+
+    def test_published_at_once_still_holds_physics_that_looks_wrong(self):
+        self.auto()
+        c, _ = self.sign_in(ALICE)
+        j = self.upload(c, edited_speed()).get_json()                   # energy past the air cap: suspect
+        self.assertEqual((j['verdict'], j['state']), ('HOLD', 'held'), j)
+        self.assertEqual(self.app.test_client().get('/tasup/api/board?map=synth&track=0').get_json()['runs'], [])
 
     def test_published_at_once_a_new_record_says_so(self):
         self.auto()
         self.surfd('UPDATE runs SET millis = 5000')
         c, _ = self.sign_in(ALICE)
         j = self.upload(c, rec()).get_json()
-        self.assertEqual((j['verdict'], j['state']), ('PASS', 'shown'), j)
+        self.assertEqual((j['verdict'], j['state'], j['unchecked']), ('PASS', 'shown', 1), j)
         self.assertIn('a new record, published without review', j['reasons'][-1]['what'])
+        self.assertIn('not fully checked', self.app.test_client().get('/tasup/run/%d' % j['id']).get_data(as_text=True))
         self.surfd('DELETE FROM runs')
         b, _ = self.sign_in(BOB)
         j = self.upload(b, rec(*variant(17.0))).get_json()
@@ -678,6 +690,7 @@ class Service(unittest.TestCase):
         j = self.upload(c, rec(*variant(9.0))).get_json()
         self.assertEqual(j['state'], 'held', j)
         self.assertIn('could not finish', json.dumps(j['reasons']))
+        self.assertNotIn('published without review', json.dumps(j['reasons']))   # a held run does not say so
 
     def test_an_unreadable_record_holds(self):
         self.surfd('DROP TABLE runs')
