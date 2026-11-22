@@ -952,7 +952,8 @@ float(float i, float seq) TG_IOEff =
 			return 0;
 		// P1196 review: a teleport's replayable writers act on commands the snapshot has not
 		// seen (the ring is this chain's, from the ack on: TG_IOCommit), so they win over it.
-		if (tg_kind[i] == TG_TELE)
+		// P1743: a setspeed's too (its cooldown's zero-delay OnEndTouch Disable).
+		if (tg_kind[i] == TG_TELE || tg_kind[i] == TG_SPEED)
 			for (e = ior_n - 1; e >= 0; e = e - 1)
 				if (ior_slot[e] == i && ior_seq[e] <= seq)
 					return ior_val[e];
@@ -1480,7 +1481,7 @@ void(float modelnum, float ready, float on) Trig_NetState =
 
 	modelname = sprintf("*%g", modelnum);
 	for (i = 0; i < tg_n; i = i + 1)
-		if (tg_kind[i] == TG_PUSH || tg_kind[i] == TG_TELE)
+		if (tg_kind[i] == TG_PUSH || tg_kind[i] == TG_TELE || tg_kind[i] == TG_SPEED)
 			if (!strcmp(tg_ent[i].model, modelname))
 			{
 				if (tg_ent[i].tg_netready != ready || tg_ent[i].tg_neton != on)
@@ -1524,9 +1525,11 @@ void() TG_IOResolve =
 	// P1196: a teleport only when a writer would demote it (its replayable ones still
 	// predict through the ring, TG_IOEff). The server sends named brush teleports only,
 	// and no zone-tool box (both pre-passes: it has no model to match).
+	// P1743: a setspeed the same way (surf_classics' start boosters: OnEndTouch !self,Disable then
+	// !self,Enable 1 s later); the server sends every one, named or not.
 	if (!io_over)
 		for (s = 0; s < tg_n; s = s + 1)
-			if (tg_kind[s] == TG_TELE && tg_tname[s] != "" && !tg_ent[s].tg_isbox)
+			if (((tg_kind[s] == TG_TELE && tg_tname[s] != "") || tg_kind[s] == TG_SPEED) && !tg_ent[s].tg_isbox)
 				for (o = 0; o < io_n; o = o + 1)
 					if (io_inp[o] == IN_EN || io_inp[o] == IN_DIS)
 						if (!TG_IOMirrorOK(o))
