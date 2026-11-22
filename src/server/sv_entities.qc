@@ -938,6 +938,18 @@ void(entity t, entity pl) SV_BwSrc =
 	bw_bp = t.bank_src_player; bw_ba = t.bank_src_attempt; bw_bb = t.bank_src_bad;
 };
 void(entity t) SV_PpResolid;     // below vbsp_sp_kind
+void(entity t) SV_BwDrop =
+{
+	local float i, s;
+	local entity p;
+	for (i = 1; i <= 32; i = i + 1)
+	{
+		p = edict_num(i);
+		s = SV_BwFind(p, t);
+		if (s)
+			SV_BwFree(p, s);
+	}
+};
 void(entity p) SV_BwForget =
 {
 	local entity t;
@@ -3086,9 +3098,12 @@ void(entity t, entity pl, float s, string in) SV_BwStep =
 	SV_BwLoad(pl, s);
 	SV_IOBankCore(t, on, off);
 	SV_BwStore(pl, s, t, !on);
+	// The off-cause record is read only while off (have is FALSE while on), so an on copy matching the pad's owner is
+	// the pad's world again (review 5: comparing it kept every copy, and the fifth booster fell back).
 	if ((!on) == SV_Key2(t.StartDisabled, t.startdisabled))
-	if (bk_have == t.bank_off_have && bk_offp == t.bank_off_player && bk_offa == t.bank_off_attempt && bk_offb == t.bank_off_bad)
 	if (bk_srcp == t.bank_src_player && bk_srca == t.bank_src_attempt && bk_srcb == t.bank_src_bad)
+	if (on || (bk_have == t.bank_off_have && bk_offp == t.bank_off_player && bk_offa == t.bank_off_attempt
+	           && bk_offb == t.bank_off_bad))
 		SV_BwFree(pl, s);
 };
 
@@ -3099,10 +3114,10 @@ float(entity pl, entity t) SV_BwMake =
 	s = SV_BwFind(pl, t);
 	if (s)
 		return s;
-	if (!pl.run_bwp1 || wasfreed(pl.run_bwp1)) s = 1;
-	else if (!pl.run_bwp2 || wasfreed(pl.run_bwp2)) s = 2;
-	else if (!pl.run_bwp3 || wasfreed(pl.run_bwp3)) s = 3;
-	else if (!pl.run_bwp4 || wasfreed(pl.run_bwp4)) s = 4;
+	if (!pl.run_bwp1 || wasfreed(pl.run_bwp1) || !SV_PpBooster(pl.run_bwp1)) s = 1;
+	else if (!pl.run_bwp2 || wasfreed(pl.run_bwp2) || !SV_PpBooster(pl.run_bwp2)) s = 2;
+	else if (!pl.run_bwp3 || wasfreed(pl.run_bwp3) || !SV_PpBooster(pl.run_bwp3)) s = 3;
+	else if (!pl.run_bwp4 || wasfreed(pl.run_bwp4) || !SV_PpBooster(pl.run_bwp4)) s = 4;
 	else
 		return 0;
 	SV_PadLoad(t);
@@ -3113,11 +3128,18 @@ float(entity pl, entity t) SV_BwMake =
 void(entity t, float on) SV_IOEnable;
 void(entity t, entity o, entity act, string in) SV_PpInput =
 {
-	local float ct, s, i;
+	local float ct, s, i, own;
 	local entity p;
 	local string kind;
 
-	if (o && o.owner == t && act.classname == "player")
+	own = (o && o.owner == t && act.classname == "player");
+	if (own)
+	if (!strcmp(o.vbsp_io_name, "onstarttouchall") || !strcmp(o.vbsp_io_name, "onendtouchall"))
+		own = FALSE;            // first in / last out: a crowd event by definition, the shared world's (review 5)
+	if (own)
+	if (!SV_BwFind(act, t) && SV_Key2(t.StartDisabled, t.startdisabled) && t.bank_off_player == act)
+		own = FALSE;            // a shared off this player's own row made with no slot free: undone there too (review 5)
+	if (own)
 	{
 		ct = clienttype(act);
 		if (ct != CLIENTTYPE_REAL && ct != CLIENTTYPE_BOT)
@@ -3131,6 +3153,8 @@ void(entity t, entity o, entity act, string in) SV_PpInput =
 				SV_PpResolid(t);
 				return;
 			}
+			if (cvar("developer") >= 2)
+				dprint(sprintf("booster %s %s: %s has four boosters of their own already; shared\n", t.classname, t.model, act.netname));
 		}
 	}
 	// Everyone's: the pad's world, as the old switch, then each player's copy (a Toggle read by each world itself).
@@ -5533,6 +5557,7 @@ void(entity t, entity o, entity act) SV_ApplyInputRaw =
 			SV_TrkKillRiders(t);        // P1378: Source removes a parent's children with it
 		SV_SpKillKids(t);               // P1387
 		SV_IOOrphan(t);                 // P1425: its output edicts, once their delayed fires have run
+		SV_BwDrop(t);                   // P1744: no player keeps a copy of a removed booster
 		remove(t);
 		return;
 	}
