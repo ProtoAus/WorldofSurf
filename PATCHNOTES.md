@@ -21,6 +21,24 @@
 
 ## next
 
+### P1741 Map pictures edge to edge
+- The map list's pictures now run edge to edge down the list, with no gap around them; the rows are a little shorter, so more maps fit on screen.
+
+### P1740 Favourite maps
+- A star on each map's picture (and before the name in the compact list) adds it to your favourites; the new favourites chip under Extra lists only them.
+
+### P1739 Game icons in the map list
+- Maps that need another game (TF2, CS:GO, Portal 2...) show that game's own icon beside their name, taken from your Steam install; faded when the game is not installed.
+
+### P1738 Story list text
+- The tier and map type beside each Story map name are now drawn at a proper font size instead of a slightly blurry one.
+
+### P1737 Report points
+- Every prediction error report you send earns a report point (up to 20 a day). The report box shows how many you have and says +1 when one is sent, and reports sent before today count too.
+
+### P1736 Toxic goop no longer flickers black
+- On bhop_canals and other Source maps, slime and water that sit as their own object (like the canal goop) no longer flicker black as you move.
+
 ### P1742 Ping costs far less frame time
 - With ping, the game no longer redoes your recent movement every time the server confirms it: when the server agrees with what your game predicted, it keeps the prediction, as Source does. Movement is the same.
 - At 300 ms on the test PC: bhop_canals about 295 to 390 fps.

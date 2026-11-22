@@ -7,6 +7,15 @@
 - P1722 DONE (the sun on unbaked models where a trace ENDS on sky). hl2_lightprobe does not show it.
 - P1723: only the bloom scale; exposure deliberately not copied (ahop_coast's .8-.9 band would darken a frame already
   matching Momentum's world at scale 1). Vulkan's built-in bloom_final ignores r_bloom_mapscale.
+- P1736-P1741 left: a func_water_analog whose material compiles as WINDOW (one up face; TF2 cp_holyhell *58) is made
+  swimmable by SV_SpawnWater and is now invisible from inside (Source makes it solid); r_waterinfo reads
+  m->submodels[0], which the VBSP loader never fills (probably crashes on a Source map with water; not run); the mount
+  icons have no tooltip and no macOS path; report points: the 20/day cap is per lobby cache (up to 120 s stale), the
+  "server rows" rule takes one mark per map on the client's word and the HTTP ending on its word -- fine for a cosmetic
+  counter, not for anything worth having; surfd's report_points needs the next generation.
+- worldofsurf-08 (23 Nov): bkz_goldbhop_gs, prediction stops dead at x=-3344.03 (y -3540..-3620, z ~60) while the server
+  carries on -- 58-125 unit prederr auto-dumps (data/prederr/20261123_0316, _0333); exact traces and moves, so likely a
+  door or wall the client thinks is solid.
 - P1724/P1725/P1732: r_shadows 2 throws along shadow_control (else the Strata cascade sun), honours disableshadows,
   survives a live toggle, keeps instanced props (P1732), casting props do not receive, shadow_control's colour, and a
   Strata map's shadow takes out only the sun (r_shadows_sunfloor). Left: casters indoors throw "sun" shadows (gate a

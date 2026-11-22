@@ -1,5 +1,14 @@
 # lextest.md — things waiting on a human
 
+## P1736-P1741 -- your 23 Nov list (worldofsurf-88) -- next release
+1. bhop_canals save 1: the goop by the start is steady goop, lit, no black flicker as you move and look around.
+2. Maps: pictures run edge to edge; the star on a picture turns gold and the map shows under Extra > favourites (and the
+   star works in the List view too); maps that need TF2/CS:GO/Portal 2 show those games' icons beside the name.
+3. Story: "Tier 1, Staged" beside the names is crisp, the same size as the names.
+4. Report points: after your next prediction error report the box says "+1 report point" and your total (yours start
+   from the reports you already sent -- the busiest account so far has 79). The profile tile shows them once
+   surfd's next generation is live.
+
 ## P1742 (worldofsurf-08) -- next dev-install build, then the release after it
 1. A lobby at high ping (or `sv_minping 300` on a local server): movement feels the same as before, fps higher.
 2. `cl_predict_memostats` after a minute: "replays from an agreeing prediction" should be nearly all of them.
