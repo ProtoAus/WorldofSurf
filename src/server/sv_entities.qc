@@ -1351,7 +1351,20 @@ float(entity e, string lk) SV_RotButtonOutputKnown;
 float   vbsp_sp_resolved, vbsp_sp_nextt;    // per map, SV_EntityReset
 void() SV_SpWake;
 void(entity e) SV_SpDrop;
+// P1726: phys_motor's keys (Source phys_controller.cpp CPhysMotor): axis is a POINT, the axis normalize(axis - origin);
+// speed degrees a second; spinup seconds to it; attach1 the body it turns.
+.vector axis;
+.string attach1;
+.float  spinup;
+.float  vbsp_sp_ismotor;    // the motor itself, a turning root (its inputs are not func_rotating's)
+.entity vbsp_sp_motor;      // on the body: the motor that draws it turning
+.entity vbsp_sp_body;       // on the motor: the body it draws
+.float  vbsp_sp_motored;    // on the body: a motor has taken it
+.float  vbsp_sp_bodynodraw; // on the body: its own EF_NODRAW, kept while the motor draws it
+.float  vbsp_sp_flip;       // on the motor: the body faces against the axis (roll runs the other way)
 float(entity to, float sf) SV_SpSend;     // P1387: a mover csprogs draws
+entity(entity e) SV_MotorBody;             // P1726
+void(entity m, entity b) SV_MotorSync;     // P1726
 void(entity t) SV_SpKillKids;
 void(entity e) SV_SpPlace;
 float(entity t, string in, string pm) SV_SpinInput;
@@ -2085,6 +2098,11 @@ void() SV_LateSpawnAll =
 			if (fld)
 				putentityfieldstring(fld, e, argv(j + 1));
 		}
+		if (e.classname == "phys_motor" && !SV_MotorBody(e))
+		{	// P1726: no edict for a motor that turns nothing (each late edict shifts what is allocated after)
+			remove(e);
+			continue;
+		}
 		e.solid = SOLID_NOT;
 		e.movetype = MOVETYPE_NONE;
 		setorigin(e, e.origin);
@@ -2552,6 +2570,8 @@ float(entity t, entity act, string then) SV_BreakableBreakThen =
 	SV_FireOutput(t, "OnBreak", act);
 	if (then != "" && !wasfreed(t))
 		SV_FireOutput(t, then, act);
+	if (!wasfreed(t) && t.vbsp_sp_motor && t.vbsp_sp_motor.vbsp_sp_body == t)
+		SV_MotorSync(t.vbsp_sp_motor, world);	// P1726: the broken body takes its drawing with it
 	if (!wasfreed(t))
 		remove(t);
 	return TRUE;
@@ -5069,7 +5089,29 @@ float(entity t, string in, string pm, entity act) SV_GuiInput;     // P1428 sv_g
 float(entity t, string in, string pm, entity act) SV_SmallInput;
 float(entity t, string anim) SV_ModelAnim;   // P1440: SetAnimation on a non-solid prop_dynamic
 
+void(entity t, entity o, entity act) SV_ApplyInputRaw;
+// P1726: an input to a motored body is delivered with the body's own visibility, then what shows is copied onto the
+// motor that draws it; a motor removed by its input gives the body back.
 void(entity t, entity o, entity act) SV_ApplyInput =
+{
+	local entity m, b;
+	m = t.vbsp_sp_motor;
+	if (m && m.vbsp_sp_body == t)
+	{
+		t.effects = (t.effects - (t.effects & EF_NODRAW)) | (t.vbsp_sp_bodynodraw ? EF_NODRAW : 0);
+		SV_ApplyInputRaw(t, o, act);
+		SV_MotorSync(m, t);
+		return;
+	}
+	b = t.vbsp_sp_body;
+	SV_ApplyInputRaw(t, o, act);
+	if (b && wasfreed(t) && !wasfreed(b))
+	{
+		b.effects = (b.effects - (b.effects & EF_NODRAW)) | (b.vbsp_sp_bodynodraw ? EF_NODRAW : 0);
+		b.vbsp_sp_motor = world;
+	}
+};
+void(entity t, entity o, entity act) SV_ApplyInputRaw =
 {
 	local string in, pm;
 
@@ -12001,15 +12043,6 @@ float(entity e, string lk) SV_RotButtonOutputKnown =
 .float  vbsp_sp_th0, vbsp_sp_t0, vbsp_sp_w0, vbsp_sp_wt;
 .float  vbsp_sp_max, vbsp_sp_up, vbsp_sp_dn, vbsp_sp_rev;
 .float  vbsp_sp_useat, vbsp_sp_stopping, vbsp_sp_stopat;
-// P1726: phys_motor's keys (Source phys_controller.cpp CPhysMotor): axis is a POINT, the axis normalize(axis - origin);
-// speed degrees a second; spinup seconds to it; attach1 the body it turns.
-.vector axis;
-.string attach1;
-.float  spinup;
-.float  vbsp_sp_ismotor;    // the motor itself, a turning root (its inputs are not func_rotating's)
-.entity vbsp_sp_motor;      // on the body: the motor that draws it turning
-.entity vbsp_sp_body;       // on the motor: the body it draws
-.float  vbsp_sp_motored;    // on the body: a motor has taken it
 // func_movelinear: position 0..1 as the rot button's (SV_RotButtonPos).
 .float  vbsp_sp_pos, vbsp_sp_ideal, vbsp_sp_dir, vbsp_sp_arrived;
 float   vbsp_sp_maxdepth, vbsp_sp_wnow, vbsp_sp_dev;
@@ -12209,6 +12242,49 @@ float(entity to, float sf) SV_SpSend =
 	return TRUE;
 };
 
+// P1726: the body a phys_motor can turn, or world.  Only one whose forward lies along the axis can be drawn by the
+// motor rolling (a windmill, a fan); a motion-disabled one stays still in Source too.
+entity(entity e) SV_MotorBody =
+{
+	local entity q;
+	if (e.attach1 == "")
+		return world;
+	q = SV_FindByName(e.attach1, world);
+	if (!q || q.model == ""
+	 || !(substring(q.classname, 0, 12) == "prop_physics" || substring(q.classname, 0, 12) == "func_physbox"
+	      || substring(q.classname, 0, 15) == "simple_physics_")
+	 || (substring(q.classname, 0, 12) == "prop_physics" && (q.spawnflags & 8))       // SF_PHYSPROP_MOTIONDISABLED
+	 || (substring(q.classname, 0, 12) == "func_physbox" && (q.spawnflags & 32768)))  // SF_PHYSBOX_MOTIONDISABLED
+		return world;
+	SV_SpBasis(q.angles);
+	if (fabs(vbsp_sp_bf * normalize(e.axis - e.origin)) < 0.999)
+		return world;
+	return q;
+};
+
+// P1726: what the motor draws follows its body: the body's skin, bodygroup, colour and its own visibility; a body
+// that is gone takes the drawing with it.
+void(entity m, entity b) SV_MotorSync =
+{
+	if (wasfreed(b) || m.vbsp_sp_body != b)
+	{
+		m.effects = m.effects | EF_NODRAW;
+		m.vbsp_sp_body = world;
+	}
+	else
+	{
+		m.skin = b.skin;
+		m.body = b.body;
+		m.colormod = b.colormod;
+		m.alpha = b.alpha;
+		m.effects = (m.effects - (m.effects & EF_NODRAW)) | (b.effects & EF_NODRAW);
+		b.vbsp_sp_bodynodraw = (b.effects & EF_NODRAW) ? TRUE : FALSE;
+		b.effects = b.effects | EF_NODRAW;
+	}
+	if (m.SendEntity == SV_SpSend)
+		m.SendFlags = m.SendFlags | 1;
+};
+
 void() SV_SpResolve =
 {
 	local entity e, p, q;
@@ -12226,14 +12302,8 @@ void() SV_SpResolve =
 	// in Source too.
 	for (e = find(world, classname, "phys_motor"); e; e = find(e, classname, "phys_motor"))
 	{
-		q = world;
-		if (e.attach1 != "")
-			q = SV_FindByName(e.attach1, world);
-		if (!q || q.model == "" || q.vbsp_sp_kind || q.vbsp_sp_motored
-		 || !(substring(q.classname, 0, 12) == "prop_physics" || substring(q.classname, 0, 12) == "func_physbox"
-		      || substring(q.classname, 0, 15) == "simple_physics_")
-		 || (substring(q.classname, 0, 12) == "prop_physics" && (q.spawnflags & 8))       // SF_PHYSPROP_MOTIONDISABLED
-		 || (substring(q.classname, 0, 12) == "func_physbox" && (q.spawnflags & 32768)))  // SF_PHYSBOX_MOTIONDISABLED
+		q = SV_MotorBody(e);
+		if (!q || q.vbsp_sp_kind || q.vbsp_sp_motored)
 		{
 			dprint(sprintf("motor %s: turns nothing (attach1 '%s')\n", e.targetname, e.attach1));
 			continue;
@@ -12241,11 +12311,6 @@ void() SV_SpResolve =
 		d = normalize(e.axis - e.origin);
 		SV_SpBasis(q.angles);
 		f = vbsp_sp_bf * d;
-		if (fabs(f) < 0.999)
-		{
-			dprint(sprintf("motor %s: turns nothing (%s's forward is not its axis)\n", e.targetname, q.model));
-			continue;
-		}
 		e.angles = q.angles;
 		setmodel(e, q.model);
 		if (q.scale && q.scale != 1)
@@ -12266,7 +12331,8 @@ void() SV_SpResolve =
 		e.vbsp_sp_draw = TRUE;
 		e.vbsp_sp_axis = '0 0 1';
 		e.vbsp_sp_max = fabs(e.speed);
-		e.vbsp_sp_rev = (f > 0) ? (e.speed < 0) : (e.speed > 0);	// roll is right-handed about forward
+		e.vbsp_sp_flip = (f < 0);
+		e.vbsp_sp_rev = (e.speed < 0) != e.vbsp_sp_flip;	// roll is right-handed about the body's forward
 		if (e.spinup > 0)
 			e.vbsp_sp_up = e.vbsp_sp_dn = e.vbsp_sp_max / e.spinup;
 		e.vbsp_sp_t0 = time;
@@ -12462,12 +12528,17 @@ void() SV_SpResolve =
 		if (e.vbsp_sp_body)
 		{
 			if (e.vbsp_sp_kind == SPK_ROT && e.vbsp_sp_depth)
+			{
+				e.vbsp_sp_body.vbsp_sp_bodynodraw = (e.vbsp_sp_body.effects & EF_NODRAW) ? TRUE : FALSE;
 				e.vbsp_sp_body.effects = e.vbsp_sp_body.effects | EF_NODRAW;
+			}
 			else
 			{
 				e.vbsp_sp_kind = 0;
+				setmodel(e, "");
 				e.effects = e.effects | EF_NODRAW;
 				e.vbsp_sp_body.vbsp_sp_motor = world;
+				e.vbsp_sp_body = world;
 			}
 		}
 	ncl = nsky = 0;
@@ -13072,11 +13143,13 @@ float(entity t, string in, string pm) SV_SpinInput =
 			SV_SpRotTarget(t, t.vbsp_sp_max);
 		else if (in == "turnoff")
 			SV_SpRotTarget(t, 0);
+		else if (in == "enable" || in == "disable" || in == "toggle")
+			return TRUE;	// review 3: the generic arms would make a motor drawing a physbox SOLID_BSP
 		else if (in == "setspeed")
 		{
 			v = stof(pm);
 			t.vbsp_sp_max = fabs(v);
-			t.vbsp_sp_rev = (v < 0);
+			t.vbsp_sp_rev = (v < 0) != t.vbsp_sp_flip;
 			if (t.spinup > 0)
 				t.vbsp_sp_up = t.vbsp_sp_dn = t.vbsp_sp_max / t.spinup;
 			SV_SpRotTarget(t, t.vbsp_sp_max);
