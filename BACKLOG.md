@@ -5330,9 +5330,20 @@ Fixed items are removed; remaining reader contracts need acting controls.
   The server half is older than P1743: vbsp_ss_stamp is one per pad, shared by every player, so a player
   entering while another still overlaps the pad gets no boost (Source's StartTouch is per toucher). Fix:
   a per-player stamp (changes outcomes in crowded starts, so a deliberate patch with its own A/B).
-  Other P1743 residuals: a pad the snapshot turns on while the player is inside is still seeded as
-  history when the server's first touch after the Enable comes after the ack (the ring-Enable case is
-  seeded fresh since review 1); a lost TRIGSTATE update leaves a stale "on" for about a round trip after
+  **A stale-on netgated owner commits its outputs at other triggers for good** (push, teleport and, since
+  P1743, setspeed): TG_IOFireEv fires the owner's zero-delay rows at other slots, and TG_IOCommit folds
+  them into tg_io_on / io_fired once acked, though the server (pad off by another player) never ran them.
+  Review 1 of P1743 tried excluding a netgated setspeed's non-!self rows in TG_IOMirrorOK; review 2
+  showed that is not enough and dropped it: TG_IOFireEv does not consult TG_IOMirrorOK (rows still fire,
+  an owner left with only such rows loses tg_io_own so START fires once a map and END never), the
+  pre-pass netgates in slot order, and a cooldown wired by the pad's own name regresses. Fix shape, all
+  three kinds at once: TG_IOFireEv skips !TG_IOMirrorOK rows, the netgate pre-passes repeat until no
+  new gate, "hits only its owner" (no TG_IOHits on another slot) instead of a literal !self. Needs a
+  census of netgated owners with rows at other triggers first.
+  Other P1743 residuals: TG_ChainStart seeds a pad the player is inside at the ack as history whatever its
+  gate, so a pad re-enabled while the player is inside is not predicted (review 2: seeding gated-off pads
+  fresh helps only a ring Enable before the pad's own gate check, and can add an edge the server's 0.05 s
+  window swallows); a lost TRIGSTATE update leaves a stale "on" for about a round trip after
   the player's own exit (as P1196 teleports); a csprogs-only deploy over old
   qwprogs leaves a cooldown pad never ready, so the zero-delay outputs it owns do not fire on the client;
   SV_IOEnable resends SendFlags on a no-change Enable/Disable (pushes too); Trig_NetState notes every

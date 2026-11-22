@@ -860,12 +860,6 @@ float(float o) TG_IOMirrorOK =
 		return FALSE;			// no delayed-output scheduler in prediction
 	if (io_src[o] < 0)
 		return FALSE;
-	// P1743: a netgated pad's snapshot can be stale-on (another player's cooldown) and TG_IOCommit keeps what
-	// the replay fired, so only its !self rows (which the snapshot overrides) replay.
-	if (tg_kind[io_src[o]] == TG_SPEED)
-	if (tg_ent[io_src[o]].tg_netgate)
-	if (strcasecmp(io_tgt[o], "!self"))
-		return FALSE;
 	return tg_kind[io_src[o]] != 0;	// owner predicted (fixpoint updates this)
 };
 
@@ -2121,8 +2115,7 @@ void(float seq) TG_ChainStart =
 		other = tg_ent[i];
 		tracebox(predmove_org0, predmove_mins, predmove_maxs, predmove_org0,
 		         MOVE_TRIGGERS | MOVE_OTHERONLY, TG_Probe());
-		// P1743: not while gated off at the ack -- the server's pad was SOLID_NOT, so its stamp is stale.
-		if ((trace_startsolid || trace_allsolid) && (!tg_io_gated[i] || TG_IOEff(i, seq)))
+		if (trace_startsolid || trace_allsolid)
 			tg_ssinseq[i] = seq - 1;     // inside at the ack: edge is history
 		else
 			tg_ssinseq[i] = -99999;
