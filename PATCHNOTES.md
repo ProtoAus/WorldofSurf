@@ -22,7 +22,7 @@
 ## next
 
 ### P1716 TAS uploads go up straight away
-- A TAS run you upload appears on the TAS board at once, records included. Anything the physics check could not confirm is listed on the run's page and the run is marked "not fully checked". Runs the check refuses are still refused.
+- A TAS run you upload appears on the TAS board at once, records included. Anything the physics check could not confirm (for example Jargon's save/load retries) is listed on the run's page and the run is marked "not fully checked". A run whose physics looks wrong still waits for review, and runs the check refuses are still refused.
 
 ### P1715 Replay paths and run lines draw fast again
 - Run lines (a replay's path, board lines, your trail, ghost lines) were being drawn the slow way since 20 Nov; on ahop_coast a replay's path cost about a sixth of the frame rate. They draw at full speed again, in lobbies too.

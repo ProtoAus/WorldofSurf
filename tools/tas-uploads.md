@@ -212,11 +212,16 @@ Pushed: engine main c05e443e4 (tag patch-1712), game main 91a26c9f; Lex's dev in
 
 ## P1716: published without review (Lex 22 Nov)
 
-Asked whether a made-up wall-clipping record staying up until he notices was acceptable: "thats fine". tasupd now shows
-every upload the checker does not refuse: a tasplaus HOLD and the record rule ("a new record waits for the owner") become
-notes on the run ("published without review"), labelled "not fully checked" on the board and run page (reviewed_at 0;
-an owner-approved one still reads "owner approved"). Still held: a copy of another player's motion (whose run it is is a
-person's call) and a checker that could not run (it said nothing). `create_app(review=True)` / TASUPD_REVIEW=1 restores
+Asked whether a made-up wall-clipping record staying up until he notices was acceptable: "thats fine"; his 20 Nov rule
+stays "as long as the run makes sense physics wise". So tasupd shows at once: a PASS; a new record (the record rule's
+note says "published without review"); and a HOLD whose every note only says the checker could not see (tasplaus
+note(..., unseen=True): stage leg, native resume records, low decimals, a gap whose move fits its ends' speeds (at most
+two), too little movement, lost packets, whole multi-tick sample steps, no zones). Those carry runs.unchecked = 1 (schema
+3) and read "not fully checked"; `tasupd.py list --state unreviewed` lists them and `approve` makes one "owner approved".
+Still held: a HOLD saying the physics looks wrong (tasplaus out["suspect"]: speed or energy past the bounds, position
+jumps, a move across a gap its speed cannot reach, steps between ticks, clock edits, start/finish faults), a copy of
+another player's motion, a checker that could not run. Lex's Jargon runs (resume records, lost packets, 2-tick steps)
+come out unseen-only: published. `create_app(review=True)` / TASUPD_REVIEW=1 restores
 the review flow, which the existing tests pin (svc.REVIEW_DEFAULT = True in test_tasupd.py). Next: re-simulation of
 game uploads (pm_verify on the Pi) for a "re-simulated" mark -- Lex: "a cool part of the anti-cheat that I would want".
 
