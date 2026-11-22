@@ -226,6 +226,10 @@ come out unseen-only: published. `create_app(review=True)` / TASUPD_REVIEW=1 res
 the review flow, which the existing tests pin (svc.REVIEW_DEFAULT = True in test_tasupd.py). Next: re-simulation of
 game uploads (pm_verify on the Pi) for a "re-simulated" mark -- Lex: "a cool part of the anti-cheat that I would want".
 
+INSTALLED 22 Nov 2026 (Lex's root run, `--upgrade-from 91a26c9f`, source /srv/nvme/ftesurf-ops/tasupd-src-b61c53ef):
+release /opt/ftesurf-tasupd/b61c53ef (91a26c9f kept as unit.prev's; e5ecca2b removed). Checked live: X-Tasupd-Source
+b61c53ef, the page's publish-mode text, store user_version 3 with runs.unchecked, unit active without TASUPD_REVIEW.
+
 ## P1700: on the website
 
 tasupd's pages carry the site's menu (SITE_NAV, `TAS uploads` current) and every site page links here (the release
