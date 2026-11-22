@@ -979,20 +979,24 @@ class Tests(unittest.TestCase):
         def sweep(maps, cache, depth, pacer, *rest):
             seen['sweep'] = pacer.left()
             return {}, 0, 1
-        argv = ['ksfimport.py', '--watch', '--go', '--demos', '--cache', self.cache, '--max', '8']
-        with patch.object(sys, 'argv', argv), \
-             patch.object(K, 'playable_maps', return_value={'surf_test'}), \
-             patch.object(K, 'catalog_step', return_value={'names': ['surf_test'], 'done': True}), \
-             patch.object(K, 'wanted_maps', return_value=set()), \
-             patch.object(K, 'topup_step'), \
-             patch.object(K.KP, 'step', side_effect=walks), \
-             patch.object(K, 'unblock_step', side_effect=unblock), \
-             patch.object(K, 'refresh_step', side_effect=refresh), \
-             patch.object(K, 'sweep_maps', side_effect=sweep), \
-             patch.object(K, 'fetch', side_effect=AssertionError('board network forbidden')), \
-             patch.object(G, 'tick', side_effect=lambda cache, maximum, delay: seen.update(demos=maximum)):
-            self.assertEqual(K.main(), 0)
-        self.assertEqual(seen, dict(walks=1, unblock=1, refresh=1, sweep=1, demos=4))
+        # The default tick (40) keeps P1240's shares: unblock stays 2 at 8+ board requests.
+        for extra, want in ((['--max', '8'], dict(walks=1, unblock=1, refresh=1, sweep=1, demos=4)),
+                            ([], dict(walks=3, unblock=2, refresh=4, sweep=7, demos=24))):
+            seen.clear()
+            argv = ['ksfimport.py', '--watch', '--go', '--demos', '--cache', self.cache] + extra
+            with patch.object(sys, 'argv', argv), \
+                 patch.object(K, 'playable_maps', return_value={'surf_test'}), \
+                 patch.object(K, 'catalog_step', return_value={'names': ['surf_test'], 'done': True}), \
+                 patch.object(K, 'wanted_maps', return_value=set()), \
+                 patch.object(K, 'topup_step'), \
+                 patch.object(K.KP, 'step', side_effect=walks), \
+                 patch.object(K, 'unblock_step', side_effect=unblock), \
+                 patch.object(K, 'refresh_step', side_effect=refresh), \
+                 patch.object(K, 'sweep_maps', side_effect=sweep), \
+                 patch.object(K, 'fetch', side_effect=AssertionError('board network forbidden')), \
+                 patch.object(G, 'tick', side_effect=lambda cache, maximum, delay: seen.update(demos=maximum)):
+                self.assertEqual(K.main(), 0)
+            self.assertEqual(seen, want, extra)
 
     def test_scan_rotation_and_queue_cap_and_obsolete_progress(self):
         records = []

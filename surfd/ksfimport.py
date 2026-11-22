@@ -165,7 +165,7 @@ KSF_MODES = {0: S.STYLE_CLEAN, 1: S.STYLE_SW, 2: S.STYLE_HSW, 3: S.STYLE_BW}
 KSF_LIST_PAGE = 10         # maps per /api/maps/new page (measured 5 Oct)
 
 # --watch, the unattended crawl.  40 requests every 5 minutes, 3 s apart, is ~11,500 a day.
-WATCH_BOARDS = 16          # board requests a --watch tick, at most half of it with --demos (P1734)
+WATCH_BOARDS = 16          # board requests a --watch tick; with --demos below --max 32 demos take half (P1734)
 DEMO_MAX = 24              # P1240, Lex 3 Nov "do what you can" with ~46,000 waiting (P896: 6)
 WATCH_MAX = WATCH_BOARDS + DEMO_MAX
 UNBLOCK_MAX = 2            # Patch 896: pages a tick re-asks for recordings on null-ID rows
