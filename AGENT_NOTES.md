@@ -2181,7 +2181,15 @@ Scope, actual build/control limits and resume checks: tools/p1300-visuals.md.
 
 ## P1240 KSF crawl budgets (ftesurf-2b; LIVE 3 Nov 03:21Z, generation 20d99092, root lexlist-1240-382effae)
 - ksfimport: WATCH_BOARDS 16, DEMO_MAX 24 (40 requests a tick, 3 s apart); derived from --max: profile
-  walks 3, refresh 4, unblock 2 (capped), sweep >= 7. sweep_maps (watch order only): a board with no
+  walks 3, refresh 4, unblock 2 (capped), sweep >= 7.
+- P1734 (23 Nov): below --max 32, --demos takes half (rounded down). The 17 Nov cron row (`13,43`, `--max 8 --delay 6`,
+  ~380 requests/day after KSF's 403 of 11 Nov) had left demos 8 - 16 -> 0; now 4 boards (walks 1, unblock 1, refresh 1,
+  sweep >= 1) + 4 demos. Unblock is board budget // 4: keep --max at 8 or more with --demos (at 6 or less unblock gets
+  nothing, every tick).
+- KSF STOPPED 23 Nov 2026 (Lex): the row is commented out in proto's crontab and data/ksf/.refused is an open-ended park
+  (until 2036), so mapwatch and mapnew -- which honour that park but never write it -- skip KSF too. Resume = uncomment
+  the row AND restore/delete .refused (backups /srv/nvme/agent-work/ksfstop-20261123-2f, RETAIN); un-parking alone lets
+  mapwatch (6 h) and mapnew (2 h) ask with no park of their own. sweep_maps (watch order only): a board with no
   page joins rank 1; heap key (rank, depth, not viewed, mode, map, zone).
 - ksfgrab: a whole replay's content refusal is Unconvertible, set aside 7 days at once; NOT_A_REPLAY
   (exactly inspect's refusals before the bookmark loop, pinned by a test) strikes a day apart as

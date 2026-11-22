@@ -1,5 +1,17 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## KSF STOPPED 23 Nov 2026 16:29Z (Lex, worldofsurf-2f) -- crontab changed outside a generation
+proto's crontab: the `13,43` ksfimport row is commented out (crontab 628583d6 -> 414b8566; the next kit's freshness
+check must re-acquire it). /srv/nvme/surfd/data/ksf/.refused is an open-ended park (until 2036), so the mapwatch and
+mapnew routes skip KSF as well. Backups and resume steps: /srv/nvme/agent-work/ksfstop-20261123-2f (OWNER.md, RETAIN).
+
+## P1734 KSF demo budget -- READY for the NEXT generation (23 Nov, worldofsurf-2f)
+surfd/ksfimport.py only (ships as CHANGED; nothing added, no schema, no cron/env change). The `13,43` row's `--max 8`
+then splits 4 board requests (walks 1, unblock 1, refresh 1, sweep >= 1) + 4 demo downloads a tick instead of 8 + 0.
+Inert while KSF is stopped (above) and while ksf.surf refuses us (403 since 11 Nov). Since gen1710's REF 8bbc3700 the
+only other surfd/ changes on main are tasupd files (excluded from generations). Check after a resume: the first
+unparked tick's ksfwatch.log reads `KSF demos: N request(s)` with N up to 4 and `watch: <=4 request(s)`.
+
 ## 21 Nov 2026 23:57Z: gen1710 LIVE -- the base for the NEXT generation (worldofsurf-2c, Lex "pre-pare an update? do it if you need.")
 Primary e4dbc744 (members-v1, 92) = gen1702's files + P1710's surfd half at REF 8bbc3700 (admin.py, recplot.py, surfd.py,
 templates/admin_run.html, templates/admin_top10.html, web/board.js); fallback 6297635d = gen1702's 92 exactly; guard
