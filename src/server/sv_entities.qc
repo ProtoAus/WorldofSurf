@@ -716,6 +716,7 @@ entity  vbsp_onjump_head;
 .float  vbsp_ss_stamp;          // trigger_setspeed: last touch, for the enter edge (vbsp_mp 0)
 .float  vbsp_ss_applied;        // ...and last time the speed was written
 .int    vbsp_ppoff;             // P1744: a booster switched off for that player alone (SV_PpInput)
+.entity vbsp_ss_who;            // P1744: whose touch vbsp_ss_stamp is (a new slot carries it on: SV_SsSlot)
 // P1744, on a PLAYER: trigger_setspeed's enter edge and OnThink clock per player (Source's StartTouch is per toucher), in
 // four slots: pad, last touch, last application (SV_SsSlot).
 .entity run_ssp1, run_ssp2, run_ssp3, run_ssp4;
@@ -912,7 +913,10 @@ float(entity pl, entity pad) SV_SsSlot =
 	if (pl.run_sst4 < lo) { s = 4; lo = pl.run_sst4; }
 	if (time - lo <= 0.05)
 		return 0;               // all four inside their window (overlapping pads): this pad keeps its own stamp
-	SV_SsSet(pl, s, pad, -1000, -1000);
+	if (pad.vbsp_ss_who == pl)  // the stamps it kept for this player while it had no slot (review 2)
+		SV_SsSet(pl, s, pad, pad.vbsp_ss_stamp, pad.vbsp_ss_applied);
+	else
+		SV_SsSet(pl, s, pad, -1000, -1000);
 	return s;
 };
 // A touch that consumes the enter edge without the pad's own write (the monolith pad).
@@ -920,6 +924,7 @@ void(entity pl, entity pad) SV_SsStamp =
 {
 	local float s;
 	pad.vbsp_ss_stamp = time;
+	pad.vbsp_ss_who = pl;
 	if (!SV_TouchBit(pl))
 		return;
 	s = SV_SsSlot(pl, pad);
@@ -2918,11 +2923,12 @@ float(entity to, float changed) SV_TrigStateSend =
 	return TRUE;
 };
 
-// P1744: a booster's gate per player, as in Momentum where each player has their own world (Lex: "every client experiences
-// their own timer"). A player's Disable is theirs alone: surf_classics' OnEndTouch !self,Disable + !self,Enable 1 s later
-// no longer switches the pad off for everyone. The pad's own Enable for that player undoes it (and turns on a pad map logic
-// switched off, as before); any other Enable re-arms everyone, so a re-arm never leaves anyone switched off (reviews 1:
-// bhop_sandtrap2's boost1 is re-armed by a setspeed's OnEndTouch). One player: the old global switch, last action wins.
+// P1744: a booster's own cooldown is per player, as in Momentum where each player has their own world (Lex: "every client
+// experiences their own timer"). Its own Disable for a player (surf_classics' OnEndTouch !self,Disable + !self,Enable 1 s
+// later) switches it off for that player alone; its own Enable for them undoes that. Every other switch -- another entity's
+// gate or timed window, the world's -- stays everyone's, and any Enable that is not the pad's own re-arms everyone (review
+// 1: bhop_sandtrap2's boost1 is re-armed by a setspeed). The bank runs on the activator's own view (review 2), so one
+// player sees the old global switch exactly, provenance included.
 float(entity t) SV_PpBooster =
 {
 	if (!vbsp_mp)
@@ -2941,26 +2947,34 @@ void(entity t, int nv) SV_PpWrite =
 };
 
 void(entity t, float on) SV_IOEnable;
+void(entity t, float on, float wasoff) SV_IOBankSlot;
 void(entity t, entity o, entity act, string in) SV_PpInput =
 {
 	local int bit;
-	local float on, ct;
+	local float on, own, ct, effoff;
 
+	own = (o && o.owner == t);
 	bit = 0i;
 	if (act.classname == "player")
 	{
 		ct = clienttype(act);
-		if (ct != CLIENTTYPE_REAL && ct != CLIENTTYPE_BOT)
-			return;             // a departed client's touch outputs (the end sweep, a pending delay): nobody to switch
-		bit = SV_TouchBit(act);
+		if (ct == CLIENTTYPE_REAL || ct == CLIENTTYPE_BOT)
+			bit = SV_TouchBit(act);
+		else if (own)
+			return;             // a departed client's own cooldown row (the end sweep, a pending delay): nobody to switch
 	}
-	on = t.solid != SOLID_NOT && !SV_Key2(t.StartDisabled, t.startdisabled);
-	if (in == "toggle")         // by the activator's own view; any player's own Disable reads as off to the world
-		in = (on && !(t.vbsp_ppoff & (bit ? bit : t.vbsp_ppoff))) ? "disable" : "enable";
+	if (!own)
+		bit = 0i;               // another entity's or the world's switch is everyone's
+	on = (t.solid != SOLID_NOT && !SV_Key2(t.StartDisabled, t.startdisabled));
+	// Off as the old global switch saw it: for this player, or for the world while any player has it off.
+	effoff = ((bit ? (t.vbsp_ppoff & bit) : t.vbsp_ppoff) != 0i);
+	if (in == "toggle")
+		in = ((on && !effoff) ? "disable" : "enable");
 	if (in == "disable")
 	{
 		if (bit && on)
 		{
+			SV_IOBankSlot(t, FALSE, effoff);
 			SV_PpWrite(t, t.vbsp_ppoff | bit);
 			if (cvar("developer") >= 2)
 				dprint(sprintf("booster %s %s: off for %s alone\n", t.classname, t.model, act.netname));
@@ -2969,14 +2983,9 @@ void(entity t, entity o, entity act, string in) SV_PpInput =
 		SV_IOEnable(t, FALSE);
 		return;
 	}
-	if (bit && o && o.owner == t)
-	{
-		SV_PpWrite(t, t.vbsp_ppoff & ~bit);
-		if (!on)
-			SV_IOEnable(t, TRUE);
-		return;
-	}
-	SV_PpWrite(t, 0i);
+	if (on)
+		SV_IOBankSlot(t, TRUE, effoff); // off -> on in that view; SV_IOEnable below then sees an on pad
+	SV_PpWrite(t, bit ? (t.vbsp_ppoff & ~bit) : 0i);
 	SV_IOEnable(t, TRUE);
 };
 
@@ -3137,16 +3146,12 @@ void() SV_NoColRestore =
 	nocol_off = world;
 };
 
-void(entity t, float on) SV_IOEnable =
+// The activation slots' provenance (P1185), shared with P1744's per-player switch (SV_PpInput), which passes the
+// activator's own view as wasoff. Moved out of SV_IOEnable verbatim.
+void(entity t, float on, float wasoff) SV_IOBankSlot =
 {
-	local float wasoff, act, same;
-	// P1387 review 2: Source's func_tracktrain has no Enable/Disable; a csprogs train made solid here
-	// would leave its hull at its spawn spot while it is drawn on its path.
-	if (t.SendEntity == SV_TrkSend)
-		return;
-	if (t == nocol_off)
-		SV_NoColRestore();        // P1193: I/O acts on the real solidity
-	wasoff = SV_Key2(t.StartDisabled, t.startdisabled);
+	local float act, same;
+
 	// These activation slots are not callback state. A no-op Enable does not
 	// reauthor them; an independent off->on without active I/O is world-owned.
 	act = (!strcmp(t.classname, "trigger_push") || !strcmp(t.classname, "trigger_setspeed")
@@ -3197,6 +3202,19 @@ void(entity t, float on) SV_IOEnable =
 		}
 		t.bank_off_have = FALSE;
 	}
+};
+
+void(entity t, float on) SV_IOEnable =
+{
+	local float wasoff;
+	// P1387 review 2: Source's func_tracktrain has no Enable/Disable; a csprogs train made solid here
+	// would leave its hull at its spawn spot while it is drawn on its path.
+	if (t.SendEntity == SV_TrkSend)
+		return;
+	if (t == nocol_off)
+		SV_NoColRestore();        // P1193: I/O acts on the real solidity
+	wasoff = SV_Key2(t.StartDisabled, t.startdisabled);
+	SV_IOBankSlot(t, on, wasoff);
 	if (!on)
 	{
 		// Remember what it was before the first Disable, so Enable can restore
@@ -9828,12 +9846,12 @@ void(entity e) SV_TASPushPrep =
 		t.tas_rpushk = 0;
 		t.tas_rpush = '0 0 0';
 		if (t.touch != trigger_push_touch) continue;
-		if (t.vbsp_ppoff & ebit) continue;      // P1744: off for this body alone
 		if (t.tas_rpushx || t.parentname != "") continue;
 		if (!SV_TriggerTakesPlayers(t)) { t.tas_rpushk = 4; continue; }
 		if (t.filtername != "" && vbsp_io_on) continue;
 		st = SV_TASPushSelfToggle(t);
 		if (t.vbsp_io_out && !st) continue;
+		if (t.vbsp_ppoff & ebit) { t.tas_rpushk = 4; continue; }   // P1744: off for this body alone, run through
 		makevectors(t.pushdir);
 		spd = SV_Key2(t.speed, t.Speed);
 		if (!spd)
@@ -10005,6 +10023,7 @@ void() trigger_setspeed_touch =
 		app = self.vbsp_ss_applied;
 	}
 	self.vbsp_ss_stamp = time;
+	self.vbsp_ss_who = other;
 	iv = SV_Key2(self.Interval, self.interval);
 	if (iv <= 0)
 		iv = 1;
@@ -14595,8 +14614,12 @@ void(entity p, float t0) SV_TrigResume =
 		if (t.touch == trigger_setspeed_touch)
 		{
 			// No mask without outputs: a touch when the hold began, and the box. P1744: this player's stamp.
-			sss = bit ? SV_SsFind(p, t) : 0;
-			ssw = bit ? (sss ? SV_SsT(p, sss) : -1000) : t.vbsp_ss_stamp;
+			sss = (bit ? SV_SsFind(p, t) : 0);
+			ssw = t.vbsp_ss_stamp;
+			if (sss)
+				ssw = SV_SsT(p, sss);
+			else if (bit && t.vbsp_ss_who != p)
+				ssw = -1000;
 			if (ssw >= t0 - 0.05)
 			if (p.absmin_x <= t.absmax_x) if (p.absmax_x >= t.absmin_x)
 			if (p.absmin_y <= t.absmax_y) if (p.absmax_y >= t.absmin_y)
