@@ -1486,6 +1486,8 @@ float(float s, vector v, float fl, float t, vector aux) Line_Grade =
 
 	// Unsigned degrees per second, the short way round the circle.
 	turn = aux_x - ln_pyaw[s];
+	if (!(fabs(turn) < 16777216))
+		return -1;                      // P1730: a damaged .rec yaw; the loops below would never end
 	while (turn > 180)  turn = turn - 360;
 	while (turn < -180) turn = turn + 360;
 	turn = fabs(turn) / dt;

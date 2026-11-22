@@ -3143,6 +3143,9 @@ float() Watch_ViewAngles =
 		if (f > 1) f = 1;
 		ang = Interp_View(rec_wt_vja, rec_wt_vna, f);
 	}
+	// P1730: a damaged sidecar angle (a local .view is not validated) leaves this frame to the .rec's angles
+	if (!(fabs(ang_x) < 16777216 && fabs(ang_y) < 16777216))
+		return FALSE;
 	rec_wt_pitch = ang_x;
 	rec_wt_yaw   = Interp_Wrap(ang_y);
 	rec_wt_keys  = rec_wt_vjkeys;

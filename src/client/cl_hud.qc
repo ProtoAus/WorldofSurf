@@ -5903,6 +5903,8 @@ void(float dt) HUD_UpdateTurn =
 	yaw = ang_y;
 
 	d = yaw - ui_lastyaw;
+	if (!(fabs(d) < 16777216))
+		d = 0;                          // P1730: a damaged angle; the loops below would never end
 	while (d >  180) d -= 360;          // yaw wraps; the delta must not
 	while (d < -180) d += 360;
 	ui_lastyaw = yaw;

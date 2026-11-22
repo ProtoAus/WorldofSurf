@@ -13,8 +13,12 @@
 #define INTERP_HERMITE  2       // velocities explain the move: cubic is exact enough
 
 // An angle in [-180, 180).  Moved from cl_watch.qc (build 24's yaw wrap).
+// P1730: past 2^24 degrees a float has no fraction left and the subtraction leaves a residue up to ~1e31 (a damaged
+// replay's 3e38 yaw), which hung HUD_UpdateTurn's wrap loop; such an angle (or NaN) reads as 0.
 float(float a) Interp_Wrap =
 {
+	if (!(fabs(a) < 16777216))
+		return 0;
 	return a - floor((a + 180) / 360) * 360;
 };
 
