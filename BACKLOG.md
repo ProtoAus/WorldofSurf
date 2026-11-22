@@ -5321,6 +5321,22 @@ Fixed items are removed; remaining reader contracts need acting controls.
   push. Falsifier: cross the real brush from an acknowledged normal-moving
   position at several network rates, without setpos or another server warp;
   compare the first predicted carrier with the same command's server state.
+- **P1743 setspeed gates share that window, and race starts are where it shows.** A cooldown pad another
+  player has just left is off on the server for 1 s; a client entering it within its own RTT still has the
+  "on" snapshot and predicts a boost the server refuses (0.1.59 predicted none, correctly, because the pad
+  was server-only). Solo, P1743 removes a 1758.5 u/s error on every boost (surf_classics, sv_minping 300).
+  Falsifier: two clients under 300 ms through surf_classics S7 within 200 ms. Fix shape if it matters:
+  per-player cooldown state on the server (a rule change, Lex's call), not a client guess.
+  The server half is older than P1743: vbsp_ss_stamp is one per pad, shared by every player, so a player
+  entering while another still overlaps the pad gets no boost (Source's StartTouch is per toucher). Fix:
+  a per-player stamp (changes outcomes in crowded starts, so a deliberate patch with its own A/B).
+  Other P1743 residuals: a pad the snapshot turns on while the player is inside is still seeded as
+  history when the server's first touch after the Enable comes after the ack (the ring-Enable case is
+  seeded fresh since review 1); a lost TRIGSTATE update leaves a stale "on" for about a round trip after
+  the player's own exit (as P1196 teleports); a csprogs-only deploy over old
+  qwprogs leaves a cooldown pad never ready, so the zero-delay outputs it owns do not fire on the client;
+  SV_IOEnable resends SendFlags on a no-change Enable/Disable (pushes too); Trig_NetState notes every
+  setspeed gate change into the 96-row PE ring, netgated or not.
 - **Gate snapshots are authoritative, not foresight.** Delayed/shared push
   Enable/Disable now reaches every client, but a gate changed by another player
   in flight can still reconcile. Test actual packet loss/reordering and two

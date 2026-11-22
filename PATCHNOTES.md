@@ -21,6 +21,10 @@
 
 ## next
 
+### P1743 Start boosters predicted with ping
+- Boosters that switch themselves off for a second after you leave them (surf_classics' stage 7 and stage 23 start boosters, and others ported the same way) were left to the server, so with ping the kick came late and the view snapped. Your game now predicts them, with the server telling it whether each one is armed.
+- If another player has just used the same booster, it can still snap: the server has it switched off and your game only finds out one ping later. Pushes behave the same way.
+
 ## 0.1.60 2026-11-22
 
 ### P1741 Map pictures edge to edge
