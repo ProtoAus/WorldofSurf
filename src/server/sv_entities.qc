@@ -2514,6 +2514,11 @@ void(entity t, string who, entity act) SV_PointTeleport =
 	SV_TimerMapTeleport(p);
 };
 
+// P1726: stashed like point_teleport (no lump edict of its own); SV_SpResolve makes it the root that turns attach1.
+// phys_hinge/phys_constraint hold bodies Source simulates and this does not; their removal keeps the numbering.
+void() phys_motor = { SV_SpWake(); SV_LateStash("targetname origin axis speed spinup spawnflags attach1"); };
+void() phys_hinge = { remove(self); };
+void() phys_constraint = { remove(self); };
 void() point_teleport = { SV_LateStash("targetname target spawnflags origin angles VelocityMode velocitymode SetSpeed setspeed UseDestinationAngles usedestinationangles snapvelocitytodestangles"); };
 
 /*
@@ -11992,6 +11997,13 @@ float(entity e, string lk) SV_RotButtonOutputKnown =
 .float  vbsp_sp_th0, vbsp_sp_t0, vbsp_sp_w0, vbsp_sp_wt;
 .float  vbsp_sp_max, vbsp_sp_up, vbsp_sp_dn, vbsp_sp_rev;
 .float  vbsp_sp_useat, vbsp_sp_stopping, vbsp_sp_stopat;
+// P1726: phys_motor's keys (Source phys_controller.cpp CPhysMotor): axis is a POINT, the axis normalize(axis - origin);
+// speed degrees a second; spinup seconds to it; attach1 the body it turns.
+.vector axis;
+.string attach1;
+.float  spinup;
+.float  vbsp_sp_ismotor;    // the motor itself, a turning root (its inputs are not func_rotating's)
+.entity vbsp_sp_motor;      // on the body: the motor it follows
 // func_movelinear: position 0..1 as the rot button's (SV_RotButtonPos).
 .float  vbsp_sp_pos, vbsp_sp_ideal, vbsp_sp_dir, vbsp_sp_arrived;
 float   vbsp_sp_maxdepth, vbsp_sp_wnow, vbsp_sp_dev;
@@ -12200,6 +12212,47 @@ void() SV_SpResolve =
 
 	vbsp_sp_resolved = TRUE;
 	vbsp_sp_dev = cvar("developer");
+	// P1726: a phys_motor turns the physics body it names about its axis.  The body becomes a non-solid follower of
+	// the motor, which turns like a func_rotating about its own forward (roll).  A turning hull cannot be predicted
+	// (Patch 860), and Source's spinning body pushes rather than stands, so the frozen solid hull was never right.
+	for (e = find(world, classname, "phys_motor"); e; e = find(e, classname, "phys_motor"))
+	{
+		q = world;
+		if (e.attach1 != "")
+			q = SV_FindByName(e.attach1, world);
+		if (!q || q.model == "" || q.vbsp_sp_kind
+		 || !(substring(q.classname, 0, 12) == "prop_physics" || substring(q.classname, 0, 12) == "func_physbox"
+		      || substring(q.classname, 0, 15) == "simple_physics_"))
+		{
+			dprint(sprintf("motor %s: turns nothing (attach1 '%s')\n", e.targetname, e.attach1));
+			continue;
+		}
+		d = normalize(e.axis - e.origin);
+		if (d == '0 0 0')
+			continue;
+		pu = '0 0 1';
+		if (fabs(d_z) > 0.99)
+			pu = '1 0 0';
+		pl = normalize(crossproduct(pu, d));
+		pu = crossproduct(d, pl);
+		e.angles = SV_SpAngles(d, pl, pu);
+		e.vbsp_sp_ismotor = TRUE;
+		e.vbsp_sp_kind = SPK_ROT;
+		e.vbsp_sp_draw = FALSE;
+		e.vbsp_sp_axis = '0 0 1';
+		e.vbsp_sp_max = fabs(e.speed);
+		e.vbsp_sp_rev = (e.speed < 0);
+		if (e.spinup > 0)
+			e.vbsp_sp_up = e.vbsp_sp_dn = e.vbsp_sp_max / e.spinup;
+		e.vbsp_sp_t0 = time;
+		if (e.spawnflags & 1)
+			SV_SpRotTarget(e, e.vbsp_sp_max);	// SF_MOTOR_START_ON
+		q.solid = SOLID_NOT;
+		setorigin(q, q.origin);
+		q.vbsp_sp_kind = SPK_FOLLOW;
+		q.vbsp_sp_motor = e;
+		dprint(sprintf("motor %s: turns %s at %g deg/s about %v\n", e.targetname, q.model, e.speed, d));
+	}
 	for (e = findfloat(world, vbsp_sp_cand, SPK_ROT); e; e = findfloat(e, vbsp_sp_cand, SPK_ROT))
 	{
 		e.vbsp_sp_draw = SV_RotButtonDrawn(e);
@@ -12282,6 +12335,8 @@ void() SV_SpResolve =
 		p = world;
 		if (pn != "")
 			p = SV_FindByName(pn, world);
+		else if (e.vbsp_sp_motor)
+			p = e.vbsp_sp_motor;	// P1726
 		if (p == e || !p.vbsp_sp_kind)
 			p = world;
 		e.vbsp_sp_parent = p;
@@ -12969,6 +13024,24 @@ float(entity t, string in, string pm) SV_SpinInput =
 				t.vbsp_sp_ideal = v;
 				t.vbsp_sp_dir = 0;
 			}
+		}
+		else
+			return FALSE;
+	}
+	else if (t.vbsp_sp_kind == SPK_ROT && t.vbsp_sp_ismotor)
+	{	// P1726: CPhysMotor's inputs; SetSpeed is degrees a second (func_rotating's is a fraction of max)
+		if (in == "turnon")
+			SV_SpRotTarget(t, t.vbsp_sp_max);
+		else if (in == "turnoff")
+			SV_SpRotTarget(t, 0);
+		else if (in == "setspeed")
+		{
+			v = stof(pm);
+			t.vbsp_sp_max = fabs(v);
+			t.vbsp_sp_rev = (v < 0);
+			if (t.spinup > 0)
+				t.vbsp_sp_up = t.vbsp_sp_dn = t.vbsp_sp_max / t.spinup;
+			SV_SpRotTarget(t, t.vbsp_sp_max);
 		}
 		else
 			return FALSE;
