@@ -1,5 +1,14 @@
 # lextest.md — things waiting on a human
 
+## P1719/P1720 -- sky ocean shares the main reflection; prediction reuses moves (worldofsurf-08) -- dev install; players with the next release
+1. ahop_coast: the ocean in the distance (the 3D sky) looks as before, including when no near water is on screen (it now
+   shows the main view's last reflection, as Source's skybox water does). `r_waterskyroomcapture 2` is the old way.
+2. In a lobby, movement feels exactly the same with `cl_predict_memo 1` (default) and `0`; `r_budget 2` "prediction"
+   lower with 1. `cl_predict_memo 2` + `cl_predict_memostats` after a minute of play must say "0 of those differed".
+3. Cheap water (your call): Source fades distant water to its cheap look and skips refraction past water_lod_control's
+   distance only when water reflections are OFF; at hl2_water 2 (yours) nothing changes there. Copying it would drop
+   refraction on most maps at hl2_water 1. Say if you want that.
+
 ## P1716 -- TAS uploads go up straight away (worldofsurf-5a) -- after the Pi update
 1. Upload a TAS run (a Jargon finish with backtracks is fine): it is on play.proto.bar/tasup at once, not "waiting for
    review"; its page says "not fully checked" and lists why (resume records, lost packets, a new record).

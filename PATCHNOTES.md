@@ -21,6 +21,12 @@
 
 ## next
 
+### P1720 Prediction stops redoing moves it already worked out
+- With ping your game replays your recent movement every frame; it now reuses the moves it already worked out instead of recalculating them, which is most of them. Moving at 150 ms on the test PC: ahop_coast about 530 to 660 fps, bhop_canals about 270 to 320 fps. Movement is exactly the same.
+
+### P1719 The sky's ocean stops drawing its own reflections
+- Water in a map's 3D sky (ahop_coast's ocean) now uses the main view's reflection, as in Source, instead of drawing its own: about 6% more fps on ahop_coast, same picture.
+
 ### P1716 TAS uploads go up straight away
 - A TAS run you upload appears on the TAS board at once, records included. Anything the physics check could not confirm (for example Jargon's save/load retries) is listed on the run's page and the run is marked "not fully checked". A run whose physics looks wrong still waits for review, and runs the check refuses are still refused.
 

@@ -1,27 +1,27 @@
 # BACKLOG.md
 
-## Lobby/ahop_coast frame audit -- what P1714/P1715 leave (22 Nov, worldofsurf-08; root FTESurf-worktrees/coastperf-20261122-08)
-- Prediction still replays every unacknowledged command each frame (cl_pred.c CL_PredictMovePNum): after P1714 0.72 ms at
-  150 ms on ahop_coast and 1.75 ms on bhop_canals while moving. Source repredicts only after a prediction error
-  (cl_pred_optimize 2). Keeping the predicted state after each completed command while the base snapshot is unchanged needs
-  the CSQC trigger hook's per-move state kept with it. Falsifier: `r_budget` prediction at sv_minping 0 vs 150 (flat = done).
+## Lobby/ahop_coast frame audit -- what P1714-P1720 leave (22 Nov, worldofsurf-08; root FTESurf-worktrees/coastperf-20261122-08)
+- Prediction (P1720 memo): a reused move costs a key build and a compare, but every new server snapshot changes the base
+  state, and on bhop_canals moving entities change the physents every frame, so ~30-50% of moves still run. Keying the
+  physents by the swept move's reach (as P1714 culls) would let far-away movers stop invalidating it. Falsifier:
+  cl_predict_memostats reused/run on bhop_canals moving at sv_minping 150.
 - P1714 claims only BIH trees: GoldSrc/Quake hull models, IQM convex hulls and Mod_Trace meshes are traced as before. A
   hull-plane bound (the hull's own planes, not its box) would let the convex hull path be claimed.
-- bih_tracecache (P1266) was a net loss before P1714 (13% reused; off 418 vs on 346 fps at 150 ms on ahop_coast). After
-  P1714 it reuses 27-35% of 3-4 M traces per 30 s: re-measure on/off before keeping it on.
 - Patch 318 (plugins/hl2 mod_vbsp.c VBSP_AddBrushBevels) skips axial edges believing the runtime adds axial bevels; the
   live BIH brush clip does not (com_bih.c BIH_ClipBoxToBrush clips the brush's own sides only). VBSP's own axial sides
   cover it today (P1714 refuses to claim a brush without them).
-- 3D-sky water renders its own reflection/refraction ~0.3 scene renders a frame on ahop_coast whenever the main view
-  captured none last frame (gl_backend.c BE_SkyroomSharesWater -> BE_CaptureFresh); Source's skybox water never captures.
-  The whole 3D sky is ~0.4 ms a frame there. Falsifier: r_viewstats depth-2 views, vbsp_skyroom 1 vs 0, same view.
-- $cheapwaterstartdistance/$cheapwaterenddistance and water_lod_control are ignored (mat_vmt.c VMT_IsKnownIgnoredField);
-  Source draws far water cheap and skips the captures when every visible water is past the end distance.
-- No build runs tools/qcframes.py: P1617 and P1715 each shipped a global inside a function frame for days (0 warnings).
-  build.ps1 and wos-build.sh should fail on its exit 1.
+- Cheap water (water_lod_control, $cheapwaterstart/enddistance; Source SDK 2013 viewrender.cpp DetermineWaterRenderInfo,
+  water.cpp): Source applies them ONLY to water without reflection -- with reflection on (hl2_water 2, Source's
+  "expensive" water) every distance renders reflect+refract, so there is nothing to gain there. Without reflection
+  Source skips the refraction render past the end distance (default 0.1 with no water_lod_control: almost always) and
+  fades its cheap envmap pass in per pixel between the material's distances (defaults 500/1000). hl2_water 1 renders
+  refraction everywhere. Copying Source would drop refraction on most maps at hl2_water 1: Lex's call (asked 22 Nov).
 - ahop_coast's worst frames on the rig (7-12 ms) are wide views where PrepareFrame takes 3-5 ms and opaque draws 4-5 ms
   (setpos -8456 8138 5291, -13774 9966 9483). The menu fetches /api/board?maps=1 (133 KB) every 60 s in play
   (m_lobby.qc Mdl_Ask): not shown to cost a frame.
+- Done 22 Nov: bih_tracecache is a net win after P1714 (+3-10% on/off at ahop_coast/bhop_canals 150 ms, bhop_canals
+  local, surf_classics 60 ms), kept on; the 3D sky's water no longer captures its own (P1719); qcframes gates the builds
+  (P1718).
 
 ## P1716 TAS uploads without review -- what it leaves (22 Nov, worldofsurf-5a)
 tasplaus is a plausibility check; publishing a non-suspect HOLD without review leans on it. Four adversarial rounds
