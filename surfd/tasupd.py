@@ -192,7 +192,7 @@ def fetch_https(url, cap, timeout=20, total=CODE_FETCH_S):
     """At most cap + 1 bytes of an https URL (a release object) within `total` seconds; no other scheme."""
     if not url.startswith('https://'): raise ValueError('not https')
     end, out = time.monotonic() + total, bytearray()
-    with urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'tasupd'}), timeout=timeout) as r:
+    with urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'WOS-tasupd'}), timeout=timeout) as r:
         if not r.geturl().startswith('https://'): raise ValueError('redirected off https')
         while len(out) <= cap:
             chunk = r.read1(65536)   # one socket read (each within `timeout`): read() waits for the whole 64 KB (ops review 2)

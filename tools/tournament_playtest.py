@@ -84,7 +84,7 @@ def map_assets(content, cache, download):
                 # Identify the game tool honestly: Cloudflare's browser-integrity
                 # rule rejects the generic Python-urllib user agent (error1010).
                 request = urllib.request.Request('https://play.proto.bar/maps/'+name+'.bsp',
-                    headers={'User-Agent': 'WorldOfSurf-LocalPlaytest/1.0'})
+                    headers={'User-Agent': 'WOS-LocalPlaytest/1.0'})
                 with urllib.request.urlopen(request, timeout=90) as response:
                     if not response.url.startswith('https://'):
                         raise ValueError('Map redirect left HTTPS')

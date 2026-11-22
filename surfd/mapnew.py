@@ -552,7 +552,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     W.FILE_SECONDS, W.KSF_WAIT = FILE_SECONDS, KSF_WAIT
     W.OPEN_SECONDS = W.API_SECONDS = REPLY_SECONDS
-    W.UA = W.UA.replace(" mapwatch ", " mapnew ")
+    W.UA = W.UA.replace("mapwatch", "mapnew")
     lock = W.take_lock(a.state)
     if lock is None:
         print("mapwatch holds %s -- not running beside it" % a.state)

@@ -71,7 +71,7 @@ class RigTests(unittest.TestCase):
         class Response(io.BytesIO):
             url = 'https://maps.proto.bar/objects/maps/public-test.bsp'
         def fetch(request, timeout):
-            self.assertEqual(request.get_header('User-agent'), 'WorldOfSurf-LocalPlaytest/1.0')
+            self.assertEqual(request.get_header('User-agent'), 'WOS-LocalPlaytest/1.0')
             self.assertIn(request.full_url, ['https://play.proto.bar/maps/'+n+'.bsp' for n in P.MAPS])
             self.assertEqual(timeout, 90)
             return Response(b'VBSP'+b'\0'*16)

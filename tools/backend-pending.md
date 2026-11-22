@@ -1,5 +1,12 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## P1745 WOS User-Agents -- READY for the NEXT generation (23 Nov, ftesurf-e4)
+Every fetcher User-Agent is the WOS label with no URL (Lex 23 Nov). Ships as CHANGED: surfd/ksfimport.py (with P1734),
+mapnew.py (derives `WOS/0.1 mapnew` from mapwatch's UA), momgrab.py, steam.py and tools/momfetch.py (a live member).
+mapwatch.py stays held at its live bytes (the P1600 rule below) except its one UA line: the gen1745 kit's
+generation.json `held_patch` refuses unless REF's change to it is exactly that line, and applies the same line to the
+live bytes. tasupd.py's `WOS-tasupd` stays out (excluded). Check after: `grep -n '^UA =' <primary>/runtime/*.py`.
+
 ## KSF STOPPED 23 Nov 2026 16:29Z (Lex, worldofsurf-2f) -- crontab changed outside a generation
 proto's crontab: the `13,43` ksfimport row is commented out (crontab 628583d6 -> 414b8566; the next kit's freshness
 check must re-acquire it). /srv/nvme/surfd/data/ksf/.refused is an open-ended park (until 2036), so the mapwatch and

@@ -1,5 +1,10 @@
 # BACKLOG.md
 
+## P1745 WOS User-Agents -- what it leaves (23 Nov, ftesurf-e4; root FTESurf-worktrees/ua-wos-20261123-e4)
+- surfd/test_momgrab.py case_park_and_lock fails on main a370e094 without P1745 too: "a refusal stops the tick at
+  once" asks 0 downloads, then KeyError 'n' reading state["park"] (offline: fake download). P1745 changes only
+  momgrab's UA constant. Falsifier: `python3 -B surfd/test_momgrab.py`.
+
 ## P1717 prop lighting + the ahop_coast/bhop_canals visual audit -- what they leave (22 Nov, worldofsurf-88; root FTESurf-worktrees/coastair-20261122-88)
 - P1721 DONE (ahop_coast 45/48, bhop_canals 383/416). Left: brush-entity decals (the engine clips them only from the
   entity packet, absent at world load -- a re-clip once entities arrive would place them); the depth fade stays +-4, so

@@ -24,7 +24,7 @@ def note(level, text):
 
 
 def get_public(site, path):
-    req = urllib.request.Request(site + path, headers={'User-Agent': 'ftesurf-tournament-preflight'})
+    req = urllib.request.Request(site + path, headers={'User-Agent': 'WOS-tournament-preflight'})
     with urllib.request.urlopen(req, timeout=15) as r:
         return r.status, r.read()
 

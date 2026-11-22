@@ -87,7 +87,7 @@ OUTDIR = os.path.join(SURFDIR, "ftesurf", "gfx", "mapshots")
 # thumbnails complete.
 SIZES = ("small", "medium", "large", "xl")
 
-UA = "FTESurf-mapfetch/1.0 (+local map browser thumbnails)"
+UA = "WOS-mapfetch/1.0 (+local map browser thumbnails)"
 WORKERS = 4
 DELAY = 0.25            # seconds per request per worker -> ~16 req/s overall
 TIMEOUT = 30

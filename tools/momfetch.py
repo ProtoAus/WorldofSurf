@@ -16,7 +16,6 @@ POLITENESS, and none of it is negotiable in the code:
     reference settled on against this same API, because that figure was for a
     person pressing a button and this is a sweep
   * a cap per invocation (--max), so one command cannot become a runaway
-  * a User-Agent that says what this is and where to complain
   * a non-2xx is a REFUSAL: it stops, it is reported, and nothing is retried.
     If the host does not want this, the answer is to stop asking, not to look
     more like a browser.
@@ -109,7 +108,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 API = "https://api.momentum-mod.org/v1"
-UA = "FTESurf/0.1 momfetch (+https://proto.bar/ftesurf)"
+UA = "WOS/0.1 momfetch"
 TIMEOUT = 30
 TAKE_MAX = 100        # the API's own cap: take=101 is a 400
 TOTAL_MAX = 60000     # a totalCount past this is not a board (the deepest, 27,022), and

@@ -105,7 +105,7 @@ def api_approved():
     out, skip, total = [], 0, None
     for _ in range(40):
         url = "%s?take=%d&skip=%d&expand=currentVersion,leaderboards,thumbnail,images,info,credits" % (API, PAGE, skip)
-        req = urllib.request.Request(url, headers={"User-Agent": "FTESurf-mapmedia/1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "WOS-mapmedia/1"})
         with urllib.request.urlopen(req, timeout=60) as r:
             doc = json.loads(r.read(16 << 20))
         rows = doc.get("data")

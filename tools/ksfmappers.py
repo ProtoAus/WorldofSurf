@@ -24,7 +24,7 @@ sys.path.insert(0, HERE)        # run with -I, as mapmedia_refresh.py runs its t
 import mapmeta                  # noqa: E402
 SURFDIR = os.path.dirname(HERE)
 KSF = "https://ksf.surf"
-UA = "WorldOfSurf-mapmeta/1 (+https://proto.bar/ftesurf/)"
+UA = "WOS-mapmeta/1"
 NAME_OK = set("abcdefghijklmnopqrstuvwxyz0123456789_-.")
 
 

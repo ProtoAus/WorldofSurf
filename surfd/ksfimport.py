@@ -43,7 +43,6 @@ reasoned them out against this same host:
   * one request at a time, never concurrent
   * KSF_DELAY_MS between them, always (WATCH_DELAY unattended)
   * a cap per invocation, so one command cannot become a thousand requests
-  * a User-Agent that says what this is and where to complain
   * a non-2xx is reported AS A REFUSAL and nothing is retried.  If ksf.surf does
     not want automated requests the answer is to stop, not to look more like a
     browser.  Unattended, a refusal also parks every later run (COOLDOWN).
@@ -146,7 +145,7 @@ SKIP_STREAK = 25
 KSF_TIMEOUT = 30
 KSF_DEADLINE = 60          # s for a whole exchange (Deadline)
 KSF_MAX_BYTES = 1 << 20    # a reply; a 20-row page is ~6 KB, a player's map ~4.7 KB
-UA = "FTESurf/0.1 ksfimport (+https://proto.bar/ftesurf)"
+UA = "WOS/0.1 ksfimport"
 
 # CS:S surf runs at 66.67 ticks a second.  The TIME is the fact here -- KSF
 # reports seconds and its timer counted them -- so millis is taken from that and

@@ -173,7 +173,7 @@ if hasattr(sys.stdout, "reconfigure"):
 MOM_API = "https://api.momentum-mod.org/v1"
 MOM_CDN = "https://cdn.momentum-mod.org/maps/"
 KSF_BASE = "https://ksf.surf"
-UA = "FTESurf/0.1 mapwatch (+https://proto.bar/ftesurf)"
+UA = "WOS/0.1 mapwatch"
 
 MOM_MODES = ((1, "surf"), (2, "bhop"), (3, "bhop"))  # 3 = bhop-HL1
 MOM_TAKE = 100                              # the API's own cap

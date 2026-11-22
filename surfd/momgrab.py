@@ -81,7 +81,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 CDN = "https://cdn.momentum-mod.org/runs/"
-UA = "FTESurf/0.1 momgrab (+https://proto.bar/ftesurf)"
+UA = "WOS/0.1 momgrab"
 GRAB_MAX = 6               # demos a tick
 GRAB_DELAY = 2.0           # s between downloads
 GRAB_TOP = 10              # places of every board worth holding a demo for

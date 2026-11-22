@@ -57,7 +57,7 @@ CSS = os.path.join(STEAM, "Counter-Strike Source", "cstrike", "maps")
 STAGE = os.path.join(DATA, "ksf_incoming")
 
 SEVENZIP = r"C:\Program Files\7-Zip\7z.exe"
-UA = "FTESurf-ksffetch/1.0 (+local surf map mirror)"
+UA = "WOS-ksffetch/1.0 (+local surf map mirror)"
 DELAY = 0.5                      # between files; they are somebody else's bytes
 RAR_MAGIC = (b"Rar!\x1a\x07\x00", b"Rar!\x1a\x07\x01\x00")
 ZIP_MAGIC = b"PK\x03\x04"

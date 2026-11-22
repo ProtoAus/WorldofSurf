@@ -31,7 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SURFDIR = os.path.dirname(HERE)
 CATALOGUE_URL = "http://192.168.1.102:8084/api/board?maps=1"
 KSF = "https://ksf.surf"
-UA = "WorldOfSurf-zoningpage/1 (+https://proto.bar/ftesurf/)"
+UA = "WOS-zoningpage/1"
 KEEP = ("surf_sinister",)       # Lex, 1 Nov: not a KSF map, but keep it on the list
 CELL_W, CELL_H, COLS = 128, 72, 16
 

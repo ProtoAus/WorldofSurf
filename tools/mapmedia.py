@@ -26,7 +26,7 @@ CDN = 'https://cdn.momentum-mod.org/img/'
 UUID = re.compile(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}')
 NAME = re.compile(r'[a-z0-9_-]{1,64}', re.I)
 MAX_ORIGINAL = 16 * 1024 * 1024
-UA = 'FTESurf-mapmedia/1 (public map thumbnail preservation)'
+UA = 'WOS-mapmedia/1 (public map thumbnail preservation)'
 
 
 def fetch(url, limit):

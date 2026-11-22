@@ -40,7 +40,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GAMEDIR = os.path.join(os.path.dirname(HERE), "ftesurf")
 
 URL = "https://ksf.surf/images/%s.jpg"
-UA = "FTESurf/0.1 ksfshots (+https://proto.bar/ftesurf)"
+UA = "WOS/0.1 ksfshots"
 DELAY = 1.5             # the floor: --delay can raise it, never lower it
 TIMEOUT = 30
 FAIL_STREAK = 3

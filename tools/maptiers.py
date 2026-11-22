@@ -214,7 +214,7 @@ def main():
     if a.bonus_csv:
         text = a.bonus_csv.read_text(encoding="utf-8-sig")
     else:
-        req = urllib.request.Request(BONUS_SHEET, headers={"User-Agent": "FTESurf-maptiers/1.0"})
+        req = urllib.request.Request(BONUS_SHEET, headers={"User-Agent": "WOS-maptiers/1.0"})
         with urllib.request.urlopen(req, timeout=60) as r:
             data = r.read(2**20 + 1)
         if len(data) > 2**20:

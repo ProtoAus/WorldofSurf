@@ -108,7 +108,7 @@ KSF_SHEET = ("https://docs.google.com/spreadsheets/d/"
 KSF_FOLDERS = ("17QJ-Wzk9eMHKZqX227HkPCg9_Vmrf9h-",
                "1f3Oe65BngrSxTPKHAt6MEwK0FTsDbUsO")
 KSF_EMBED = "https://drive.google.com/embeddedfolderview?id=%s#list"
-UA = "FTESurf-maproster/1.0 (+local surf/bhop map roster)"
+UA = "WOS-maproster/1.0 (+local surf/bhop map roster)"
 
 MTV_HASH_OFF = 80          # measured over 2888 demos: every one, no exceptions
 MTV_HASH_RE = re.compile(rb"[0-9A-F]{40}")

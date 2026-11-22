@@ -24,7 +24,7 @@ from http.client import HTTPException    # `http` below is this module's own
 OPENID = "https://steamcommunity.com/openid/login"
 NS = "http://specs.openid.net/auth/2.0"
 SUMMARIES = "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/"
-UA = "FTESurf/0.1 surfd (+https://proto.bar/ftesurf)"
+UA = "WOS/0.1 surfd"
 
 # The ten fields of a Steam assertion and the seven its signature covers.  BOTH
 # ARE EXACT SETS.  Every field is sent back to Steam to be checked, and a name
