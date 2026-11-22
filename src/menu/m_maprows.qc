@@ -54,7 +54,7 @@ float(vector pos, float rh) Mrow_Switch =
 	return ms_dense ? MROW_H : rh;
 };
 
-// Before the list view: sui scrolls it one item a wheel notch, which is one card (106 px);
+// Before the list view: sui scrolls it one item a wheel notch, which is one card (90 px, P1741);
 // a notch of the compact list is three rows (78 px) -- these are the other two.
 void() Mrow_Wheel =
 {

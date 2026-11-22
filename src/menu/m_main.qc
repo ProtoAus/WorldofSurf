@@ -2266,6 +2266,9 @@ void() ui_wr_load =
 strbuf ms_deps;
 string dep_spec[DEP_MAX];
 string dep_lbl[DEP_MAX];
+string dep_icon[DEP_MAX];       // P1739: the game's Steam icon, a texture name for drawpic ("" none)
+string dep_game[DEP_MAX];       // ...and its folder name, for the icon's tooltip
+float(string imagename, float appid, string kind) steam_libraryimage = #0:steam_libraryimage;  // engine P1739
 float  dep_state[DEP_MAX];
 float  dep_n;
 float  ms_depcount;
@@ -2291,6 +2294,84 @@ string(string spec) ui_dep_label =
 	return substring(g, 0, 14);
 };
 
+/*
+  P1739 (Lex: "game icons for each of the games that needs mounts ... find their logos"): the game's own 32x32 icon
+  from the player's Steam client cache (engine steam_libraryimage; nothing shipped), by the Steam folder a
+  data/mapdeps.txt spec names.  An id this table lacks keeps its text only.
+*/
+float(string g) ui_dep_appid =
+{
+	if (g == "Counter-Strike Source") return 240;
+	if (g == "Team Fortress 2") return 440;
+	if (g == "Counter-Strike Global Offensive") return 730;
+	if (g == "Half-Life 2") return 220;
+	if (g == "Portal") return 400;
+	if (g == "Portal 2") return 620;
+	if (g == "Momentum Mod Playtest") return 1802710;
+	if (g == "Half-Life 2 Episode One" || g == "Half-Life 2 Episode Two") return (g == "Half-Life 2 Episode One") ? 380 : 420;
+	if (g == "Half-Life Source") return 280;
+	if (g == "Day of Defeat Source") return 300;
+	if (g == "GarrysMod") return 4000;
+	if (g == "Black Mesa") return 362890;
+	if (g == "Half-Life") return 70;
+	return 0;
+};
+void(float k) ui_dep_loadicon =
+{
+	local float id;
+	local string nm;
+	if (dep_icon[k] != "")
+		strunzone(dep_icon[k]);
+	dep_icon[k] = "";
+	id = ui_dep_appid(dep_game[k]);
+	if (id <= 0 || !checkbuiltin(steam_libraryimage))
+		return;
+	nm = sprintf("wos_steamicon_%g", id);
+	if (steam_libraryimage(nm, id, "icon"))
+		dep_icon[k] = strzone(nm);
+};
+// Menu_RendererRestarted: the textures went with the renderer.
+void() ui_dep_reloadicons =
+{
+	local float k;
+	for (k = 0; k < dep_n; k = k + 1)
+		ui_dep_loadicon(k);
+};
+// "steam:Team Fortress 2/tf" -> "Team Fortress 2"
+string(string spec) ui_dep_gamename =
+{
+	local float p;
+	if (substring(spec, 0, 6) == "steam:")
+		spec = substring(spec, 6, strlen(spec) - 6);
+	p = strstrofs(spec, "/", 0);
+	return (p > 0) ? substring(spec, 0, p) : spec;
+};
+// The row's mount games as 20 px icons, right to left ending at x `right` (row-relative); the width used.
+float(vector rp, float right, float row, float idx) ui_dep_icons =
+{
+	local string d, id;
+	local float n, i, k, x, inst;
+	d = bufstr_get(ms_deps, row);
+	if (d == "")
+		return 0;
+	n = tokenize(d);
+	x = right;
+	for (i = n - 1; i >= 0; i = i - 1)
+	{
+		k = stof(argv(i));
+		if (dep_icon[k] == "")
+			continue;
+		x = x - 20;
+		inst = (dep_state[k] > 0);
+		sui_pic(rp + [x, 0], '20 20 0', dep_icon[k], '1 1 1', inst ? 1 : 0.35, 0);   // faded: not installed
+		id = sprintf("cs_dep%g_%g", idx, k);
+		sui_action_element(rp + [x, 0], '20 20 0', id, sui_noop);
+		sui_tooltip_for(id, sprintf("Needs %s%s", dep_game[k], inst ? "" : " (not installed)"), 2);
+		x = x - 4;
+		n = tokenize(d);                        // the tooltip may have tokenized
+	}
+	return right - x;
+};
 float(string spec) ui_dep_index =
 {
 	local float i;
@@ -2301,6 +2382,8 @@ float(string spec) ui_dep_index =
 		return -1;
 	dep_spec[dep_n] = strzone(spec);
 	dep_lbl[dep_n]  = strzone(ui_dep_label(spec));
+	dep_game[dep_n] = strzone(ui_dep_gamename(spec));
+	ui_dep_loadicon(dep_n);
 	dep_state[dep_n] = checkbuiltin(fs_addonstate) ? fs_addonstate(spec) : -1;
 	dep_n = dep_n + 1;
 	return dep_n - 1;
@@ -3417,11 +3500,11 @@ void() ui_refilter =
 		if (ms_srcf != 0 && !(stof(bufstr_get(ms_lst, i)) & ms_srcf))
 			continue;
 
-		// P1740: a favourite is listed under the chip whatever "show all" says.
+		// P1740: a favourite is listed under the chip whatever "show all" says.  By the row's own name, the one
+		// its star toggles (a folded second build's name would list a row whose star could not unlist it).
 		if (ms_favonly)
 		{
 			if (!Fav_Has(bufstr_get(ms_name, i)))
-			if (bufstr_get(ms_var, i) == "" || !Fav_Has(bufstr_get(ms_name, stof(bufstr_get(ms_var, i)))))
 				continue;
 			bufstr_add(ms_view, ftos(i), TRUE);
 			ms_viewcount++;
@@ -8322,9 +8405,12 @@ void(vector screensize) screen_create =
 					// P1740: the star, in the picture's top-right corner
 					Fav_Button(tp + [(compact ? 128 : 160) - 26, 4], 22, strcat("cs_fav", ftos(idx)), bufstr_get(ms_name, real));
 					float ty = compact ? 8 : 5;                 // P1741: the wide row's lines, 90 px high
+					// P1739: the mount games' icons, at the name line's right end (the text column's)
+					float iw = ui_dep_icons(rp + [0, ty], rs_x - (compact ? 8 : 164), real, idx);
 					cw = rs_x - nx - (compact ? 8 : 164);
+					float cwn = cw - iw;                       // the name line leaves the icons their room
 					neww = !strcmp(bufstr_get(ms_new, real), "1") ? stringwidth("NEW", TRUE, namesize) + 4 : 0;
-					mnmf = ui_fit_text(bufstr_get(ms_name, real), cw - neww, namesize);
+					mnmf = ui_fit_text(bufstr_get(ms_name, real), cwn - neww, namesize);
 					if (strcmp(bufstr_get(ms_zoned, er), "1")) mnmf = strcat(MAP_NOZONE_ESC, mnmf);
 					sui_text([rp_x + nx, rp_y + ty], namesize, mnmf, (on || hot) ? COL_ACCENT : COL_TEXT, 1, 0);
 					// NEW still means a sweep saw this name appear, not a recent release.
@@ -8336,9 +8422,9 @@ void(vector screensize) screen_create =
 					if (au == "")
 						au = MapAuthor_Text(bufstr_get(ms_author, er));
 					ax = nx + stringwidth(mnmf, TRUE, namesize) + neww + 10;
-					if (au != "" && cw - (ax - nx) > 48)
+					if (au != "" && cwn - (ax - nx) > 48)
 						sui_text([rp_x + ax, rp_y + ty + 3], '16 16 0',
-						         ui_fit_text(strcat("by ", au), cw - (ax - nx), '16 16 0'), COL_DIM, 1, 0);
+						         ui_fit_text(strcat("by ", au), cwn - (ax - nx), '16 16 0'), COL_DIM, 1, 0);
 					mtier = bufstr_get(ms_momtier, real); mktier = bufstr_get(ms_ksftier, real);
 					sub = sprintf("MOM %s | KSF %s", stof(mtier) > 0 ? strcat("T", mtier) : "-", stof(mktier) > 0 ? strcat("T", mktier) : "-");
 					if (!strcmp(bufstr_get(ms_var, real), ""))
@@ -8856,8 +8942,14 @@ void(vector screensize) m_draw =
 	if (ms_query != ms_applied_query || ms_tier != ms_applied_tier
 	    || ms_modes != ms_applied_modes || ms_also != ms_applied_also || ms_srcf != ms_applied_srcf
 	    || ms_showall != ms_applied_showall || ms_compsort != ms_applied_compsort
-	    || ms_favonly != ms_applied_favonly || (ms_favonly && Fav_Ver() != ms_applied_favver))
+	    || ms_favonly != ms_applied_favonly)
 		ui_refilter();
+	else if (ms_favonly && Fav_Ver() != ms_applied_favver)
+	{	// P1740 review: a star toggled under the chip keeps the list where it was (ui_refilter scrolls to the top)
+		vector favkeep = ms_scroll;
+		ui_refilter();
+		ms_scroll = favkeep;
+	}
 	else if (ms_compsort && mcd_ver != ms_applied_donever)
 	{
 		// New completion data or a build switch re-sorts in place, like ui_dlkb_step.
@@ -9049,6 +9141,7 @@ void() Menu_RendererRestarted =
 	MM_Invalidate();
 	_sui_rnd_forget();              // Patch 642: the corner masks went with the renderer
 	MP_Lost();                      // Patch 789: and the pictures
+	ui_dep_reloadicons();           // P1739: and the mount games' icons
 };
 
 float(float evtype, float scanx, float chary, float devid) Menu_InputEvent =
@@ -9331,6 +9424,7 @@ float(string cmd) m_consolecommand =
 			ui_create_open();
 			m_open();
 		}
+		ui_refilter();                  // the count below is this view's, not the last frame's
 		print(sprintf("ui_favonly: %g (%g in view)\n", ms_favonly, ms_viewcount));
 		return TRUE;
 	}

@@ -10,25 +10,31 @@
 #define FAV_TWOSIDED 1024      // CSQC's DRAWFLAG_TWOSIDED (m_stats.qc MS_TWOSIDED)
 
 var float fav_buf = -1;        // strbuf of names; a removed name leaves "" (the file is rewritten without it)
+hashtable fav_set;              // P1740 review: the same names for O(1) lookups (ui_refilter asks per row)
 float fav_n;                // names held, removals excluded
 float fav_ver;              // bumps on every change: the "favourites" filter re-runs on it
 
 void() Fav_Load =
 {
-	local float fh;
+	local float fh, have;
 	local string l;
 	if (fav_buf >= 0)
 		return;
 	fav_buf = buf_create();
+	fav_set = hash_createtab(256, EV_FLOAT);
 	fh = fopen(FAV_FILE, FILE_READ);
 	if (fh < 0)
 		return;
 	while ((l = fgets(fh)))
 	{
 		l = strtolower(strtrim(l));
+		have = 1;
 		if (l != "")
+			have = hash_get(fav_set, l, 0, EV_FLOAT);
+		if (!have)
 		{
 			bufstr_add(fav_buf, l, TRUE);
+			hash_add(fav_set, l, 1, HASH_REPLACE | EV_FLOAT);
 			fav_n++;
 		}
 	}
@@ -53,9 +59,12 @@ float() Fav_Ver = { return fav_ver; };
 
 float(string mname) Fav_Has =
 {
-	if (fav_n <= 0 && fav_buf >= 0)
+	local float have;
+	Fav_Load();
+	if (fav_n <= 0 || mname == "")
 		return FALSE;
-	return Fav_Find(mname) >= 0;
+	have = hash_get(fav_set, strtolower(mname), 0, EV_FLOAT);
+	return have != 0;
 };
 
 void() Fav_Save =
@@ -85,11 +94,13 @@ void(string mname) Fav_Toggle =
 	if (i >= 0)
 	{
 		bufstr_set(fav_buf, i, "");
+		hash_delete(fav_set, strtolower(mname));
 		fav_n--;
 	}
 	else if (mname != "")
 	{
 		bufstr_add(fav_buf, strtolower(mname), TRUE);
+		hash_add(fav_set, strtolower(mname), 1, HASH_REPLACE | EV_FLOAT);
 		fav_n++;
 	}
 	fav_ver++;
