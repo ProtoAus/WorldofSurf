@@ -715,7 +715,7 @@ entity  vbsp_onjump_head;
 .int    vbsp_touch_cmd;         // Patch 1025: touched during the slot's current command
 .float  vbsp_ss_stamp;          // trigger_setspeed: last touch, for the enter edge (vbsp_mp 0)
 .float  vbsp_ss_applied;        // ...and last time the speed was written
-.int    vbsp_ppoff;             // P1744: a booster its own outputs switched off for that player alone (SV_PpSet)
+.int    vbsp_ppoff;             // P1744: a booster switched off for that player alone (SV_PpInput)
 // P1744, on a PLAYER: trigger_setspeed's enter edge and OnThink clock per player (Source's StartTouch is per toucher), in
 // four slots: pad, last touch, last application (SV_SsSlot).
 .entity run_ssp1, run_ssp2, run_ssp3, run_ssp4;
@@ -868,8 +868,8 @@ void(entity p) SV_TouchForget =
 	p.run_ssp1 = p.run_ssp2 = p.run_ssp3 = p.run_ssp4 = world;  // P1744
 };
 
-// P1744: pl's setspeed slots (fields above). A player inside more than four pads within 0.05 s (overlapping pads) evicts
-// the least recently touched, whose next touch then reads as an entry.
+// P1744: pl's setspeed slots (fields above). A slot is reused once its pad is untouched for the window; a fifth pad touched
+// inside it (overlapping pads) falls back to the pad's own stamp, the old shared rule, rather than evict (review 1).
 float(entity pl, entity pad) SV_SsFind =
 {
 	if (pl.run_ssp1 == pad) return 1;
@@ -910,6 +910,8 @@ float(entity pl, entity pad) SV_SsSlot =
 	if (pl.run_sst2 < lo) { s = 2; lo = pl.run_sst2; }
 	if (pl.run_sst3 < lo) { s = 3; lo = pl.run_sst3; }
 	if (pl.run_sst4 < lo) { s = 4; lo = pl.run_sst4; }
+	if (time - lo <= 0.05)
+		return 0;               // all four inside their window (overlapping pads): this pad keeps its own stamp
 	SV_SsSet(pl, s, pad, -1000, -1000);
 	return s;
 };
@@ -921,7 +923,8 @@ void(entity pl, entity pad) SV_SsStamp =
 	if (!SV_TouchBit(pl))
 		return;
 	s = SV_SsSlot(pl, pad);
-	SV_SsSet(pl, s, pad, time, SV_SsA(pl, s));
+	if (s)
+		SV_SsSet(pl, s, pad, time, SV_SsA(pl, s));
 };
 
 // On a PLAYER.  ModifySpeed's multiplier, applied in PlayerPreThink; and the
@@ -2909,42 +2912,72 @@ float(entity to, float changed) SV_TrigStateSend =
 	WriteByte(MSG_ENTITY, ENTWIRE_TYPED);
 	WriteByte(MSG_ENTITY, ENTWIRE_TRIGSTATE);
 	WriteShort(MSG_ENTITY, stof(substring(self.model, 1, -1)));
-	// P1744: each client gets its own view (its own cooldown, SV_PpSet).
+	// P1744: each client gets its own view (its own cooldown, SV_PpInput).
 	WriteByte(MSG_ENTITY, self.solid != SOLID_NOT && !SV_Key2(self.StartDisabled, self.startdisabled)
 	                      && !(self.vbsp_ppoff & SV_TouchBit(to)));
 	return TRUE;
 };
 
-// P1744: a booster's Enable/Disable at itself caused by a player is that player's alone, as in Momentum where each
-// player has their own world: surf_classics' OnEndTouch !self,Disable + !self,Enable 1 s later used to switch the pad
-// off for everyone. vbsp_mp 0 (no touch bit) keeps the global switch.
-float(entity t, entity o, entity act) SV_PpGate =
+// P1744: a booster's gate per player, as in Momentum where each player has their own world (Lex: "every client experiences
+// their own timer"). A player's Disable is theirs alone: surf_classics' OnEndTouch !self,Disable + !self,Enable 1 s later
+// no longer switches the pad off for everyone. The pad's own Enable for that player undoes it (and turns on a pad map logic
+// switched off, as before); any other Enable re-arms everyone, so a re-arm never leaves anyone switched off (reviews 1:
+// bhop_sandtrap2's boost1 is re-armed by a setspeed's OnEndTouch). One player: the old global switch, last action wins.
+float(entity t) SV_PpBooster =
 {
-	if (!o || o.owner != t)
+	if (!vbsp_mp)
 		return FALSE;
-	if (strcmp(t.classname, "trigger_push") && strcmp(t.classname, "trigger_setspeed")
-	    && strcmp(t.classname, "trigger_momentum_setspeed"))
-		return FALSE;
-	if (act.classname != "player")
-		return FALSE;
-	return SV_TouchBit(act) != 0i;
+	return !strcmp(t.classname, "trigger_push") || !strcmp(t.classname, "trigger_setspeed")
+	    || !strcmp(t.classname, "trigger_momentum_setspeed");
 };
 
-void(entity t, entity act, float off) SV_PpSet =
+void(entity t, int nv) SV_PpWrite =
 {
-	local int bit, was;
-	bit = SV_TouchBit(act);
-	was = t.vbsp_ppoff;
-	if (off)
-		t.vbsp_ppoff = t.vbsp_ppoff | bit;
-	else
-		t.vbsp_ppoff = t.vbsp_ppoff & ~bit;
-	if (t.vbsp_ppoff == was)
+	if (t.vbsp_ppoff == nv)
 		return;
+	t.vbsp_ppoff = nv;
 	if (t.SendEntity == SV_TrigStateSend)
 		t.SendFlags = 1;
-	if (cvar("developer") >= 2)
-		dprint(sprintf("booster %s %s: %s for %s alone\n", t.classname, t.model, off ? "off" : "on", act.netname));
+};
+
+void(entity t, float on) SV_IOEnable;
+void(entity t, entity o, entity act, string in) SV_PpInput =
+{
+	local int bit;
+	local float on, ct;
+
+	bit = 0i;
+	if (act.classname == "player")
+	{
+		ct = clienttype(act);
+		if (ct != CLIENTTYPE_REAL && ct != CLIENTTYPE_BOT)
+			return;             // a departed client's touch outputs (the end sweep, a pending delay): nobody to switch
+		bit = SV_TouchBit(act);
+	}
+	on = t.solid != SOLID_NOT && !SV_Key2(t.StartDisabled, t.startdisabled);
+	if (in == "toggle")         // by the activator's own view; any player's own Disable reads as off to the world
+		in = (on && !(t.vbsp_ppoff & (bit ? bit : t.vbsp_ppoff))) ? "disable" : "enable";
+	if (in == "disable")
+	{
+		if (bit && on)
+		{
+			SV_PpWrite(t, t.vbsp_ppoff | bit);
+			if (cvar("developer") >= 2)
+				dprint(sprintf("booster %s %s: off for %s alone\n", t.classname, t.model, act.netname));
+			return;
+		}
+		SV_IOEnable(t, FALSE);
+		return;
+	}
+	if (bit && o && o.owner == t)
+	{
+		SV_PpWrite(t, t.vbsp_ppoff & ~bit);
+		if (!on)
+			SV_IOEnable(t, TRUE);
+		return;
+	}
+	SV_PpWrite(t, 0i);
+	SV_IOEnable(t, TRUE);
 };
 
 // P799: a func_areaportalwindow's target, which the client draws (SV_PortalWindowsActivate).
@@ -5339,14 +5372,13 @@ void(entity t, entity o, entity act) SV_ApplyInputRaw =
 			dprint(sprintf("prop %s: SetAnimation %s: no such sequence\n", t.targetname, pm));
 		return;
 	}
-	if (in == "enable" || in == "disable")
+	if ((in == "enable" || in == "disable" || in == "toggle") && SV_PpBooster(t))
 	{
-		if (SV_PpGate(t, o, act))
-			SV_PpSet(t, act, in == "disable");      // P1744
-		else
-			SV_IOEnable(t, in == "enable");
+		SV_PpInput(t, o, act, in);                  // P1744
 		return;
 	}
+	if (in == "enable")         { SV_IOEnable(t, TRUE);                 return; }
+	if (in == "disable")        { SV_IOEnable(t, FALSE);                return; }
 	/*
 	  TOGGLE, AND THE TWO DIFFERENT THINGS IT MEANS.
 
@@ -6724,6 +6756,8 @@ void(entity p) SV_TriggerJumpEdge =
 			continue;
 		if (SV_Key2(t.StartDisabled, t.startdisabled))
 			continue;			// a disabled trigger touches nothing
+		if (t.vbsp_ppoff & bit)
+			continue;			// P1744: nor one off for this player
 
 		// Nested, not `&&`: this tree's rule where an array or a mask is read.
 		if (bit)
@@ -9794,6 +9828,7 @@ void(entity e) SV_TASPushPrep =
 		t.tas_rpushk = 0;
 		t.tas_rpush = '0 0 0';
 		if (t.touch != trigger_push_touch) continue;
+		if (t.vbsp_ppoff & ebit) continue;      // P1744: off for this body alone
 		if (t.tas_rpushx || t.parentname != "") continue;
 		if (!SV_TriggerTakesPlayers(t)) { t.tas_rpushk = 4; continue; }
 		if (t.filtername != "" && vbsp_io_on) continue;
@@ -9957,8 +9992,9 @@ void() trigger_setspeed_touch =
 	// P1744: the toucher's own stamps; vbsp_mp 0 keeps the pad's, shared by everyone.
 	ss = 0;
 	if (SV_TouchBit(other))
-	{
 		ss = SV_SsSlot(other, self);
+	if (ss)
+	{
 		old = SV_SsT(other, ss);
 		app = SV_SsA(other, ss);
 		SV_SsSet(other, ss, self, time, app);
