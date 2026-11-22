@@ -50,6 +50,16 @@ live e0fa1b80 / fb427ec1 exactly). All 12 were empty; one restart each; backups 
 175; engine patch-1717 untouched. Checked: 12 active, 12 answer status, 0 SIGSEGV/Host_Error/PR_ExecuteProgram/runaway
 since each lobby's last "Loaded progs". Next lobby progs build: start from deploy/p1727-lobby, or a release carrying P1727.
 
+## P1743 lobby half -- LIVE 22 Nov 19:08Z (worldofsurf-08, Lex's standing go-ahead; recipe worldofsurf-88's deploy0160.sh)
+LIVE: all 12 lobbies on v0.1.60 + P1743 (deploy/p1743-lobby 7e6ad049 = v0.1.60 71155428 + cherry-pick of 5f28f6c8),
+built with the release's own fteqcc (release0160-88/engine; 0 warnings, qcframes clean): qw e6b34850 / cs 59b63f13
+(byte-identical to the rig-tested build), over v0.1.60's 033412f1 / 186e76bb; codes.txt appended (.pre1743lobby-*);
+backups *.pre1743-20261122T184659Z. One player on lobby 4 for the whole 20 min wait: 60 s + 10 s notices, then one
+restart each 19:08:38-19:09:00Z. After: all 12 active, patch-1717, pm_sourceversion 15; journal since the swap has no
+program errors; the released 0.1.60 Linux client on lobby 12 (p1706arm.py rel --sections live) downloaded cs 59b63f13,
+0 prederr, noclip ON/OFF. Script + logs: FTESurf-worktrees/coastperf-20261122-08 (deploy1743.sh, artifacts/).
+Engine and plugin unchanged. The next lobby build's base must include P1743 (main has it since 0710a595).
+
 ## 0.1.60 lobby half -- LIVE 22 Nov 18:24Z (worldofsurf-88; record tools/release-0.1.60.md)
 LIVE: all 12 lobbies on the release's progs (tag v0.1.60 = 71155428; qw 033412f1 / cs 186e76bb, codes.txt appended) over
 v0.1.59's, with P1737's data/reportpoints/seed.txt (145 reports, 7 accounts; the lobbies append p<port>.txt there).

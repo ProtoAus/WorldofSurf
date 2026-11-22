@@ -15,7 +15,7 @@
    from the reports you already sent -- the busiest account so far has 79). The profile tile shows them once
    surfd's next generation is live.
 
-## P1743 (worldofsurf-08) -- lobby progs deploy (server half) + the next release (client half)
+## P1743 (worldofsurf-08) -- LIVE in all lobbies 22 Nov 19:08Z (lobbies serve the csprogs); local games next release
 1. surf_classics at ping (a lobby, or `sv_minping 300` on a local server): stage 7 and stage 23 start boosters kick at
    once, no late snap. `trig_dump` there says "3 setspeeds" and no "skip io-wired trigger_setspeed".
 2. Two players through the same start booster within a ping of each other: the second one may still snap (the server
