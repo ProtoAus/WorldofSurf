@@ -24,6 +24,10 @@
 ### P1715 Replay paths and run lines draw fast again
 - Run lines (a replay's path, board lines, your trail, ghost lines) were being drawn the slow way since 20 Nov; on ahop_coast a replay's path cost about a sixth of the frame rate. They draw at full speed again, in lobbies too.
 
+### P1714 Much higher frame rate in lobbies with ping, and on prop-heavy maps
+- With ping your game replays your recent movement every frame, and each replay checked every solid object on the map. It now skips the ones your movement cannot reach.
+- Moving at 150 ms ping on the test PC: ahop_coast about 330 to 550 fps, bhop_canals about 175 to 280 fps. Local games gain too. Movement itself is exactly the same.
+
 ### P1712 A new TAS best offers itself for the TAS board
 - When a TAS run (Jargon or manual) beats your other saved TAS runs of that course, a box pops up where the F6 report box sits: F6 uploads it to the TAS board at once, F7 keeps it on your PC. Press nothing and it uploads itself when its 12-second timer ends.
 - The TAS menu's Upload tab chooses what a new best does: Auto-upload (the default), Ask, or Off. The timer only runs while you can see the box.

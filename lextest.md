@@ -1,5 +1,11 @@
 # lextest.md — things waiting on a human
 
+## P1714 -- lobbies with ping and prop-heavy maps run much faster (worldofsurf-08) -- dev install; players with the next release
+1. In a lobby on ahop_coast or bhop_canals, `r_budget 2` while moving: "prediction" should be a fraction of before
+   (rig at 150 ms: 1.88 -> 0.72 ms on ahop_coast, 3.23 -> 1.75 on bhop_canals; Akatosh's dump had 1.9-2.4 ms).
+2. Movement feels exactly the same (exact by construction; `pm_physentcull 0` is the old path to compare against).
+3. After the next release: ask Akatosh to repeat his lobby dump (same steps as before).
+
 ## P1715 -- replay paths and run lines draw natively again (worldofsurf-08) -- lobbies and dev install
 1. In a replay: `lines native` says "native builtins 1 in use 1" with passes counting up and refused 0.
 2. The replay's path looks exactly as before (thin, smooth, coloured by speed).
