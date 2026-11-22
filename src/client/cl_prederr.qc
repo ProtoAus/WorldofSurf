@@ -811,7 +811,7 @@ void(vector scr) PE_Draw =
 		st = "kept the last few seconds";
 	HUD_Text([p_x + 6 * sc, y + (h - lsz) * 0.5], st, lsz, SUI_THEME_DIM, 1);
 	y = y + h;
-	KeyMenu_Row([p_x, y], w, h, "F6", (pe_points == -1) ? "Send report to the lobby" : "Send report: +1 point",
+	KeyMenu_Row([p_x, y], w, h, "F6", (pe_points >= 0) ? "Send report: +1 point" : "Send report to the lobby",
 	            (pe_send >= 0 || pe_sent_ok == 1) ? KM_INERT : KM_HOT, lsz, sc);
 	Font_Reset();
 };

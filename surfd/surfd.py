@@ -131,12 +131,14 @@ _rp_cache = {"sig": None, "counts": {}}
 
 
 def report_points(mark):
-    """Stored prederror reports by the account whose mark is `mark` (0 when none, or unreadable)."""
+    """Stored prederror reports credited to the account whose mark is `mark`; None when the ledger
+    directory cannot be read (the answer then omits the field and the game hides its tile)."""
     try:
         names = sorted(n for n in os.listdir(REPORTPOINTS_DIR) if n.endswith(".txt"))
-        sig = tuple((n, os.stat(os.path.join(REPORTPOINTS_DIR, n)).st_mtime_ns) for n in names)
+        sig = tuple((n, st.st_mtime_ns, st.st_size) for n in names
+                    for st in [os.stat(os.path.join(REPORTPOINTS_DIR, n))])
     except OSError:
-        return 0
+        return None
     with _rp_lock:
         if sig != _rp_cache["sig"]:
             counts = {}
@@ -8375,10 +8377,12 @@ def game_player(raw, now):
              "tr": r["tier"], "style": r["style"], "ms": r["millis"],
              "when": r["submitted"], "r": rk, "of": of}
             for r, rk, of in picked[offset:offset + limit]]
+    rpts = report_points(handle[:8])    # P1737
     return Response(game_json(
         {"v": 1, "t": now, "who": handle, "name": me["name"], "src": me["src"],
          "n": me["n"], "maps": me["maps"], "last": me["last"],
-         "wr": wr, "wrc": wrc, "top10": top10, "report_points": report_points(handle[:8]),
+         "wr": wr, "wrc": wrc, "top10": top10,
+         **({} if rpts is None else {"report_points": rpts}),
          "by_tier": {"ranked": me["ranked"], "momentum": me["mom"], "ksf": me["ksf"]},
          "av": 1 if player in have else 0, "completion": comp,
          "completion_wos": _completion_wos(ranked, main_maps), "wos": _wos_figures(ranked),

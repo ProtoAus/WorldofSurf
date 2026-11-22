@@ -3,10 +3,13 @@
 
 Reads every lobby report (FTESURF-PREDERR 1, data/prederr/<map>_<utc>_p<port>_s<slot>.txt) under the given
 directories, once per file name (the Pi's copy and any fetched copies are the same report), and writes the
-ledger lines sv_prederr.qc SV_PePoint writes -- "<account> <utc> <map>" -- for the ones whose header names an
-8-hex account.  Install the output as the lobbies' data/reportpoints/seed.txt.
+ledger lines sv_prederr.qc SV_PePoint writes -- "<account> <utc> <map>" -- for the finished ones ("== end" or
+"== http", as the lobby credits) whose header names an 8-hex account and that began before --before (UTC
+YYYYMMDD_HHMMSS: the lobbies' own ledger has every report from the deploy on).  Install the output as the
+lobbies' data/reportpoints/seed.txt.  The live rule's "server rows" test is not applied: nobody had a reason to
+farm a report before points existed.
 
-    python3 -I tools/p1737_seed.py OUT DIR [DIR ...]
+    python3 -I tools/p1737_seed.py --before 20261123_120000 OUT DIR [DIR ...]
 """
 import os
 import re
@@ -18,12 +21,15 @@ HEX8 = re.compile(r"[0-9a-f]{8}")
 def header(path):
     acct = utc = mapname = None
     with open(path, "rb") as fh:
-        head = fh.read(4096).decode("latin-1", "replace").splitlines()
+        body = fh.read().decode("latin-1", "replace")
+    head = body[:4096].splitlines()
     if not head or head[0].strip() != "FTESURF-PREDERR 1":
+        return None
+    if not re.search(r"^== (end|http)$", body, re.M):
         return None
     for line in head[1:12]:
         if line.startswith("player "):
-            m = re.search(r" account (\S*) ", line + " ")
+            m = re.search(r" slot \d+ account (\S*) ping \S*$", line)   # the fixed tail: a name may hold anything
             acct = m.group(1) if m else None
         elif line.startswith("utc "):
             m = re.match(r"utc (\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)", line)
@@ -36,9 +42,10 @@ def header(path):
 
 
 def main():
-    if len(sys.argv) < 3:
+    args = sys.argv[1:]
+    if len(args) < 4 or args[0] != "--before" or not re.fullmatch(r"\d{8}_\d{6}", args[1]):
         sys.exit(__doc__)
-    out, dirs = sys.argv[1], sys.argv[2:]
+    before, out, dirs = args[1], args[2], args[3:]
     seen, lines, skipped = set(), [], 0
     for d in dirs:
         for root, _dirs, files in os.walk(d):
@@ -47,7 +54,7 @@ def main():
                     continue
                 seen.add(name)
                 row = header(os.path.join(root, name))
-                if row is None:
+                if row is None or row.split(" ")[1] >= before:
                     skipped += 1
                     continue
                 lines.append(row)
@@ -57,7 +64,7 @@ def main():
     counts = {}
     for r in lines:
         counts[r.split(" ")[0]] = counts.get(r.split(" ")[0], 0) + 1
-    print("%d reports (%d distinct files, %d without an account or header); %d accounts: %s"
+    print("%d reports (%d distinct files, %d unfinished, without an account, or from --before on); %d accounts: %s"
           % (len(lines), len(seen), skipped, len(counts),
              ", ".join("%s %d" % kv for kv in sorted(counts.items(), key=lambda kv: -kv[1]))))
 

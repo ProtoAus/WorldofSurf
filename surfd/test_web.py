@@ -2162,6 +2162,24 @@ def main():
     check("N  the plain breakdown is what it was beside the two new forms",
           [gp2 for gp2 in [body(g5("limit=200"))] if gp2.get("rows") is not None][0]["total"], sp["total"])
 
+    # ---- P1737: report points, from the lobbies' data/reportpoints/*.txt ----
+    print("\n--- P1737: report points --")
+    rpd = os.path.join(os.environ["SURFD_HOME"], "reportpoints")
+    m.REPORTPOINTS_DIR = rpd
+    check("no ledger directory: None (the answer omits the field)", m.report_points("aa010ba5"), None)
+    os.makedirs(rpd, exist_ok=True)
+    with open(os.path.join(rpd, "seed.txt"), "w") as fh:
+        fh.write("aa010ba5 20261102_080705 surf_axiom\n2da02252 20261102_143249 surf_remeanian\n")
+    with open(os.path.join(rpd, "p27510.txt"), "w") as fh:
+        fh.write("aa010ba5 20261123_120000 surf_ace\nnot-a-mark 20261123_120001 x\n")
+    with open(os.path.join(rpd, "notes.md"), "w") as fh:
+        fh.write("aa010ba5 ignored: not .txt\n")
+    check("counts across every .txt file, malformed marks skipped",
+          [m.report_points("aa010ba5"), m.report_points("2da02252"), m.report_points("ffffffff")], [2, 1, 0])
+    with open(os.path.join(rpd, "p27510.txt"), "a") as fh:
+        fh.write("aa010ba5 20261123_120100 surf_ace\n")
+    check("...and recounts when a file grows", m.report_points("aa010ba5"), 3)
+
     print("\n%d failed" % len(FAILED))
     for f in FAILED:
         print("  " + f)

@@ -22,6 +22,7 @@
 .string pe_token;               // P1554: the open report's HTTP key, zoned
 .string pe_acct;                // P1737: the open report's account (*ahash), zoned
 .float pe_ptst;                 // ...and when it last asked for its total
+.float pe_rowsok;               // P1737 review: this report carries the server's frozen rows (a real mark)
 void(entity p, string why) SV_PeAbandon;
 float  pe_lobby_n, pe_lobby_last;
 
@@ -241,6 +242,7 @@ void(entity p, float worstseq) SV_PeWriteServer =
 		return;
 	}
 	fputs(p.pe_fh, "== server\n");
+	p.pe_rowsok = TRUE;
 	fputs(p.pe_fh, sprintf("FTESURF-PREDSV 1\nmark seq %.0f at %.3f; rows %g; sv_fps %s sv_mintic %s sv_maxtic %s\n",
 	                       p.pe_sn_seq, p.pe_sn_t, p.pe_sn, cvar_string("sv_fps"), cvar_string("sv_mintic"),
 	                       cvar_string("sv_maxtic")));
@@ -341,6 +343,7 @@ void(entity p, string s) SV_PeBegin =
 	if (p.pe_acct != "")
 		strunzone(p.pe_acct);
 	p.pe_acct = strzone(SV_PeSafe(infokey(p, "*ahash"), 64));
+	p.pe_rowsok = FALSE;
 	p.pe_total = t;
 	p.pe_next = 1;
 	p.pe_count = p.pe_count + 1;
@@ -388,60 +391,122 @@ void(entity p, string s) SV_PeBegin =
 
 /*
   P1737 (Lex 23 Nov: "for every prederror report someone does add 1 Report point to their profile"): a stored
-  report is a point for its account.  Each lobby appends only to its own data/reportpoints/p<port>.txt (FILE_APPEND
-  rewrites the whole file at fclose, so a shared file would lose another lobby's line); a total reads them all, and
-  so does surfd's profile answer.  Lines: "<account> <utc> <map>"; seed.txt there holds the reports sent before.
+  report that carries the server's frozen rows (a real mark, CSEv_pe_mk_f) is a point for its account, up to
+  PE_PT_DAY a UTC day.  Each lobby appends only to its own data/reportpoints/p<port>.txt (FILE_APPEND rewrites the
+  whole file at fclose, so a shared file would lose another lobby's line); totals read them all -- READSTREAM,
+  since the name table misses other lobbies' files until a map change -- into a cache refreshed every PE_PT_FRESH
+  seconds, and so does surfd's profile answer.  Lines: "<account> <utc> <map>"; seed.txt holds earlier reports.
 */
-float(string acct) SV_PePoints =
+#define PE_PT_DAY      20
+#define PE_PT_FRESH    120
+hashtable pe_pt_all, pe_pt_day;
+float pe_pt_at, pe_pt_ok;
+string pe_pt_today;
+
+void() SV_PeLoadPoints =
 {
 	local searchhandle h;
 	local float i, n, fh, c;
-	local string l;
-	if (acct == "")
-		return -1;
-	c = 0;
+	local string l, a, d;
+	if (pe_pt_ok && time < pe_pt_at + PE_PT_FRESH && time >= pe_pt_at)
+		return;
+	if (pe_pt_ok)
+	{
+		hash_destroytab(pe_pt_all);
+		hash_destroytab(pe_pt_day);
+	}
+	pe_pt_all = hash_createtab(256, EV_FLOAT);
+	pe_pt_day = hash_createtab(256, EV_FLOAT);
+	pe_pt_ok = TRUE;
+	pe_pt_at = time;
+	if (pe_pt_today != "")
+		strunzone(pe_pt_today);
+	pe_pt_today = strzone(strftime(FALSE, "%Y%m%d"));
 	h = search_begin("data/reportpoints/*.txt", FALSE, TRUE);
 	if (h < 0)
-		return 0;
+		return;
 	n = search_getsize(h);
 	for (i = 0; i < n; i++)
 	{
-		fh = fopen(search_getfilename(h, i), FILE_READ);
+		fh = fopen(search_getfilename(h, i), FS_FILE_READSTREAM);
 		if (fh < 0)
 			continue;
 		while ((l = fgets(fh)))
-			if (substring(l, 0, strlen(acct) + 1) == strcat(acct, " "))
-				c++;
+		{
+			if (tokenize(l) < 2)
+				continue;
+			a = argv(0);
+			d = substring(argv(1), 0, 8);
+			if (strlen(a) != FS_WHO_IDLEN)
+				continue;
+			c = hash_get(pe_pt_all, a, 0, EV_FLOAT);
+			c = c + 1;
+			hash_add(pe_pt_all, a, c, HASH_REPLACE | EV_FLOAT);
+			if (d == pe_pt_today)
+			{
+				c = hash_get(pe_pt_day, a, 0, EV_FLOAT);
+				c = c + 1;
+				hash_add(pe_pt_day, a, c, HASH_REPLACE | EV_FLOAT);
+			}
+		}
 		fclose(fh);
 	}
 	search_end(h);
+};
+
+float(string acct) SV_PePoints =
+{
+	local float c;
+	if (acct == "")
+		return -1;
+	SV_PeLoadPoints();
+	c = hash_get(pe_pt_all, acct, 0, EV_FLOAT);
 	return c;
 };
 
-// A finished report: its point, and the player's new total for the report box.
+// A finished report: its point (when it earns one), and the player's total for the report box.
 void(entity p) SV_PePoint =
 {
-	local float fh;
+	local float fh, c, today;
 	if (p.pe_acct == "")
 	{
 		stuffcmd(p, "prederr_points -1\n");
 		return;
 	}
-	fh = fopen(sprintf("data/reportpoints/p%s.txt", SV_PeSafe(cvar_string("sv_port"), 8)), FILE_APPEND);
-	if (fh >= 0)
+	SV_PeLoadPoints();
+	if (strftime(FALSE, "%Y%m%d") != pe_pt_today)
 	{
-		fputs(fh, sprintf("%s %s %s\n", p.pe_acct, strftime(FALSE, "%Y%m%d_%H%M%S"), SV_PeSafe(mapname, 64)));
-		fclose(fh);
+		pe_pt_at = time - PE_PT_FRESH - 1;      // a new UTC day: recount
+		SV_PeLoadPoints();
 	}
-	stuffcmd(p, sprintf("prederr_points %g 1\n", SV_PePoints(p.pe_acct)));
+	today = hash_get(pe_pt_day, p.pe_acct, 0, EV_FLOAT);
+	if (!p.pe_rowsok || today >= PE_PT_DAY)
+	{
+		stuffcmd(p, sprintf("prederr_points %g 0\n", SV_PePoints(p.pe_acct)));
+		return;
+	}
+	fh = fopen(sprintf("data/reportpoints/p%s.txt", SV_PeSafe(cvar_string("sv_port"), 8)), FILE_APPEND);
+	if (fh < 0)
+	{
+		stuffcmd(p, sprintf("prederr_points %g 0\n", SV_PePoints(p.pe_acct)));
+		return;
+	}
+	fputs(fh, sprintf("%s %s %s\n", p.pe_acct, strftime(FALSE, "%Y%m%d_%H%M%S"), SV_PeSafe(mapname, 64)));
+	fclose(fh);
+	c = hash_get(pe_pt_all, p.pe_acct, 0, EV_FLOAT);
+	c = c + 1;
+	hash_add(pe_pt_all, p.pe_acct, c, HASH_REPLACE | EV_FLOAT);
+	hash_add(pe_pt_day, p.pe_acct, today + 1, HASH_REPLACE | EV_FLOAT);
+	stuffcmd(p, sprintf("prederr_points %g 1\n", c));
 };
 
-// The report box asks its owner's total once, when it first opens.
-void() CSEv_pe_pts =
+// The report box asks its owner's total once a map.  `_` closes the name: FTE looks an argument-less event
+// up as CSEv_<name>_ (sv_user.c).
+void() CSEv_pe_pts_ =
 {
 	if (self.classname != "player" || clienttype(self) != CLIENTTYPE_REAL)
 		return;
-	if (time < self.pe_ptst + 5)
+	if (time < self.pe_ptst + 5 && time >= self.pe_ptst)
 		return;
 	self.pe_ptst = time;
 	stuffcmd(self, sprintf("prederr_points %g\n", SV_PePoints(SV_PeSafe(infokey(self, "*ahash"), 64))));
