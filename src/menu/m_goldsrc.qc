@@ -705,12 +705,13 @@ string(float row) Mgs_Sub =
 void(vector rp, vector rs, float nx, float compact, float real, float lit, string rid) Mgs_Card =
 {
 	local float gx, cw, a;
-	local vector ts;
+	local vector ts, tp;
 	gx = Mgs_Gx(real);
 	a = gx ? 0.5 : 1;
 	ts = compact ? '128 72 0' : '160 90 0';
-	ui_thumb([rp_x + 4, rp_y + 8], ts, -1, -1);
-	sui_text([rp_x + 4 + (ts_x - stringwidth("GoldSrc", TRUE, '16 16 0')) * 0.5, rp_y + 8 + (ts_y - 16) * 0.5],
+	tp = compact ? rp + '4 8 0' : rp;   // P1741: flush, as the Source card's picture
+	ui_thumb(tp, ts, -1, -1);
+	sui_text([tp_x + (ts_x - stringwidth("GoldSrc", TRUE, '16 16 0')) * 0.5, tp_y + (ts_y - 16) * 0.5],
 	         '16 16 0', "GoldSrc", COL_DIM, 0.45 * a, 0);
 	cw = rs_x - nx - (compact ? 8 : 164);
 	sui_text([rp_x + nx, rp_y + 8], '20 20 0', ui_fit_text(Mgs_Show(real), cw, '20 20 0'),

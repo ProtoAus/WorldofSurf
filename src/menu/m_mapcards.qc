@@ -205,7 +205,7 @@ void(vector pos, float width, float compact, string name, string id) MCard_Draw 
 	for (i = 0; i < 4; i = i + 1)
 	{
 		x = pos_x + (compact ? (i - floor(i / 2) * 2) : i) * cw;
-		y = pos_y + (compact ? 30 + floor(i / 2) * 36 : 36);
+		y = pos_y + (compact ? 30 + floor(i / 2) * 36 : 30);     // P1741: wide 36 -> 30 (the row is 90)
 		label = i == 0 ? "Your WOS" : (i == 1 ? "Your overall" : (i == 2 ? "WOS WR" : "Overall WR"));
 		ms = i == 0 ? wos : (i == 1 ? alltime : (i == 2 ? wrwos : wrall));
 		value = ms > 0i ? Time_MsString(ms) : "--";

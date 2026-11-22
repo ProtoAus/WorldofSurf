@@ -579,6 +579,10 @@ float  ms_applied_srcf;
 #define DQ_CLASSES  4
 strbuf ms_dataq;
 float  ms_showall;
+float  ms_favonly, ms_applied_favonly, ms_applied_favver;  // P1740: the "favourites" chip (this session only)
+float(string mname) Fav_Has;                                 // m_fav.qc
+float() Fav_Ver;
+void(vector pos, float size, string id, string mname) Fav_Button;
 float  ms_applied_showall;
 // P1080: 0 tier order, 1 incomplete first, 2 completed first (ui_maps_compsort).
 float  ms_compsort, ms_applied_compsort, ms_applied_donever;
@@ -3413,6 +3417,17 @@ void() ui_refilter =
 		if (ms_srcf != 0 && !(stof(bufstr_get(ms_lst, i)) & ms_srcf))
 			continue;
 
+		// P1740: a favourite is listed under the chip whatever "show all" says.
+		if (ms_favonly)
+		{
+			if (!Fav_Has(bufstr_get(ms_name, i)))
+			if (bufstr_get(ms_var, i) == "" || !Fav_Has(bufstr_get(ms_name, stof(bufstr_get(ms_var, i)))))
+				continue;
+			bufstr_add(ms_view, ftos(i), TRUE);
+			ms_viewcount++;
+			continue;
+		}
+
 		// P1111 (Lex): with show all off, a map without zones or without a picture waits
 		// behind it (it hid only maps with neither a picture nor a tier, which is nearly
 		// none). A search still finds them.
@@ -3495,6 +3510,8 @@ void() ui_refilter =
 	ms_applied_also  = ms_also;
 	ms_applied_srcf  = ms_srcf;
 	ms_applied_showall = ms_showall;
+	ms_applied_favonly = ms_favonly;
+	ms_applied_favver = Fav_Ver();
 	ms_applied_compsort = ms_compsort;
 	ms_applied_donever = mcd_ver;
 	ms_scroll = '0 0 0';
@@ -7809,7 +7826,7 @@ string(float group, float f) ui_filter_label =
 	if (group == 0) return f == 0 ? "any" : ftos(f);
 	if (group == 1) return ui_mode_label(f);
 	if (group == 2) return ui_srcf_label(f);
-	if (group == 3) return "show all";
+	if (group == 3) return f ? "favourites" : "show all";
 	return f == 0 ? "tier" : (f == 1 ? "incomplete first" : "completed first");
 };
 
@@ -7818,7 +7835,7 @@ string(float group, float f) ui_filter_id =
 	if (group == 0) return strcat("cs_tier", ftos(f));
 	if (group == 1) return strcat("cs_mode", ftos(f));
 	if (group == 2) return strcat("cs_srcf", ftos(f));
-	if (group == 3) return "cs_showall";
+	if (group == 3) return f ? "cs_favonly" : "cs_showall";
 	return strcat("cs_sort", ftos(f));
 };
 
@@ -7896,7 +7913,7 @@ float(float width, float y) ui_map_filters =
 	for (group = 0; group < 5; group = group + 1)
 	{
 		heading = group == 0 ? "Tier" : (group == 1 ? "Mode" : (group == 2 ? "Library" : (group == 3 ? "Extra" : "Sort")));
-		n = group == 0 ? 11 : (group == 1 ? 0 : (group == 2 ? SRCF_NCHIPS + (Mgs_Count() > 0) : (group == 3 ? 1 : 3)));
+		n = group == 0 ? 11 : (group == 1 ? 0 : (group == 2 ? SRCF_NCHIPS + (Mgs_Count() > 0) : (group == 3 ? 2 : 3)));
 		ui_filter_font(ui_font_display);
 		gw = stringwidth(heading, TRUE, sui_native_text_size(UI_MAP_FILTER_HEADING)) + 12;
 		ui_filter_font(ui_font_ui);
@@ -7926,7 +7943,7 @@ float(float width, float y) ui_map_filters =
 			label = ui_filter_label(group, f);
 			id = ui_filter_id(group, f);
 			bit = group == 1 ? ui_cat_bit(ui_mode_id(f)) : (group == 2 ? ui_srcf_bit(f) : 0);
-			on = group == 0 ? (ms_tier == f) : (group == 1 ? (f == 0 ? ms_modes == FS_MODES_ALL : (ms_modes & bit) != 0) : (group == 2 ? ms_srcf == bit : (group == 3 ? ms_showall : ms_compsort == f)));
+			on = group == 0 ? (ms_tier == f) : (group == 1 ? (f == 0 ? ms_modes == FS_MODES_ALL : (ms_modes & bit) != 0) : (group == 2 ? ms_srcf == bit : (group == 3 ? (f ? ms_favonly : ms_showall) : ms_compsort == f)));
 			cw = ui_filter_chip_w(label);
 			if (x + cw > width + 16) { x = 16; y = y + UI_MAP_FILTER_PITCH; }
 			x = x + ui_filter_chip([x, y], id, label, on) + 4;
@@ -7935,7 +7952,7 @@ float(float width, float y) ui_map_filters =
 			if (group == 2 && f == 3) sui_tooltip_for(id, "Half-Life 1, Adrenaline Gamer and CS 1.6 bhop and kz maps, on a list of their own: no tiers, zones or pictures yet.", 2);
 			else if (group == 2 && f == 0 && n > SRCF_NCHIPS) sui_tooltip_for(id, "Momentum Mod's and KSF's (CS:S) maps together. GoldSrc maps are listed only under goldsrc.", 2);
 			else if (group == 2) sui_tooltip_for(id, "Momentum Mod's maps, or KSF's (CS:S) maps: by catalogue, not by folder.", 2);
-			if (group == 3) sui_tooltip_for(id, "Also show maps without zones or a picture. Search always finds them.", 2);
+			if (group == 3) sui_tooltip_for(id, f ? "Only your favourite maps: the star on a map's picture adds it." : "Also show maps without zones or a picture. Search always finds them.", 2);
 			if (group == 4) sui_tooltip_for(id, "Your clean main finishes in WOS, tier order within each. Needs a linked account online; while unknown the list stays in tier order.", 2);
 			if (!sui_is_released(id)) continue;
 			if (group == 0) ms_tier = f;
@@ -7945,6 +7962,7 @@ float(float width, float y) ui_map_filters =
 				ms_srcf = bit;
 				if (bit == SRC_BIT_GS) ms_tier = 0;     // P1658: no GoldSrc map has a tier
 			}
+			else if (group == 3 && f) ms_favonly = !ms_favonly;
 			else if (group == 3) ui_showall_set(!ms_showall);
 			else ui_compsort_set(f);
 		}
@@ -7972,11 +7990,12 @@ void(vector screensize) screen_create =
 	size = screensize; pos = '0 0 0';
 	inner = size_x - 32;
 	compact = (inner < 760);
-	// P1178: wide rows are the 90 px photo plus 8 above and below (were 128, 29 px empty
-	// under it); compact rows end 8 below their Play button.
-	rh = compact ? 156 : 106;
-	nx = compact ? 140 : 176;
-	actiony = compact ? 108 : 29;
+	// P1741 (Lex: "close the distence between the maps ... continuious map pictures"): a wide row IS its
+	// 160x90 HD picture, flush in its corner (HD_W x HD_H, drawn 1:1), so pictures meet row to row; P1178 had
+	// 8 px above and below.  Compact rows end 8 below their Play button.
+	rh = compact ? 156 : 90;
+	nx = compact ? 140 : 172;
+	actiony = compact ? 108 : 21;
 	namesize = '20 20 0';
 	ui_cs_size = size;
 	ui_cs_lcols = ui_cs_lshow = 0;
@@ -8261,7 +8280,7 @@ void(vector screensize) screen_create =
 				// Wide: Play is centred in the row, or sits above the MOM/CS:S switch.
 				float ay = actiony;
 				if (!compact && strcmp(bufstr_get(ms_var, real), ""))
-					ay = 12;
+					ay = 10;
 				string rid = strcat("cs_row", ftos(idx));
 				vector rs  = [ls_x - 14, rh];
 
@@ -8298,15 +8317,19 @@ void(vector screensize) screen_create =
 						mpage = strcmp(argv(MT_PAGE), "-") ? stof(argv(MT_PAGE)) : -1;
 						mcell = strcmp(argv(MT_CELL), "-") ? stof(argv(MT_CELL)) : -1;
 					}
-					ui_thumb([rp_x + 4, rp_y + 8], compact ? '128 72 0' : '160 90 0', mpage, mcell);
+					vector tp = compact ? rp + '4 8 0' : rp;     // P1741
+					ui_thumb(tp, compact ? '128 72 0' : '160 90 0', mpage, mcell);
+					// P1740: the star, in the picture's top-right corner
+					Fav_Button(tp + [(compact ? 128 : 160) - 26, 4], 22, strcat("cs_fav", ftos(idx)), bufstr_get(ms_name, real));
+					float ty = compact ? 8 : 5;                 // P1741: the wide row's lines, 90 px high
 					cw = rs_x - nx - (compact ? 8 : 164);
 					neww = !strcmp(bufstr_get(ms_new, real), "1") ? stringwidth("NEW", TRUE, namesize) + 4 : 0;
 					mnmf = ui_fit_text(bufstr_get(ms_name, real), cw - neww, namesize);
 					if (strcmp(bufstr_get(ms_zoned, er), "1")) mnmf = strcat(MAP_NOZONE_ESC, mnmf);
-					sui_text([rp_x + nx, rp_y + 8], namesize, mnmf, (on || hot) ? COL_ACCENT : COL_TEXT, 1, 0);
+					sui_text([rp_x + nx, rp_y + ty], namesize, mnmf, (on || hot) ? COL_ACCENT : COL_TEXT, 1, 0);
 					// NEW still means a sweep saw this name appear, not a recent release.
 					if (neww)
-						sui_text([rp_x + nx + 4 + stringwidth(mnmf, TRUE, namesize), rp_y + 8], namesize,
+						sui_text([rp_x + nx + 4 + stringwidth(mnmf, TRUE, namesize), rp_y + ty], namesize,
 						         strcat(SUI_ESC_GOOD, "NEW"), COL_TEXT, 1, 0);
 					// P1178 (Lex): the author after the name, in what the name leaves.
 					au = MapAuthor_Text(bufstr_get(ms_author, real));
@@ -8314,7 +8337,7 @@ void(vector screensize) screen_create =
 						au = MapAuthor_Text(bufstr_get(ms_author, er));
 					ax = nx + stringwidth(mnmf, TRUE, namesize) + neww + 10;
 					if (au != "" && cw - (ax - nx) > 48)
-						sui_text([rp_x + ax, rp_y + 11], '16 16 0',
+						sui_text([rp_x + ax, rp_y + ty + 3], '16 16 0',
 						         ui_fit_text(strcat("by ", au), cw - (ax - nx), '16 16 0'), COL_DIM, 1, 0);
 					mtier = bufstr_get(ms_momtier, real); mktier = bufstr_get(ms_ksftier, real);
 					sub = sprintf("MOM %s | KSF %s", stof(mtier) > 0 ? strcat("T", mtier) : "-", stof(mktier) > 0 ? strcat("T", mktier) : "-");
@@ -8333,10 +8356,10 @@ void(vector screensize) screen_create =
 					if (strcmp(bufstr_get(ms_zoned, er), "1"))
 						sub = strcat(MAP_NOZONE_ESC, (stof(mtier) <= 0 && stof(mktier) > 0) ? "no zones: KSF map" : "no zones",
 						             "^7 | ", sub);
-					sui_text([rp_x + nx, rp_y + 50], '12 12 0', ui_fit_text(sub, cw, '12 12 0'), COL_DIM, 1, 0);
+					sui_text([rp_x + nx, rp_y + (compact ? 50 : 43)], '12 12 0', ui_fit_text(sub, cw, '12 12 0'), COL_DIM, 1, 0);
 					if (strcmp(bufstr_get(ms_var, real), ""))
-						ui_build_switch(compact ? rp + '4 84 0' : [rp_x + rs_x - 130, rp_y + 68], real, idx);
-					MCard_Draw([rp_x + nx, rp_y + 32], cw, compact, bufstr_get(ms_name, er), rid);
+						ui_build_switch(compact ? rp + '4 84 0' : [rp_x + rs_x - 130, rp_y + 66], real, idx);
+					MCard_Draw([rp_x + nx, rp_y + (compact ? 32 : 28)], cw, compact, bufstr_get(ms_name, er), rid);
 				}
 
 				/*
@@ -8632,6 +8655,7 @@ void() m_init =
 	registercommand("ui_home_probe");
 	registercommand("ui_home_kind");        // P1122: what the Surf / Bhop / All switch sets, for arms
 	registercommand("ui_showall");          // P1130: session-only show-all setter for UI fixtures
+	registercommand("ui_favonly");          // P1740: the favourites chip, for UI fixtures
 	registercommand("ui_stats_open");
 	registercommand("ui_maplist");
 	registercommand("ui_browse");
@@ -8831,7 +8855,8 @@ void(vector screensize) m_draw =
 	// the applied copy here is the cheapest place to notice.
 	if (ms_query != ms_applied_query || ms_tier != ms_applied_tier
 	    || ms_modes != ms_applied_modes || ms_also != ms_applied_also || ms_srcf != ms_applied_srcf
-	    || ms_showall != ms_applied_showall || ms_compsort != ms_applied_compsort)
+	    || ms_showall != ms_applied_showall || ms_compsort != ms_applied_compsort
+	    || ms_favonly != ms_applied_favonly || (ms_favonly && Fav_Ver() != ms_applied_favver))
 		ui_refilter();
 	else if (ms_compsort && mcd_ver != ms_applied_donever)
 	{
@@ -9295,6 +9320,18 @@ float(string cmd) m_consolecommand =
 	{
 		if (argv(1) != "") ui_showall_set(stof(argv(1)) != 0);
 		print(sprintf("ui_showall: %g\n", ms_showall));
+		return TRUE;
+	}
+	if (!strcmp(argv(0), "ui_favonly"))
+	{
+		if (argv(1) != "") ms_favonly = (stof(argv(1)) != 0);
+		if (argv(2) == "open")          // and the Maps screen, as its tab opens it
+		{
+			menu_screen = SCREEN_CREATE;
+			ui_create_open();
+			m_open();
+		}
+		print(sprintf("ui_favonly: %g (%g in view)\n", ms_favonly, ms_viewcount));
 		return TRUE;
 	}
 	if (!strcmp(argv(0), "ui_home_kind"))

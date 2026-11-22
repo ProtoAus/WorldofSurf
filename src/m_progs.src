@@ -54,6 +54,7 @@ menu/m_mapcards.qc         // P1062: shared board transport + public identity + 
 // P1658: after m_main.qc (ms_* buffers, ui_* widgets) and m_friends.qc (frename); m_main.qc
 // and m_lobby.qc's URI_Get_Callback reach them through prototypes.  m_maprows.qc reads m_goldsrc.qc.
 menu/m_goldsrc.qc          // the GoldSrc catalogue and its finder rows
+menu/m_fav.qc              // P1740: favourite maps (before m_maprows.qc, which draws the star)
 menu/m_maprows.qc          // the finder as a compact list
 // P1084: hud_player's Stats page. The shim gives client/cl_profile.qc the six CSQC
 // names it reads from menu pieces; m_stats.qc hosts it as cl_avatar.qc does.

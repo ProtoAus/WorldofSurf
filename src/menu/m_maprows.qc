@@ -212,6 +212,11 @@ void(vector rp, vector rs, float idx, float real, float er, float on, float hot)
 
 	// Left to right: the name takes a third, the detail what is left.
 	x = rp_x + 8;
+	if (!gs)                        // P1740: the star before the name
+	{
+		Fav_Button([x - 2, rp_y + (MROW_H - 18) * 0.5], 18, strcat("cs_fav", ftos(idx)), bufstr_get(ms_name, real));
+		x = x + 20;
+	}
 	w = right - x;
 	namew = (rs_x >= 560) ? bound(150, floor(w * 0.34), 380) : w;
 	neww = (!gs && !strcmp(bufstr_get(ms_new, real), "1")) ? stringwidth("NEW", TRUE, MROW_SM) + 6 : 0;
