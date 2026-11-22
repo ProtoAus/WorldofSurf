@@ -218,6 +218,7 @@ void() CSQC_WorldLoaded =
 	Weather_Load();                // P1309: opt-in, cached geometry/roof/audio only
 	Inv_SantaLoad();               // P1304: warm model/entity, never equip-time disk I/O
 	Sun_LoadForMap();               // Patch 874
+	Sun_MapLight();                 // P1723/P1724/P1725
 	Ropes_LoadForMap();
 
 	// Build 66.  env_soundscape, out of the same lump and here for the same

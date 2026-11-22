@@ -7951,11 +7951,15 @@ float(string mdl) SV_PropHasPhy =
 	return TRUE;
 };
 
+.float disableshadows;	// P1724: a prop that casts no dynamic shadow (Source's shadow_control/RTT, Strata's CSM)
 void(float defsolid) SV_SpawnProp =
 {
 	local float srcsolid, sc, raw;
 	local float h, zlo, zhi;
 	local vector bmin, bmax;
+
+	if (self.disableshadows)
+		self.effects = self.effects | EF_NOSHADOW;	// P1724: r_shadows 2 skips it as a caster
 
 	// A prop with no model is nothing to draw and nothing to hit.  A prop
 	// carrying a BRUSH model ('*N') is a mapper error -- studio props do not

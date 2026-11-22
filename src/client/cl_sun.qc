@@ -192,6 +192,100 @@ void(string mat, vector eye, float hs, vector col, float a) Sun_Quad =
 	R_EndPolygon();
 };
 
+/*
+  P1723/P1724/P1725: what the map says about its bloom and its dynamic shadows, set where the engine reads it.
+  - SetBloomScale (env_tonemap_controller, from a logic_auto OnMapSpawn: the latest delay wins, of two at one delay
+    the first listed, as Emit_Exposure) -> r_bloom_mapscale, a multiplier on the player's own r_bloom (Source's
+    override of mat_bloomscale); 1 where the map says nothing.  Exposure is NOT copied: ahop_coast's .8-.9 band
+    would darken a frame that already matches Momentum's at scale 1 (BACKLOG P1717).
+  - The direction r_shadows 2 throws shadows: shadow_control's angles (Source AngleVectors, positive pitch down),
+    else an env_cascade_light's sun (its own angles, or light_environment's with uselightenvangles; VRAD's sign,
+    negative pitch down), else the engine's default.  Only a player who turned r_shadows 2 on sees either.
+*/
+void() Sun_MapLight =
+{
+	local string tok, key, cn;
+	local float bloom, bat, d, p, y, havesc, havecsm, csmle, havele, epitch, ehaspitch;
+	local vector eang, scdir, csmdir, ledir, thr;
+
+	bloom = 1;
+	bat = -1;
+	havesc = havecsm = csmle = havele = FALSE;
+	scdir = csmdir = ledir = '0 0 0';
+	getentitytoken(0);
+	while ((tok = getentitytoken()) != "")
+	{
+		if (tok != "{")
+			continue;
+		cn = "";
+		eang = '0 0 0';
+		epitch = ehaspitch = 0;
+		d = 0;
+		while ((key = getentitytoken()) != "" && key != "}")
+		{
+			tok = getentitytoken();
+			key = strtolower(key);
+			if (key == "classname")
+				cn = tok;
+			else if (key == "angles")
+				eang = stov(tok);
+			else if (key == "pitch")
+			{
+				epitch = stof(tok);
+				ehaspitch = TRUE;
+			}
+			else if (key == "uselightenvangles")
+				d = stof(tok);
+			else if (key == "onmapspawn")
+			{
+				if (tokenizebyseparator(strreplace(chr2str(27), ",", tok), ",") < 4)
+					continue;
+				if (strtolower(argv(1)) != "setbloomscale")
+					continue;
+				if (stof(argv(3)) <= bat)
+					continue;
+				bat = stof(argv(3));
+				bloom = max(0, stof(argv(2)));
+			}
+		}
+		if (cn == "shadow_control" && !havesc)
+		{
+			p = eang_x * (M_PI / 180);
+			y = eang_y * (M_PI / 180);
+			scdir = [cos(p) * cos(y), cos(p) * sin(y), 0 - sin(p)];
+			havesc = TRUE;
+		}
+		else if (cn == "light_environment" && !havele)
+		{
+			p = (ehaspitch ? epitch : eang_x) * (M_PI / 180);
+			y = eang_y * (M_PI / 180);
+			ledir = [cos(p) * cos(y), cos(p) * sin(y), sin(p)];
+			havele = TRUE;
+		}
+		else if (cn == "env_cascade_light" && !havecsm)
+		{
+			p = eang_x * (M_PI / 180);
+			y = eang_y * (M_PI / 180);
+			csmdir = [cos(p) * cos(y), cos(p) * sin(y), sin(p)];
+			csmle = (d != 0);
+			havecsm = TRUE;
+		}
+	}
+	cvar_set("r_bloom_mapscale", ftos(bloom));
+	if (havesc)
+		thr = scdir;
+	else if (havecsm && csmle && havele)
+		thr = ledir;
+	else if (havecsm)
+		thr = csmdir;
+	else
+		thr = stov(cvar_defstring("r_shadows_throwdirection"));
+	if (thr != '0 0 0')
+		cvar_set("r_shadows_throwdirection", sprintf("%g %g %g", thr_x, thr_y, thr_z));
+	dprint(sprintf("maplight: bloom scale %g%s; shadows thrown %v (%s)\n", bloom, bat >= 0 ? "" : " (map sets none)", thr,
+		havesc ? "shadow_control" : havecsm ? "env_cascade_light" : "engine default"));
+};
+
 void() Sun_Draw =
 {
 	local vector eye, fwd;
