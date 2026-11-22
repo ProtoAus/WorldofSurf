@@ -722,6 +722,12 @@ entity  vbsp_onjump_head;
 .entity run_ssp1, run_ssp2, run_ssp3, run_ssp4;
 .float  run_sst1, run_sst2, run_sst3, run_sst4;
 .float  run_ssa1, run_ssa2, run_ssa3, run_ssa4;
+// P1744 review 3, on a PLAYER: P1185's off-cause for a booster's own per-player pair, per pad (SV_PpBank).
+.entity run_pbp1, run_pbp2, run_pbp3, run_pbp4;     // the pad
+.float  run_pbh1, run_pbh2, run_pbh3, run_pbh4;     // bank_off_have
+.entity run_pbo1, run_pbo2, run_pbo3, run_pbo4;     // bank_off_player
+.int    run_pba1, run_pba2, run_pba3, run_pba4;     // bank_off_attempt
+.float  run_pbb1, run_pbb2, run_pbb3, run_pbb4;     // bank_off_bad
 .int    vbsp_once_done;
 .float  FieldOfView, LookTime, Timeout;     // P1428: trigger_look's and game_ui's keys, Source's spelling
 // P1428: game_ui's outputs are not "On" keys (game_ui.cpp DEFINE_OUTPUT), lower-cased between newlines.
@@ -867,6 +873,7 @@ void(entity p) SV_TouchForget =
 		}
 	}
 	p.run_ssp1 = p.run_ssp2 = p.run_ssp3 = p.run_ssp4 = world;  // P1744
+	p.run_pbp1 = p.run_pbp2 = p.run_pbp3 = p.run_pbp4 = world;
 };
 
 // P1744: pl's setspeed slots (fields above). A slot is reused once its pad is untouched for the window; a fifth pad touched
@@ -2946,47 +2953,85 @@ void(entity t, int nv) SV_PpWrite =
 		t.SendFlags = 1;
 };
 
-void(entity t, float on) SV_IOEnable;
+void(entity t, float on, float wx) SV_IOEnableX;
 void(entity t, float on, float wasoff) SV_IOBankSlot;
+void(entity t, float on, float wasoff, entity rh, .float fh, .entity fp, .int fa, .float fb) SV_IOBankRec;
+
+// P1744 review 3: a booster's own per-player pair keeps its P1185 off-cause in pl's slot for that pad, so two players'
+// interleaved cooldowns cannot overwrite each other's (the shared record made the pad player-owned for good). A Disable
+// takes a free slot (one whose pad is no longer off for pl); a fifth pad off for pl at once uses the shared record,
+// the old rule; an Enable consumes the slot it finds, or the shared record if there is none.
+void(entity t, entity pl, int bit, float on, float wasoff) SV_PpBank =
+{
+	local float s;
+	if (pl.run_pbp1 == t) s = 1;
+	else if (pl.run_pbp2 == t) s = 2;
+	else if (pl.run_pbp3 == t) s = 3;
+	else if (pl.run_pbp4 == t) s = 4;
+	else if (on) s = 0;
+	else if (!pl.run_pbp1 || wasfreed(pl.run_pbp1) || !(pl.run_pbp1.vbsp_ppoff & bit)) s = 1;
+	else if (!pl.run_pbp2 || wasfreed(pl.run_pbp2) || !(pl.run_pbp2.vbsp_ppoff & bit)) s = 2;
+	else if (!pl.run_pbp3 || wasfreed(pl.run_pbp3) || !(pl.run_pbp3.vbsp_ppoff & bit)) s = 3;
+	else if (!pl.run_pbp4 || wasfreed(pl.run_pbp4) || !(pl.run_pbp4.vbsp_ppoff & bit)) s = 4;
+	else s = 0;
+	if (s == 1)      { pl.run_pbp1 = t; SV_IOBankRec(t, on, wasoff, pl, run_pbh1, run_pbo1, run_pba1, run_pbb1); }
+	else if (s == 2) { pl.run_pbp2 = t; SV_IOBankRec(t, on, wasoff, pl, run_pbh2, run_pbo2, run_pba2, run_pbb2); }
+	else if (s == 3) { pl.run_pbp3 = t; SV_IOBankRec(t, on, wasoff, pl, run_pbh3, run_pbo3, run_pba3, run_pbb3); }
+	else if (s == 4) { pl.run_pbp4 = t; SV_IOBankRec(t, on, wasoff, pl, run_pbh4, run_pbo4, run_pba4, run_pbb4); }
+	else
+		SV_IOBankSlot(t, on, wasoff);
+	if (on)
+	{
+		if (s == 1) pl.run_pbp1 = world;
+		else if (s == 2) pl.run_pbp2 = world;
+		else if (s == 3) pl.run_pbp3 = world;
+		else if (s == 4) pl.run_pbp4 = world;
+	}
+};
+
 void(entity t, entity o, entity act, string in) SV_PpInput =
 {
-	local int bit;
+	local int abit, bit;
 	local float on, own, ct, effoff;
 
 	own = (o && o.owner == t);
-	bit = 0i;
+	abit = 0i;
 	if (act.classname == "player")
 	{
 		ct = clienttype(act);
 		if (ct == CLIENTTYPE_REAL || ct == CLIENTTYPE_BOT)
-			bit = SV_TouchBit(act);
+			abit = SV_TouchBit(act);
 		else if (own)
 			return;             // a departed client's own cooldown row (the end sweep, a pending delay): nobody to switch
 	}
-	if (!own)
-		bit = 0i;               // another entity's or the world's switch is everyone's
+	bit = (own ? abit : 0i);    // another entity's or the world's switch is everyone's
 	on = (t.solid != SOLID_NOT && !SV_Key2(t.StartDisabled, t.startdisabled));
-	// Off as the old global switch saw it: for this player, or for the world while any player has it off.
-	effoff = ((bit ? (t.vbsp_ppoff & bit) : t.vbsp_ppoff) != 0i);
+	// Off as the old global switch saw it: for the activator, or (no player) while any player has it off.
+	effoff = ((abit ? (t.vbsp_ppoff & abit) : t.vbsp_ppoff) != 0i);
 	if (in == "toggle")
 		in = ((on && !effoff) ? "disable" : "enable");
 	if (in == "disable")
 	{
 		if (bit && on)
 		{
-			SV_IOBankSlot(t, FALSE, effoff);
+			SV_PpBank(t, act, bit, FALSE, effoff);
 			SV_PpWrite(t, t.vbsp_ppoff | bit);
 			if (cvar("developer") >= 2)
 				dprint(sprintf("booster %s %s: off for %s alone\n", t.classname, t.model, act.netname));
 			return;
 		}
-		SV_IOEnable(t, FALSE);
+		SV_IOEnableX(t, FALSE, effoff);
 		return;
 	}
-	if (on)
-		SV_IOBankSlot(t, TRUE, effoff); // off -> on in that view; SV_IOEnable below then sees an on pad
+	if (on && effoff)           // off -> on in the activator's view; SV_IOEnableX below then sees an on pad
+	{
+		if (abit)
+			SV_PpBank(t, act, abit, TRUE, TRUE);
+		else
+			SV_IOBankSlot(t, TRUE, TRUE);
+	}
 	SV_PpWrite(t, bit ? (t.vbsp_ppoff & ~bit) : 0i);
-	SV_IOEnable(t, TRUE);
+	SV_IOEnableX(t, TRUE, -1);
 };
 
 // P799: a func_areaportalwindow's target, which the client draws (SV_PortalWindowsActivate).
@@ -3146,9 +3191,10 @@ void() SV_NoColRestore =
 	nocol_off = world;
 };
 
-// The activation slots' provenance (P1185), shared with P1744's per-player switch (SV_PpInput), which passes the
-// activator's own view as wasoff. Moved out of SV_IOEnable verbatim.
-void(entity t, float on, float wasoff) SV_IOBankSlot =
+// The activation slots' provenance (P1185), moved out of SV_IOEnable verbatim except that the off-cause record is a
+// parameter: the pad's own (bank_off_*) for the global switch, a player's slot for P1744's per-player pair (SV_PpBank),
+// so two players' interleaved cooldowns cannot overwrite each other's cause (review 3).
+void(entity t, float on, float wasoff, entity rh, .float fh, .entity fp, .int fa, .float fb) SV_IOBankRec =
 {
 	local float act, same;
 
@@ -3168,23 +3214,23 @@ void(entity t, float on, float wasoff) SV_IOBankSlot =
 	// cancels it, as that Enable would then override the map (reviews 1-3).
 	if (act && !on)
 	{
-		same = (bank_ctx_depth && t.bank_off_player == bank_ctx_player
-			&& t.bank_off_attempt == bank_ctx_attempt && t.bank_off_bad == bank_ctx_bad);
+		same = (bank_ctx_depth && rh.fp == bank_ctx_player
+			&& rh.fa == bank_ctx_attempt && rh.fb == bank_ctx_bad);
 		if (!wasoff)
 		{
-			t.bank_off_have = (bank_ctx_depth && bank_ctx_attempt != 0i
+			rh.fh = (bank_ctx_depth && bank_ctx_attempt != 0i
 				&& t.bank_src_attempt == 0i && !t.bank_src_bad);
-			t.bank_off_player = bank_ctx_depth ? bank_ctx_player : world;
-			t.bank_off_attempt = bank_ctx_depth ? bank_ctx_attempt : 0i;
-			t.bank_off_bad = bank_ctx_depth ? bank_ctx_bad : FALSE;
+			rh.fp = bank_ctx_depth ? bank_ctx_player : world;
+			rh.fa = bank_ctx_depth ? bank_ctx_attempt : 0i;
+			rh.fb = bank_ctx_depth ? bank_ctx_bad : FALSE;
 		}
 		else if (!same)
-			t.bank_off_have = FALSE;
+			rh.fh = FALSE;
 	}
 	if (act && on && wasoff)
 	{
-		if (t.bank_off_have && bank_ctx_depth && t.bank_off_player == bank_ctx_player
-			&& t.bank_off_attempt == bank_ctx_attempt && t.bank_off_bad == bank_ctx_bad)
+		if (rh.fh && bank_ctx_depth && rh.fp == bank_ctx_player
+			&& rh.fa == bank_ctx_attempt && rh.fb == bank_ctx_bad)
 		{
 			if (cvar("developer"))
 				dprint(sprintf("bank: %s %s on again by the cause that switched it off; stays world's\n",
@@ -3200,11 +3246,17 @@ void(entity t, float on, float wasoff) SV_IOBankSlot =
 			t.bank_src_attempt = 0i;
 			t.bank_src_bad = FALSE;
 		}
-		t.bank_off_have = FALSE;
+		rh.fh = FALSE;
 	}
 };
 
-void(entity t, float on) SV_IOEnable =
+void(entity t, float on, float wasoff) SV_IOBankSlot =
+{
+	SV_IOBankRec(t, on, wasoff, t, bank_off_have, bank_off_player, bank_off_attempt, bank_off_bad);
+};
+
+// P1744: wx is the caller's view of "was off" (a booster off for its activator alone); -1 reads StartDisabled, as before.
+void(entity t, float on, float wx) SV_IOEnableX =
 {
 	local float wasoff;
 	// P1387 review 2: Source's func_tracktrain has no Enable/Disable; a csprogs train made solid here
@@ -3214,6 +3266,8 @@ void(entity t, float on) SV_IOEnable =
 	if (t == nocol_off)
 		SV_NoColRestore();        // P1193: I/O acts on the real solidity
 	wasoff = SV_Key2(t.StartDisabled, t.startdisabled);
+	if (wx >= 0)
+		wasoff = (wasoff || wx);
 	SV_IOBankSlot(t, on, wasoff);
 	if (!on)
 	{
@@ -3265,6 +3319,7 @@ void(entity t, float on) SV_IOEnable =
 	if (on && t.classname == "logic_timer")
 		SV_TimerSchedule(t, time + SV_TimerInterval(t), wasoff);
 };
+void(entity t, float on) SV_IOEnable = { SV_IOEnableX(t, on, -1); };
 
 /*
   `Command` is remote code execution by map, so it is allow-listed.
@@ -14626,6 +14681,7 @@ void(entity p, float t0) SV_TrigResume =
 			if (p.absmin_z <= t.absmax_z) if (p.absmax_z >= t.absmin_z)
 			{
 				t.vbsp_ss_stamp = time;
+				t.vbsp_ss_who = p;
 				if (sss)
 					SV_SsSet(p, sss, t, time, SV_SsA(p, sss));
 			}
