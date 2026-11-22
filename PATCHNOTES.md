@@ -21,6 +21,10 @@
 
 ## next
 
+### P1732 Dynamic shadows: faster, and closer to Source
+- With dynamic shadows on (r_shadows 2), repeated props are drawn together again (faster), props no longer shade themselves, shadows take the map's own shadow colour, and on maps with baked sun shadows a shadow removes only the sunlight.
+- New test setting r_exposure (1 = off) brightens or darkens the world and models like a fixed camera exposure; vbsp_exposure 1 takes it from each map's own exposure settings.
+
 ### P1730 A damaged replay file no longer freezes the game
 - A replay or camera file with a corrupted turn angle could freeze the game's interface while opening or playing it. It now plays, with the damaged moments using the replay's own angles.
 

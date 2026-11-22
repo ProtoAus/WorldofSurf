@@ -7,11 +7,12 @@
 - P1722 DONE (the sun on unbaked models where a trace ENDS on sky). hl2_lightprobe does not show it.
 - P1723: only the bloom scale; exposure deliberately not copied (ahop_coast's .8-.9 band would darken a frame already
   matching Momentum's world at scale 1). Vulkan's built-in bloom_final ignores r_bloom_mapscale.
-- P1724/P1725: r_shadows 2 now throws along shadow_control (else the Strata cascade sun), honours disableshadows and
-  survives a live toggle. Still NOT Source's shadows: props shadow themselves (no caster identity in the depth map),
-  a fixed 50% tint (not shadow_control's colour), shadow_control disableallshadows ignored, instanced props off while
-  on, and on Strata maps the shadow darkens the baked sun's shade a second time (needs a mix(min(lm, ambient), lm, s)
-  blend with light_environment's ambient in lightmapped.glsl).
+- P1724/P1725/P1732: r_shadows 2 throws along shadow_control (else the Strata cascade sun), honours disableshadows,
+  survives a live toggle, keeps instanced props (P1732), casting props do not receive, shadow_control's colour, and a
+  Strata map's shadow takes out only the sun (r_shadows_sunfloor). Left: casters indoors throw "sun" shadows (gate a
+  caster on VBSP_SunVisible on cascade maps); disableallshadows and shadow distance ignored; the baked-prop floor is
+  reasoned, not measured. r_exposure is a fixed test exposure (vbsp_exposure 1 = the map's band), not adaptation; the
+  sky is not scaled.
 - P1726 DONE for a body whose forward is the motor axis (windmills, fans): the motor's own late edict draws it. Left:
   bodies at another angle (most func_physbox, angles 0 0 0) stay still; the pivot is the body's origin, not the hinge
   (ahop_coast 13 units off); a phys_constraint welding the body to the world is not read; a motor-driven body that is

@@ -1,5 +1,14 @@
 # lextest.md — things waiting on a human
 
+## P1732 -- dynamic shadows + exposure test cvar (worldofsurf-88) -- next release
+1. `r_shadows 2` on ahop_coast save 7: the crate and fence are no longer blackened by their own shadow; the crate still
+   shadows the ground beside it, in a cool grey (the map's shadow_control colour).
+2. `r_shadows 2` on bhop_canals: props do not shade themselves; shadows on sunlit floor stop at the sky's level (not
+   black, not half). Known: props indoors still throw a "sun" shadow where the sun never reaches.
+3. Exposure: `r_exposure 0.7` / `1.5` darkens / brightens the world and models (not the sky); `vbsp_exposure 1` then a
+   map load sets it from the map (ahop_coast 0.9); `vbsp_exposure 0` and a map load hand it back to 1. Decide whether a
+   map's band is worth keeping (P1717 matched Momentum at 1).
+
 ## P1729 -- try the distance water (worldofsurf-08) -- dev install now, next release
 1. `hl2_water 1; hl2_water_lod 1` on bhop_canals (water_lod_control 1000/2000) and ahop_coast (3000/5000): water past the
    start distance fades to flat fog-coloured water with a cubemap sheen, fully past the end; nearer water is unchanged.
