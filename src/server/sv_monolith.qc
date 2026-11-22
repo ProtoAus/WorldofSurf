@@ -108,7 +108,7 @@ float(entity pad, entity e, entity bp, int ba, float bb) SV_MonolithB4Touch =
 	}
 	else
 	{
-		pad.vbsp_ss_stamp = time;
+		SV_SsStamp(e, pad);              // P1744: per player
 		SV_MonolithB4InputEnd(e);
 		if (e.run_movetick == e.run_mono_cmdtick) return TRUE;
 		// Do not erase a real rise before JumpWatch's velocity-edge gate.
@@ -125,7 +125,7 @@ float(entity pad, entity e, entity bp, int ba, float bb) SV_MonolithB4Touch =
 		// CSS entry1760 + (reference endpoint1662 - CSS endpoint1638).
 		vel = '-1784 0 0';
 	}
-	pad.vbsp_ss_stamp = time;
+	SV_SsStamp(e, pad);              // P1744: per player
 	// A bounded following slope move supplies Z. Real jumpcmd still wins;
 	// never clear any earlier hopped/dirty taint to make this profile eligible.
 	e.run_pushed = TRUE;

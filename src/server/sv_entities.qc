@@ -713,6 +713,14 @@ entity  vbsp_onjump_head;
 .int    vbsp_touch_seen;
 .int    vbsp_touch_out;         // absent for one window, not yet ended
 .int    vbsp_touch_cmd;         // Patch 1025: touched during the slot's current command
+.float  vbsp_ss_stamp;          // trigger_setspeed: last touch, for the enter edge (vbsp_mp 0)
+.float  vbsp_ss_applied;        // ...and last time the speed was written
+.int    vbsp_ppoff;             // P1744: a booster its own outputs switched off for that player alone (SV_PpSet)
+// P1744, on a PLAYER: trigger_setspeed's enter edge and OnThink clock per player (Source's StartTouch is per toucher), in
+// four slots: pad, last touch, last application (SV_SsSlot).
+.entity run_ssp1, run_ssp2, run_ssp3, run_ssp4;
+.float  run_sst1, run_sst2, run_sst3, run_sst4;
+.float  run_ssa1, run_ssa2, run_ssa3, run_ssa4;
 .int    vbsp_once_done;
 .float  FieldOfView, LookTime, Timeout;     // P1428: trigger_look's and game_ui's keys, Source's spelling
 // P1428: game_ui's outputs are not "On" keys (game_ui.cpp DEFINE_OUTPUT), lower-cased between newlines.
@@ -850,7 +858,70 @@ void(entity p) SV_TouchForget =
 		e.vbsp_once_done    = e.vbsp_once_done    & keep;
 		e.vbsp_io_gate_seen = e.vbsp_io_gate_seen & keep;
 		e.vbsp_touch_cmd    = e.vbsp_touch_cmd    & keep;     // Patch 1025
+		if (e.vbsp_ppoff & ~keep)
+		{
+			e.vbsp_ppoff = e.vbsp_ppoff & keep;                 // P1744
+			if (e.SendEntity)
+				e.SendFlags = 1;                                // only boosters carry it: SV_TrigStateSend
+		}
 	}
+	p.run_ssp1 = p.run_ssp2 = p.run_ssp3 = p.run_ssp4 = world;  // P1744
+};
+
+// P1744: pl's setspeed slots (fields above). A player inside more than four pads within 0.05 s (overlapping pads) evicts
+// the least recently touched, whose next touch then reads as an entry.
+float(entity pl, entity pad) SV_SsFind =
+{
+	if (pl.run_ssp1 == pad) return 1;
+	if (pl.run_ssp2 == pad) return 2;
+	if (pl.run_ssp3 == pad) return 3;
+	if (pl.run_ssp4 == pad) return 4;
+	return 0;
+};
+float(entity pl, float s) SV_SsT =
+{
+	if (s == 1) return pl.run_sst1;
+	if (s == 2) return pl.run_sst2;
+	if (s == 3) return pl.run_sst3;
+	return pl.run_sst4;
+};
+float(entity pl, float s) SV_SsA =
+{
+	if (s == 1) return pl.run_ssa1;
+	if (s == 2) return pl.run_ssa2;
+	if (s == 3) return pl.run_ssa3;
+	return pl.run_ssa4;
+};
+void(entity pl, float s, entity pad, float t, float a) SV_SsSet =
+{
+	if (s == 1)      { pl.run_ssp1 = pad; pl.run_sst1 = t; pl.run_ssa1 = a; }
+	else if (s == 2) { pl.run_ssp2 = pad; pl.run_sst2 = t; pl.run_ssa2 = a; }
+	else if (s == 3) { pl.run_ssp3 = pad; pl.run_sst3 = t; pl.run_ssa3 = a; }
+	else             { pl.run_ssp4 = pad; pl.run_sst4 = t; pl.run_ssa4 = a; }
+};
+float(entity pl, entity pad) SV_SsSlot =
+{
+	local float s, lo;
+	s = SV_SsFind(pl, pad);
+	if (s)
+		return s;
+	s = 1;
+	lo = pl.run_sst1;
+	if (pl.run_sst2 < lo) { s = 2; lo = pl.run_sst2; }
+	if (pl.run_sst3 < lo) { s = 3; lo = pl.run_sst3; }
+	if (pl.run_sst4 < lo) { s = 4; lo = pl.run_sst4; }
+	SV_SsSet(pl, s, pad, -1000, -1000);
+	return s;
+};
+// A touch that consumes the enter edge without the pad's own write (the monolith pad).
+void(entity pl, entity pad) SV_SsStamp =
+{
+	local float s;
+	pad.vbsp_ss_stamp = time;
+	if (!SV_TouchBit(pl))
+		return;
+	s = SV_SsSlot(pl, pad);
+	SV_SsSet(pl, s, pad, time, SV_SsA(pl, s));
 };
 
 // On a PLAYER.  ModifySpeed's multiplier, applied in PlayerPreThink; and the
@@ -2838,8 +2909,42 @@ float(entity to, float changed) SV_TrigStateSend =
 	WriteByte(MSG_ENTITY, ENTWIRE_TYPED);
 	WriteByte(MSG_ENTITY, ENTWIRE_TRIGSTATE);
 	WriteShort(MSG_ENTITY, stof(substring(self.model, 1, -1)));
-	WriteByte(MSG_ENTITY, self.solid != SOLID_NOT && !SV_Key2(self.StartDisabled, self.startdisabled));
+	// P1744: each client gets its own view (its own cooldown, SV_PpSet).
+	WriteByte(MSG_ENTITY, self.solid != SOLID_NOT && !SV_Key2(self.StartDisabled, self.startdisabled)
+	                      && !(self.vbsp_ppoff & SV_TouchBit(to)));
 	return TRUE;
+};
+
+// P1744: a booster's Enable/Disable at itself caused by a player is that player's alone, as in Momentum where each
+// player has their own world: surf_classics' OnEndTouch !self,Disable + !self,Enable 1 s later used to switch the pad
+// off for everyone. vbsp_mp 0 (no touch bit) keeps the global switch.
+float(entity t, entity o, entity act) SV_PpGate =
+{
+	if (!o || o.owner != t)
+		return FALSE;
+	if (strcmp(t.classname, "trigger_push") && strcmp(t.classname, "trigger_setspeed")
+	    && strcmp(t.classname, "trigger_momentum_setspeed"))
+		return FALSE;
+	if (act.classname != "player")
+		return FALSE;
+	return SV_TouchBit(act) != 0i;
+};
+
+void(entity t, entity act, float off) SV_PpSet =
+{
+	local int bit, was;
+	bit = SV_TouchBit(act);
+	was = t.vbsp_ppoff;
+	if (off)
+		t.vbsp_ppoff = t.vbsp_ppoff | bit;
+	else
+		t.vbsp_ppoff = t.vbsp_ppoff & ~bit;
+	if (t.vbsp_ppoff == was)
+		return;
+	if (t.SendEntity == SV_TrigStateSend)
+		t.SendFlags = 1;
+	if (cvar("developer") >= 2)
+		dprint(sprintf("booster %s %s: %s for %s alone\n", t.classname, t.model, off ? "off" : "on", act.netname));
 };
 
 // P799: a func_areaportalwindow's target, which the client draws (SV_PortalWindowsActivate).
@@ -5234,8 +5339,14 @@ void(entity t, entity o, entity act) SV_ApplyInputRaw =
 			dprint(sprintf("prop %s: SetAnimation %s: no such sequence\n", t.targetname, pm));
 		return;
 	}
-	if (in == "enable")         { SV_IOEnable(t, TRUE);                 return; }
-	if (in == "disable")        { SV_IOEnable(t, FALSE);                return; }
+	if (in == "enable" || in == "disable")
+	{
+		if (SV_PpGate(t, o, act))
+			SV_PpSet(t, act, in == "disable");      // P1744
+		else
+			SV_IOEnable(t, in == "enable");
+		return;
+	}
 	/*
 	  TOGGLE, AND THE TWO DIFFERENT THINGS IT MEANS.
 
@@ -9416,6 +9527,8 @@ void() trigger_push_touch =
 
 	if (other.classname != "player")
 		return;
+	if (self.vbsp_ppoff & SV_TouchBit(other))
+		return;             // P1744: off for this player alone, as SOLID_NOT (never dispatched)
 	// MOVETYPE_NOCLIP falls into Source's do-nothing arm of the movetype
 	// switch (triggers.cpp:2215-2218), so a noclipping player is not pushed.
 	if (other.movetype == MOVETYPE_NOCLIP)
@@ -9791,8 +9904,6 @@ void(entity e) SV_TASPushPrep =
 .float  interval;               .float Interval;
 .float  everytick;              .float EveryTick;
 
-.float  vbsp_ss_stamp;          // last touch, for the enter edge
-.float  vbsp_ss_applied;        // last time the speed was actually written
 
 #define SSH_SETDIR   0
 #define SSH_SETSPEED 1
@@ -9806,13 +9917,15 @@ float(entity pad, entity e, entity bp, int ba, float bb) SV_MonolithB4Touch;
 
 void() trigger_setspeed_touch =
 {
-	local float  hmode, vmode, hspeed, vspeed, cur, iv, old, bb;
+	local float  hmode, vmode, hspeed, vspeed, cur, iv, old, bb, app, ss;
 	local vector ang, dir, vel;
 	local entity bp;
 	local int ba;
 
 	if (other.classname != "player")
 		return;
+	if (self.vbsp_ppoff & SV_TouchBit(other))
+		return;             // P1744: off for this player alone, as SOLID_NOT (never dispatched)
 	if (other.movetype == MOVETYPE_NOCLIP)
 		return;
 	if (!SV_TriggerTakesPlayers(self))
@@ -9841,7 +9954,20 @@ void() trigger_setspeed_touch =
 	  an end-touch, for the same reason: it is comfortably longer than a frame
 	  and comfortably shorter than a re-entry.
 	*/
-	old = self.vbsp_ss_stamp;
+	// P1744: the toucher's own stamps; vbsp_mp 0 keeps the pad's, shared by everyone.
+	ss = 0;
+	if (SV_TouchBit(other))
+	{
+		ss = SV_SsSlot(other, self);
+		old = SV_SsT(other, ss);
+		app = SV_SsA(other, ss);
+		SV_SsSet(other, ss, self, time, app);
+	}
+	else
+	{
+		old = self.vbsp_ss_stamp;
+		app = self.vbsp_ss_applied;
+	}
 	self.vbsp_ss_stamp = time;
 	iv = SV_Key2(self.Interval, self.interval);
 	if (iv <= 0)
@@ -9853,11 +9979,13 @@ void() trigger_setspeed_touch =
 		{
 			if (!SV_Key2(self.OnThink, self.onthink))
 				return;							// enter-only: nothing more to do
-			if (time - self.vbsp_ss_applied < iv)
+			if (time - app < iv)
 				return;							// OnThink, but not due yet
 		}
 	}
 	self.vbsp_ss_applied = time;
+	if (ss)
+		SV_SsSet(other, ss, self, time, time);
 
 	if (self.StrictMode)
 		if (SV_CensusAdd("trigger_setspeed StrictMode"))
@@ -14405,7 +14533,7 @@ void(entity p, float t0) SV_TrigResume =
 {
 	local entity t;
 	local int    bit;
-	local float  w;
+	local float  w, sss, ssw;
 
 	// Patch 869: the multihop/onehop holds resume where they stopped.
 	p.vbsp_mh_t0 = p.vbsp_mh_t0 + (time - t0);
@@ -14430,12 +14558,18 @@ void(entity p, float t0) SV_TrigResume =
 		}
 		if (t.touch == trigger_setspeed_touch)
 		{
-			// No mask without outputs: a touch when the hold began, and the box.
-			if (t.vbsp_ss_stamp >= t0 - 0.05)
+			// No mask without outputs: a touch when the hold began, and the box. P1744: this player's stamp.
+			sss = bit ? SV_SsFind(p, t) : 0;
+			ssw = bit ? (sss ? SV_SsT(p, sss) : -1000) : t.vbsp_ss_stamp;
+			if (ssw >= t0 - 0.05)
 			if (p.absmin_x <= t.absmax_x) if (p.absmax_x >= t.absmin_x)
 			if (p.absmin_y <= t.absmax_y) if (p.absmax_y >= t.absmin_y)
 			if (p.absmin_z <= t.absmax_z) if (p.absmax_z >= t.absmin_z)
+			{
 				t.vbsp_ss_stamp = time;
+				if (sss)
+					SV_SsSet(p, sss, t, time, SV_SsA(p, sss));
+			}
 		}
 		else if (t.touch == trigger_multiple_touch)
 		{

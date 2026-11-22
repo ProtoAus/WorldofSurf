@@ -58,7 +58,7 @@
   first command IS the acked position: inside means the enter edge is
   behind the chain and must not re-fire; outside means a pad touched later
   in this chain is a genuine enter.  The server's own gate is the 0.05 s
-  staleness window on vbsp_ss_stamp; this is the same decision made from
+  staleness window on its stamp (per player since P1744); this is the same decision made from
   sequence adjacency instead of a clock, because the replay has no clock.
 
   Overlap is the server's SOLID_BSPTRIGGER test rather than a box test:
