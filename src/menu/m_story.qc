@@ -956,6 +956,39 @@ float(float L, float i) Sty_MapRow =
 	return r;
 };
 
+// P1728 (Akatosh via Lex: "map type (staged/linear) and tier ... like in maps menu, but less cluttered"): what the Maps
+// menu reads for a row -- the primary tier (ms_tierv), linear/stages/bonuses (ms_meta), the mapper, the source tiers
+string(float row) Sty_Tier =
+{
+	local float t;
+	if (row < 0) return "";
+	t = stof(bufstr_get(ms_tierv, row));
+	return (t >= 1) ? sprintf("Tier %g", t) : "Unrated";
+};
+// "Tier 2, Linear" for the list; the panel adds the counts (more = TRUE)
+string(float row, float more) Sty_Facts =
+{
+	local float st, bo;
+	local string s;
+	s = Sty_Tier(row);
+	if (s == "" || tokenize(bufstr_get(ms_meta, row)) <= MT_BONUS) return s;
+	st = (argv(MT_STAGES) != "-") ? stof(argv(MT_STAGES)) : -1;
+	bo = (argv(MT_BONUS) != "-") ? stof(argv(MT_BONUS)) : -1;
+	if (st > 0) s = strcat(s, ", ", more ? sprintf("%g stages", st) : "Staged");
+	else if (argv(MT_LINEAR) == "1") s = strcat(s, ", Linear");
+	if (more && bo >= 0) s = strcat(s, ", ", (bo == 0) ? "no bonuses" : sprintf("%g bonus%s", bo, (bo == 1) ? "" : "es"));
+	return s;
+};
+string(float row) Sty_Sources =
+{
+	local string mt, kt;
+	if (row < 0) return "";
+	mt = bufstr_get(ms_momtier, row); kt = bufstr_get(ms_ksftier, row);
+	mt = (stof(mt) > 0) ? strcat("Momentum T", mt) : "";
+	kt = (stof(kt) > 0) ? strcat("KSF T", kt) : "";
+	return strcat(mt, (mt != "" && kt != "") ? ", " : "", kt);   // only the sources that rank it
+};
+
 void(vector pos, vector size, float row) Sty_Thumb =
 {
 	local float page, cell;
@@ -1121,8 +1154,8 @@ void(vector rp, vector rs, float L, float j, float hot) Sty_ChapterRow =
 
 void(vector rp, vector rs, float L, float i, float on, float hot) Sty_LevelRow =
 {
-	local float track, chap, timed, locked, row, a, med, ms, m, nx, tw;
-	local string map, sub, tm, when;
+	local float track, chap, timed, locked, row, a, med, ms, m, nx, tw, mw;
+	local string map, sub, tm, when, nm;
 	local vector kinds;
 
 	map = bufstr_get(sty_lvmap[L], i);
@@ -1155,8 +1188,12 @@ void(vector rp, vector rs, float L, float i, float on, float hot) Sty_LevelRow =
 	if (locked)
 		sui_fill([nx, rp_y + 4], [78, 44], SUI_THEME_WELL, 0.6, 0);
 	tw = rs_x - (nx - rp_x) - 92 - 80 - 110;
-	sui_text([nx + 92, rp_y + 7], SZ_ROW, ui_fit_text(map, tw, SZ_ROW),
-	         ((on || hot) && !locked) ? COL_ACCENT : COL_TEXT, a, 0);
+	nm = ui_fit_text(map, tw, SZ_ROW);
+	sui_text([nx + 92, rp_y + 7], SZ_ROW, nm, ((on || hot) && !locked) ? COL_ACCENT : COL_TEXT, a, 0);
+	tm = Sty_Facts(row, FALSE);     // P1728: "Tier 2, Linear", fainter, in what the name leaves
+	mw = stringwidth(nm, TRUE, SZ_ROW) + 12;
+	if (tm != "" && tw - mw >= 48)
+		sui_text([nx + 92 + mw, rp_y + 8], '14 14 0', ui_fit_text(tm, tw - mw, '14 14 0'), COL_DIM, 0.7 * a, 0);
 	sub = Sty_Population(Sty_LivePlayers(L, map));
 	if (track)
 		sub = strcat(sub, sub == "" ? "" : "  ", sprintf("bonus %g", track));
@@ -1226,8 +1263,8 @@ void(float L, float i) Sty_Play =
 
 void(vector pos, vector size, float L) Sty_Side =
 {
-	local float i, track, chap, timed, locked, med, ms, m, y, hb, hs, hg, hv, k;
-	local string map, st, txt;
+	local float i, track, chap, timed, locked, med, ms, m, y, hb, hs, hg, hv, k, row, th;
+	local string map, st, txt, au, facts, src;
 	local vector kinds, col;
 
 	sui_style_box(pos, size, 9, SUI_THEME_WELL, SUI_THEME_EDGE, 1);
@@ -1249,11 +1286,25 @@ void(vector pos, vector size, float L) Sty_Side =
 	locked = (chap >= Sty_OpenChapter(L));
 	med = Sty_Medal(L, i);
 	ms = Sty_Ms(L, i);
-	Sty_Thumb([pos_x + 12, y], [size_x - 24, floor((size_x - 24) * 9 / 16)], Sty_MapRow(L, i));
-	y = y + floor((size_x - 24) * 9 / 16) + 10;
+	// P1728: the mapper, tier/type/counts and the source tiers under the name; the picture gives way when the panel
+	// is too short for them and what follows (about 280 px: medals, best, a note)
+	row = Sty_MapRow(L, i);
+	au = (row >= 0) ? MapAuthor_Text(bufstr_get(ms_author, row)) : "";
+	facts = Sty_Facts(row, TRUE);
+	src = Sty_Sources(row);
+	k = ((au != "") ? 1 : 0) + ((facts != "") ? 1 : 0) + ((src != "") ? 1 : 0);   // a QC string != is not 0/1
+	th = min(floor((size_x - 24) * 9 / 16), size_y - 24 - 280 - 20 * k);
+	if (th >= 48)
+	{
+		Sty_Thumb([pos_x + 12, y], [size_x - 24, th], row);
+		y = y + th + 10;
+	}
 	sui_text([pos_x + 12, y], SZ_ROW, ui_fit_text(track ? sprintf("%s  bonus %g", map, track) : map,
 	         size_x - 24, SZ_ROW), COL_TEXT, 1, 0);
 	y = y + 22;
+	if (au != "") { sui_text([pos_x + 12, y], SZ_LABEL, ui_fit_text(strcat("by ", au), size_x - 24, SZ_LABEL), COL_TEXT, 0.85, 0); y = y + 20; }
+	if (facts != "") { sui_text([pos_x + 12, y], SZ_LABEL, ui_fit_text(facts, size_x - 24, SZ_LABEL), COL_DIM, 1, 0); y = y + 20; }
+	if (src != "") { sui_text([pos_x + 12, y], SZ_LABEL, ui_fit_text(src, size_x - 24, SZ_LABEL), COL_DIM, 0.8, 0); y = y + 20; }
 	txt = Sty_When(L, i);
 	sui_text([pos_x + 12, y], SZ_LABEL, sprintf("Level %g, chapter %g%s", i + 1, chap + 1,
 	         txt == "" ? "" : strcat(", ", txt)), COL_DIM, 1, 0);

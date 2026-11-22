@@ -21,6 +21,10 @@
 
 ## next
 
+### P1728 Story shows each map's tier and type
+- The Story list shows each map's tier and type (Linear or Staged) beside its name, in fainter text.
+- The panel for the selected level adds the mapper, the stage and bonus counts, and the Momentum/KSF tiers. (Akatosh's request.)
+
 ## 0.1.57 2026-11-22
 
 ### P1717 Props on Source maps lit as in Momentum

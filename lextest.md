@@ -1,5 +1,11 @@
 # lextest.md — things waiting on a human
 
+## P1728 -- Story: tier and type beside each map (worldofsurf-5a) -- after the next build
+1. Story: every level reads "surf_name  Tier N, Linear" (or Staged / Unrated), the tier part fainter than the name.
+2. A wide window (the side panel shows from 900 px of Story pane): the selected level's panel says "by <mapper>",
+   "Tier N, 9 stages, 5 bonuses" (or Linear), and the Momentum/KSF tiers that exist; the picture shrinks only when
+   the panel is too short.
+
 ## 0.1.57 release -- PUBLISHED 22 Nov 03:46Z (record: tools/release-0.1.57.md); lobbies on it 03:47Z; owner check PENDING
 - P1710-P1717, P1719, P1720. Lobbies: engine patch-1717 (also the surfd verifier; mover 15), the release's progs, no cfg
   change, one restart 03:46-03:47Z.
