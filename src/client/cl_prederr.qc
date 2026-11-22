@@ -25,6 +25,9 @@ var float pe_send = -1;           // strbuf of chunks being sent; -1 = idle
 float  pe_send_i, pe_send_n;    // next chunk, chunk count (chunk 0 is the begin line)
 float  pe_send_wait, pe_send_t; // waiting for the ack of chunk pe_send_i - 1, sent at
 float  pe_sent_ok;              // 1 stored, -1 failed, 0 neither
+var float pe_points = -2;         // P1737: this account's report points (the lobby's prederr_points); -1 no account, -2 not told
+float  pe_points_plus;          // ...and the last answer was a stored report's +1
+float  pe_points_asked;         // the box asked the lobby once this map (CSEv_pe_pts)
 float  pe_up_t0;                // P1552: cltime the upload's begin went
 float  pe_http_req, pe_http_t;  // P1554: the client half's HTTP post (its uri id, when it went); 0 = none
 void() PE_SendNext;
@@ -66,6 +69,7 @@ void() PE_RegisterCvars =
 	registercvar("cl_prederr_ask", "1", CVAR_ARCHIVE);       // 0 = keep them locally, never ask
 	registercvar("cl_prederr_http", "1", 0);                 // P1554: 0 = the client half in chunks only
 	registercommand("prederr_ack");
+	registercommand("prederr_points");  // P1737: "<total> [1]" from the lobby; 1 = this report's point
 	registercommand("prederr_send");
 	registercommand("pe_replay");       // P1404
 	registercvar("pe_replay_auto", "");  // P1404: a file to replay once in the map (tools/prederr_replay.py)
@@ -706,6 +710,17 @@ float(string cmd) PE_ConsoleCommand =
 		PE_Send();
 		return TRUE;
 	}
+	if (argv(0) == "prederr_points")
+	{
+		pe_points = stof(argv(1));
+		pe_points_plus = (argv(2) == "1");
+		if (pe_points_plus)
+		{
+			pe_box_end = max(pe_box_end, cltime + 4);
+			print(sprintf("prederr: +1 report point -- you have %g\n", pe_points));
+		}
+		return TRUE;
+	}
 	if (argv(0) != "prederr_ack")
 		return FALSE;
 	if (pe_send < 0)
@@ -775,8 +790,18 @@ void(vector scr) PE_Draw =
 	drawfill([p_x + 4 * sc, y + hh - 2 * sc, 0], [w - 8 * sc, 1, 0], SUI_THEME_EDGE_HI, 0.7, 0);
 	y = y + hh;
 	HUD_Text([p_x + 6 * sc, y + (h - lsz) * 0.5], sprintf("%.0f units off", pe_box_err), lsz, SUI_THEME_DIM, 1);
+	if (!pe_points_asked)               // P1737: the total, asked once a map
+	{
+		pe_points_asked = TRUE;
+		sendevent("pe_pts", "");
+	}
+	if (pe_points >= 0)
+		HUD_TextR([p_x + w - 6 * sc, y + (h - lsz) * 0.5], sprintf("%g report point%s", pe_points, (pe_points == 1) ? "" : "s"),
+		          lsz, SUI_THEME_DIM, 1);
 	y = y + h;
-	if (pe_sent_ok == 1)
+	if (pe_sent_ok == 1 && pe_points_plus)
+		st = "sent -- ^2+1 report point^7";
+	else if (pe_sent_ok == 1)
 		st = "sent -- thank you";
 	else if (pe_sent_ok == -1)
 		st = "not sent (see console)";
@@ -786,7 +811,7 @@ void(vector scr) PE_Draw =
 		st = "kept the last few seconds";
 	HUD_Text([p_x + 6 * sc, y + (h - lsz) * 0.5], st, lsz, SUI_THEME_DIM, 1);
 	y = y + h;
-	KeyMenu_Row([p_x, y], w, h, "F6", "Send report to the lobby",
+	KeyMenu_Row([p_x, y], w, h, "F6", (pe_points == -1) ? "Send report to the lobby" : "Send report: +1 point",
 	            (pe_send >= 0 || pe_sent_ok == 1) ? KM_INERT : KM_HOT, lsz, sc);
 	Font_Reset();
 };

@@ -121,6 +121,38 @@ os.umask(0o077)
 RUNS_DIR = os.environ.get(
     "SURFD_RUNS", "/srv/nvme/ftesurf-server/game/ftesurf/data/runs")
 
+# P1737: report points, one per stored prederror report: the lobbies' data/reportpoints/*.txt
+# (sv_prederr.qc SV_PePoint; "<8-hex account mark> <utc> <map>" a line, one file a lobby, seed.txt
+# for the reports sent before).  Counted once per change of any file's mtime.
+REPORTPOINTS_DIR = os.environ.get(
+    "SURFD_REPORTPOINTS", "/srv/nvme/ftesurf-server/game/ftesurf/data/reportpoints")
+_rp_lock = threading.Lock()
+_rp_cache = {"sig": None, "counts": {}}
+
+
+def report_points(mark):
+    """Stored prederror reports by the account whose mark is `mark` (0 when none, or unreadable)."""
+    try:
+        names = sorted(n for n in os.listdir(REPORTPOINTS_DIR) if n.endswith(".txt"))
+        sig = tuple((n, os.stat(os.path.join(REPORTPOINTS_DIR, n)).st_mtime_ns) for n in names)
+    except OSError:
+        return 0
+    with _rp_lock:
+        if sig != _rp_cache["sig"]:
+            counts = {}
+            for n in names:
+                try:
+                    with open(os.path.join(REPORTPOINTS_DIR, n), encoding="utf-8", errors="replace") as fh:
+                        for line in fh:
+                            a = line.split(" ", 1)[0].strip()
+                            if re.fullmatch(r"[0-9a-f]{8}", a):
+                                counts[a] = counts.get(a, 0) + 1
+                except OSError:
+                    continue
+            _rp_cache["sig"], _rp_cache["counts"] = sig, counts
+        return _rp_cache["counts"].get(mark, 0)
+
+
 # Schema 6.  The lobbies' data/evidence/<map>/<runid>.rec (SV_RecKeepEvidence),
 # read-only here and swept by them after run_evidence_days; KEEP_DIR holds
 # surfd's hard links to the ones that back a stage row, <KEEP_DIR>/<map_dir>/<leaf>.
@@ -8346,7 +8378,7 @@ def game_player(raw, now):
     return Response(game_json(
         {"v": 1, "t": now, "who": handle, "name": me["name"], "src": me["src"],
          "n": me["n"], "maps": me["maps"], "last": me["last"],
-         "wr": wr, "wrc": wrc, "top10": top10,
+         "wr": wr, "wrc": wrc, "top10": top10, "report_points": report_points(handle[:8]),
          "by_tier": {"ranked": me["ranked"], "momentum": me["mom"], "ksf": me["ksf"]},
          "av": 1 if player in have else 0, "completion": comp,
          "completion_wos": _completion_wos(ranked, main_maps), "wos": _wos_figures(ranked),

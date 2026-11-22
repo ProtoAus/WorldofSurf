@@ -75,6 +75,7 @@ vector pf_inventory;                 // owned aura, owned crown, saved crown col
 float pf_inventory_known, pf_play_known, pf_play_seconds, pf_ownsanta, pf_santa;
 float pf_on_play_known, pf_on_play_seconds, pf_on_attempts;
 float  pf_src, pf_n, pf_maps, pf_last, pf_wr, pf_wrc, pf_top10, pf_av, pf_total, pf_t;
+var float pf_rpts = -1;       // P1737: report points (surfd's report_points); -1 an older surfd that sends none
 float  pf_bt_ours, pf_bt_mom, pf_bt_ksf;
 float  pf_ksfstate, pf_ksfskip; // 1 pending, 2 checked, 3 bounded/incomplete
 float  pf_momstate;             // P1448: Momentum's walk, the same values
@@ -791,6 +792,7 @@ void(string bdy) Profile_Parse =
 	pf_wr     = json_get_float(json_find_object_child(root, "wr"));
 	pf_wrc    = json_get_float(json_find_object_child(root, "wrc"));
 	pf_top10  = json_get_float(json_find_object_child(root, "top10"));
+	pf_rpts   = json_find_object_child(root, "report_points") ? json_get_float(json_find_object_child(root, "report_points")) : -1;
 	c = json_find_object_child(root, "wos");
 	pf_wos_has   = (c != 0);
 	pf_wos_n     = json_get_float(json_find_object_child(c, "n"));
@@ -1990,7 +1992,7 @@ void(vector p, vector sz, float ttl, float tsz, float hint) Profile_DrawStats =
 	p_y = p_y + ceil(hint * 1.8);
 	sz_y = sz_y - ceil(hint * 1.8);
 	// ---- the figures
-	n = 4 + (pf_c_has ? 1 : 0);
+	n = 4 + (pf_c_has ? 1 : 0) + (pf_rpts >= 0 ? 1 : 0);
 	th = ceil(ttl + hint * 3.2);
 	tw = floor((sz_x - (n - 1) * hint) / n);
 	x = p_x;
@@ -2044,6 +2046,12 @@ void(vector p, vector sz, float ttl, float tsz, float hint) Profile_DrawStats =
 		}
 		else
 			Profile_Tile([x, y], [tw, th], s, "", "maps finished", ttl, hint, SUI_THEME_GOOD);
+	}
+	if (pf_rpts >= 0)               // P1737: prederror reports sent (one point each)
+	{
+		x = x + tw + hint;
+		Profile_Tile([x, y], [tw, th], ftos(pf_rpts), "", (pf_rpts == 1) ? "report point" : "report points", ttl, hint,
+		             SUI_THEME_TEXT);
 	}
 	y = y + th + hint;
 

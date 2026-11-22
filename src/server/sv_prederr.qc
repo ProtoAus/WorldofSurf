@@ -20,6 +20,8 @@
 .float pe_open, pe_fh, pe_next, pe_total, pe_count, pe_last;
 .float pe_chunkt;                // P1552: when its begin or last chunk arrived
 .string pe_token;               // P1554: the open report's HTTP key, zoned
+.string pe_acct;                // P1737: the open report's account (*ahash), zoned
+.float pe_ptst;                 // ...and when it last asked for its total
 void(entity p, string why) SV_PeAbandon;
 float  pe_lobby_n, pe_lobby_last;
 
@@ -336,6 +338,9 @@ void(entity p, string s) SV_PeBegin =
 	if (p.pe_fh < 0)
 		return SV_PeRefuse(p, "io");
 	p.pe_open = TRUE;
+	if (p.pe_acct != "")
+		strunzone(p.pe_acct);
+	p.pe_acct = strzone(SV_PeSafe(infokey(p, "*ahash"), 64));
 	p.pe_total = t;
 	p.pe_next = 1;
 	p.pe_count = p.pe_count + 1;
@@ -381,6 +386,67 @@ void(entity p, string s) SV_PeBegin =
 	stuffcmd(p, (p.pe_token != "") ? sprintf("prederr_ack 0 %s\n", p.pe_token) : "prederr_ack 0\n");
 };
 
+/*
+  P1737 (Lex 23 Nov: "for every prederror report someone does add 1 Report point to their profile"): a stored
+  report is a point for its account.  Each lobby appends only to its own data/reportpoints/p<port>.txt (FILE_APPEND
+  rewrites the whole file at fclose, so a shared file would lose another lobby's line); a total reads them all, and
+  so does surfd's profile answer.  Lines: "<account> <utc> <map>"; seed.txt there holds the reports sent before.
+*/
+float(string acct) SV_PePoints =
+{
+	local searchhandle h;
+	local float i, n, fh, c;
+	local string l;
+	if (acct == "")
+		return -1;
+	c = 0;
+	h = search_begin("data/reportpoints/*.txt", FALSE, TRUE);
+	if (h < 0)
+		return 0;
+	n = search_getsize(h);
+	for (i = 0; i < n; i++)
+	{
+		fh = fopen(search_getfilename(h, i), FILE_READ);
+		if (fh < 0)
+			continue;
+		while ((l = fgets(fh)))
+			if (substring(l, 0, strlen(acct) + 1) == strcat(acct, " "))
+				c++;
+		fclose(fh);
+	}
+	search_end(h);
+	return c;
+};
+
+// A finished report: its point, and the player's new total for the report box.
+void(entity p) SV_PePoint =
+{
+	local float fh;
+	if (p.pe_acct == "")
+	{
+		stuffcmd(p, "prederr_points -1\n");
+		return;
+	}
+	fh = fopen(sprintf("data/reportpoints/p%s.txt", SV_PeSafe(cvar_string("sv_port"), 8)), FILE_APPEND);
+	if (fh >= 0)
+	{
+		fputs(fh, sprintf("%s %s %s\n", p.pe_acct, strftime(FALSE, "%Y%m%d_%H%M%S"), SV_PeSafe(mapname, 64)));
+		fclose(fh);
+	}
+	stuffcmd(p, sprintf("prederr_points %g 1\n", SV_PePoints(p.pe_acct)));
+};
+
+// The report box asks its owner's total once, when it first opens.
+void() CSEv_pe_pts =
+{
+	if (self.classname != "player" || clienttype(self) != CLIENTTYPE_REAL)
+		return;
+	if (time < self.pe_ptst + 5)
+		return;
+	self.pe_ptst = time;
+	stuffcmd(self, sprintf("prederr_points %g\n", SV_PePoints(SV_PeSafe(infokey(self, "*ahash"), 64))));
+};
+
 void(float idx, string s) CSEv_pe_fs =
 {
 	if (self.classname != "player" || clienttype(self) != CLIENTTYPE_REAL)
@@ -399,6 +465,7 @@ void(float idx, string s) CSEv_pe_fs =
 			return SV_PeRefuse(self, "order");
 		fputs(self.pe_fh, "== http\n");
 		SV_PeClose(self);
+		SV_PePoint(self);
 		return;
 	}
 	if (!(idx == self.pe_next && idx <= self.pe_total && idx <= PE_SV_CHUNKS))
@@ -412,6 +479,9 @@ void(float idx, string s) CSEv_pe_fs =
 	{
 		fputs(self.pe_fh, "== end\n");
 		SV_PeClose(self);
+		stuffcmd(self, sprintf("prederr_ack %g\n", idx));
+		SV_PePoint(self);
+		return;
 	}
 	stuffcmd(self, sprintf("prederr_ack %g\n", idx));
 };
