@@ -21,6 +21,9 @@
 
 ## next
 
+### P1729 Optional distance water
+- New console setting hl2_water_lod 1 (with hl2_water 1): water far from you fades to simple water and skips its refraction render, using the distances the map gives. Off by default. Momentum always draws reflecting water in full, so this is an extra.
+
 ## 0.1.58 2026-11-22
 
 ### P1728 Story shows each map's tier and type

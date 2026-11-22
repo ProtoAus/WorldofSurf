@@ -1,5 +1,13 @@
 # lextest.md — things waiting on a human
 
+## P1729 -- try the distance water (worldofsurf-08) -- dev install now, next release
+1. `hl2_water 1; hl2_water_lod 1` on bhop_canals (water_lod_control 1000/2000) and ahop_coast (3000/5000): water past the
+   start distance fades to flat fog-coloured water with a cubemap sheen, fully past the end; nearer water is unchanged.
+2. `r_cheapwaterstart 200; r_cheapwaterend 500` (until the next map load) makes it easy to see; `r_capturelog 1` prints
+   "waterlod" for water that skipped its capture.
+3. Decide: keep the option, or drop it. It is not Momentum's look for reflecting water (Source never applies these
+   distances to water that reflects), and on both maps' routes it saves nothing (the camera stays near the water).
+
 ## 0.1.58 release -- PUBLISHED 22 Nov 10:09Z (record: tools/release-0.1.58.md); lobbies on its progs 10:10Z; owner check PENDING
 - P1721-P1724, P1726 (decals, sun on props, map bloom, shadow direction, windmill), P1727 (replay watch fix), P1728
   (Story tiers). Lobbies: the release's progs only (engine patch-1717 unchanged), one restart 10:09-10:10Z.
