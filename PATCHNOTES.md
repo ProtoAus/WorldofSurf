@@ -21,6 +21,11 @@
 
 ## next
 
+### P1717 Props on Source maps lit as in Momentum
+- Movable props (fences, crates, drums, signs and the like) on Source maps were drawn about twice as bright as in Momentum; on ahop_coast the fences glowed white. They now take Source's lighting and sit in the scene like the walls around them.
+- Newer Momentum maps (bhop_canals and other Strata-format maps) now light their props from the map's own light instead of a flat grey.
+- Player models are unchanged.
+
 ### P1720 Prediction stops redoing moves it already worked out
 - With ping your game replays your recent movement every frame; it now reuses the moves it already worked out instead of recalculating them, which is most of them. Moving at 150 ms on the test PC: ahop_coast about 530 to 660 fps, bhop_canals about 270 to 320 fps. Movement is exactly the same.
 

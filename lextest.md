@@ -1,5 +1,12 @@
 # lextest.md — things waiting on a human
 
+## P1717 -- props on Source maps lit as in Momentum (worldofsurf-88) -- engine main; players with the next release
+1. ahop_coast, your save 7 (`setpos -14891.7 256.3 -13593.0 -7.3 69.1 0`): the white fence panels and the crate look
+   weathered grey like the concrete wall behind them, not glowing; the shed (a baked prop) looks exactly as before.
+2. bhop_canals: drums, gas cans and crates near the start take the room's dim tone (darker under cover), not pale grey.
+3. If a fence or crate now looks too DARK next to Momentum, say where: the measured frame is 15-25% under Momentum's on
+   the fences, and the sun (which Momentum adds when a prop sees the sky) is not added to movable props yet.
+
 ## P1719/P1720 -- sky ocean shares the main reflection; prediction reuses moves (worldofsurf-08) -- dev install; players with the next release
 1. ahop_coast: the ocean in the distance (the 3D sky) looks as before, including when no near water is on screen (it now
    shows the main view's last reflection, as Source's skybox water does). `r_waterskyroomcapture 2` is the old way.

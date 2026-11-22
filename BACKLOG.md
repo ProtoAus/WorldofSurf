@@ -1,5 +1,26 @@
 # BACKLOG.md
 
+## P1717 prop lighting + the ahop_coast/bhop_canals visual audit -- what they leave (22 Nov, worldofsurf-88; root FTESurf-worktrees/coastair-20261122-88)
+- P1721 (claimed): infodecals. The client places 18 of 48 on ahop_coast and 80 of 416 on bhop_canals (cl_decals.qc
+  Decal_Place: six 24-unit axis probes, world hits only) and draws every one as a 32-unit square (vbsp_decal_size);
+  Source paints every surface within the decal's radius (brush entities included) at the texture's size x $decalscale.
+  Overlays: bhop_canals 41 of 53 (9 no faces, 3 off-surface).
+- The sun on movable props: Source's light cache adds emit_skylight to a dynamic model when a trace from it reaches a
+  SURF_SKY face; Patch 302 drops both sky lights for want of that trace. ahop_coast's sun (1.92 1.74 1.29 linear, 20
+  degrees up from the NE) would light the fences' camera side wherever the cliff does not shade it.
+- Residual on ahop_coast: fences 15-25% and the crate ~12% under Momentum's frame while the cube math is within 5% of
+  Source's n^2 read; Momentum/Strata's tonemap (env_tonemap_controller is unhandled) is the unmeasured term. Falsifier:
+  Momentum screenshots of a lit and a shaded prop at fixed exposure (mat_autoexposure_max/min equal).
+- Unhandled visual classes (entgap, both maps): env_tonemap_controller (+ SetAutoExposureMin/Max, SetBloomScale inputs),
+  shadow_control (prop shadow direction/colour), env_cascade_light (Strata sun shadows, bhop_canals),
+  info_lighting_relative (a prop lit from another point), water_lod_control (cheap water, see below), env_splash and
+  env_dustpuff (I/O effects); phys_motor/phys_hinge/phys_constraint (ahop_coast's windmill stands still);
+  func_useableladder/info_ladder (ahop_coast; no route uses them). light/light_spot/light_environment are compile-time.
+- Source models drawn with r_softwarebanding put the fold's range in the base slot (gl_alias.c, older than P1717); a
+  Source MDL whose VMT is missing falls back to defaultskin.glsl and gets the fold under plain lambert. Both rare.
+- A frame mixing a Source viewmodel with a non-Source one flips vmlightcache's fold key every entity (re-samples each
+  frame; cost only).
+
 ## Lobby/ahop_coast frame audit -- what P1714-P1720 leave (22 Nov, worldofsurf-08; root FTESurf-worktrees/coastperf-20261122-08)
 - Prediction (P1720 memo): a reused move costs a key build and a compare, but every new server snapshot changes the base
   state, and on bhop_canals moving entities change the physents every frame, so ~30-50% of moves still run. Keying the
