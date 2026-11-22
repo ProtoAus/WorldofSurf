@@ -35,9 +35,17 @@
   the player (pmove.skipent, inside any reach at 150 ms: a third of bhop_canals' reruns). bhop_canals reused 32-40% ->
   61-63% of moves, +17-30% fps at sv_minping 150; ahop_coast 65% -> 72%, fps within noise. Still rerun: every new
   snapshot's base state, numphysent changes, GoldSrc/Quake brush entities (hull models, never claimed).
-- P1714 claims only BIH trees: GoldSrc/Quake hull models, IQM convex hulls and Mod_Trace meshes are traced as before.
-  Measured 23 Nov: bkz_goldbhop_gs moving at 150 ms traces 0 claimable physents and runs ~1180 fps, so a hull-plane bound
-  is not worth its risk until a GoldSrc map is shown slow.
+- Ping still costs frame time (23 Nov, engine patch-1733, rig lobby replica moving): bhop_canals 434 / 373 / 276 fps at
+  0 / 150 / 300 ms (prediction 0.42 / 0.89 / 1.80 ms); ahop_coast 810 / 669 / 546 / 331 at 0 / 150 / 300 / 1000 (0.19 /
+  0.37 / 0.64 / 1.82 ms). At 1000 ms on 100-tick maps prediction stops altogether: more unacknowledged commands than
+  UPDATE_BACKUP (64), so the frame gets cheaper and the player goes unpredicted. Next lever: Source's re-predict only on
+  error -- when the snapshot's state for a command matches the stored prediction within a tolerance, keep the predicted
+  chain (then P1720/P1733's memo reuses all but the newest moves). A prediction-behaviour change; Lex to decide.
+- GoldSrc/Quake clip-hull brush models (P1735, branch p1735-goldsrcreach, NOT landed): bkz_goldbhop_gs predicts in 0.04 /
+  0.28 ms at 0 / 150 ms and the claim changed nothing measurable (1270 vs 1230 fps at 150; 0 of 25.8 M skipped traces
+  touched). Review: hull 0's stored bounds can leave out a brush entity's CLIP brushes (compiler-dependent), so the bound
+  is unproven; an exact version would walk each hull's clip tree for its solid extent. Not worth it until a GoldSrc map is
+  shown slow.
 - Patch 318's axial-bevel assumption: census 23 Nov, 42 maps on disk (v20/21/25, ~135 k solid brushes), 0 brushes lack an
   axial side -- VBSP writes them, so the BIH clip never meets the gap. Left as is; P1714 still refuses such a brush.
 - Cheap water (water_lod_control, $cheapwaterstart/enddistance; Source SDK 2013 viewrender.cpp DetermineWaterRenderInfo,
