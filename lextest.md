@@ -1,5 +1,10 @@
 # lextest.md — things waiting on a human
 
+## P1727 -- your own long replay opens (worldofsurf-08) -- lobbies now, local games next release
+1. Akatosh: open the run that failed ("cant even watch a replay": scoreboard -> his own run). Expect it to open with
+   no "runaway loop" in the console; a very long one may take a second or two.
+2. A replay of your own run still turns the camera as you did (the per-frame view), not in tick-rate steps.
+
 ## P1728 -- Story: tier and type beside each map (worldofsurf-5a) -- after the next build
 1. Story: every level reads "surf_name  Tier N, Linear" (or Staged / Unrated), the tier part fainter than the name.
 2. A wide window (the side panel shows from 900 px of Story pane): the selected level's panel says "by <mapper>",

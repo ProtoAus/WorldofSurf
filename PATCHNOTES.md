@@ -25,6 +25,9 @@
 - The Story list shows each map's tier and type (Linear or Staged) beside its name, in fainter text.
 - The panel for the selected level adds the mapper, the stage and bonus counts, and the Momentum/KSF tiers. (Akatosh's request.)
 
+### P1727 Your own long replays open again
+- Opening your own run from the leaderboard could shut the game's interface down with a "runaway loop" error when the run's camera file was very long (long sessions or high fps). It now opens, and the replay is unchanged. (Akatosh's report.)
+
 ## 0.1.57 2026-11-22
 
 ### P1717 Props on Source maps lit as in Momentum

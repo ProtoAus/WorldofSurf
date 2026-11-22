@@ -829,6 +829,7 @@ float(string s, float limit) Watch_ViewNumber =
 	return (value >= -limit && value <= limit);
 };
 
+float wt_ownrows;	// P1727: rows the last Watch_OwnViewValid's row loop reached (its runaway cost)
 float(float buf, string map, string nonce, float cached) Watch_OwnViewValid =
 {
 	local float i, j, n, rows, first, frames, column, limit;
@@ -864,6 +865,7 @@ float(float buf, string map, string nonce, float cached) Watch_OwnViewValid =
 	frames = 0;
 	for (i = first; i < rows - cached; i++)
 	{
+		wt_ownrows = i;
 		n = tokenize(bufstr_get(buf, i));
 		column = 0;
 		if (!strcmp(argv(0), "ghost"))
@@ -944,13 +946,10 @@ float(string path, float recbuf) Watch_OnlineOwnView =
 	}
 	buf = buf_create_ex("string", 0);
 	good = FALSE;
-	c = 0;
+	wt_ownrows = 0;
 	if (buf >= 1)
 	if (Watch_OwnViewLoad(cache, buf))
-	{
 		good = Watch_OwnViewValid(buf, map, nonce, TRUE);
-		c = buf_getsize(buf);
-	}
 	if (good)
 	{
 		// The completion record must never enter frame/index interpolation.
@@ -967,9 +966,9 @@ float(string path, float recbuf) Watch_OnlineOwnView =
 	}
 	if (good)
 		print("replay: using your cached per-frame view\n");
-	else if (c > FS_VIEWMAX / 4)
+	else if (wt_ownrows > FS_VIEWMAX / 4)
 	{
-		// P1727: validating a long damaged cache and then the staged view could pass the runaway limit in one call
+		// P1727: checking most of a long damaged cache and then the staged view could pass the runaway limit in one call
 		print("^3replay: your cached per-frame view is damaged -- not used\n");
 		if (buf >= 1)
 			buf_del(buf);
