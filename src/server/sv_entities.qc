@@ -716,6 +716,7 @@ entity  vbsp_onjump_head;
 .float  vbsp_ss_stamp;          // trigger_setspeed: last touch, for the enter edge (vbsp_mp 0)
 .float  vbsp_ss_applied;        // ...and last time the speed was written
 .entity vbsp_ss_who;            // P1744: whose touch vbsp_ss_stamp is (a new slot carries it on: SV_SsSlot)
+.entity vbsp_bw_fb;             // P1744: the player whose own row, with no copy slot free, switched the shared pad off
 // P1744, on a PLAYER: trigger_setspeed's enter edge and OnThink clock per player (Source's StartTouch is per toucher), in
 // four slots: pad, last touch, last application (SV_SsSlot).
 .entity run_ssp1, run_ssp2, run_ssp3, run_ssp4;
@@ -3128,7 +3129,7 @@ float(entity pl, entity t) SV_BwMake =
 void(entity t, float on) SV_IOEnable;
 void(entity t, entity o, entity act, string in) SV_PpInput =
 {
-	local float ct, s, i, own;
+	local float ct, s, i, own, wason;
 	local entity p;
 	local string kind;
 
@@ -3137,8 +3138,8 @@ void(entity t, entity o, entity act, string in) SV_PpInput =
 	if (!strcmp(o.vbsp_io_name, "onstarttouchall") || !strcmp(o.vbsp_io_name, "onendtouchall"))
 		own = FALSE;            // first in / last out: a crowd event by definition, the shared world's (review 5)
 	if (own)
-	if (!SV_BwFind(act, t) && SV_Key2(t.StartDisabled, t.startdisabled) && t.bank_off_player == act)
-		own = FALSE;            // a shared off this player's own row made with no slot free: undone there too (review 5)
+	if (!SV_BwFind(act, t) && SV_Key2(t.StartDisabled, t.startdisabled) && t.vbsp_bw_fb == act)
+		own = FALSE;            // a shared off this player's own row made with no slot free: undone there too (reviews 5-6)
 	if (own)
 	{
 		ct = clienttype(act);
@@ -3159,9 +3160,14 @@ void(entity t, entity o, entity act, string in) SV_PpInput =
 	}
 	// Everyone's: the pad's world, as the old switch, then each player's copy (a Toggle read by each world itself).
 	kind = in;
+	wason = !SV_Key2(t.StartDisabled, t.startdisabled);
 	if (kind == "toggle")
-		kind = (SV_Key2(t.StartDisabled, t.startdisabled) ? "enable" : "disable");
+		kind = (wason ? "disable" : "enable");
 	SV_IOEnable(t, kind == "enable");
+	if (!SV_Key2(t.StartDisabled, t.startdisabled))
+		t.vbsp_bw_fb = world;
+	else if (wason)
+		t.vbsp_bw_fb = (own ? act : world);     // own here: an own row that found no slot (fallback)
 	for (i = 1; i <= 32; i = i + 1)
 	{
 		p = edict_num(i);
