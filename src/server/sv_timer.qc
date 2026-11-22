@@ -7257,7 +7257,12 @@ float(string path) SV_TASUpBest =
 	h = search_begin(strcat(substring(path, 0, SV_TASUpCut(path) + 1), "*_tas.rec"), 0, TRUE);
 	if (h < 0) return TRUE;
 	n = search_getsize(h);
-	if (n > 500) { search_end(h); return FALSE; }   // too many to read at a finish: no offer, never a false best
+	if (n > 2000)               // too many to read at a finish (TAS runs are never pruned): no offer, never a false best
+	{
+		search_end(h);
+		print(sprintf("tas upload: over 2000 TAS runs in %s: no offer box; the TAS menu's Upload tab still lists them\n", substring(path, 0, SV_TASUpCut(path))));
+		return FALSE;
+	}
 	for (i = 0; i < n; i = i + 1)
 	{
 		f = search_getfilename(h, i);

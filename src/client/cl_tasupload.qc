@@ -300,7 +300,7 @@ vector(vector at, float width, float tsz, float hint, float row) TASUp_OfferChip
 			tup_mode = v; tup_at = 0;
 			if (v == 0) while (tupb_qn > 0) TASUp_Unqueue(tupb_q[0]);   // Off: nothing waiting is offered either
 			if (tupb_box && v < 2) tupb_auto = FALSE;              // an offer already up follows it
-			if (tupb_box && v == 0 && (tup_state == 1 || tup_state == 2)) TASUp_BoxKeep("Off");
+			if (TASUp_BoxOwns() && v == 0 && (tup_state == 1 || tup_state == 2)) TASUp_BoxKeep("Off");
 		}
 	at_y = at_y + row + 6;
 	return at;
