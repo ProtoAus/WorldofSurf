@@ -272,8 +272,11 @@ void() MF_TakeCvars =
 };
 
 // Independent of the visible Friends panel and its list/join request slot.
+// P1718: the declared local keeps fteqcc's frame off the tournament's mt_req (tools/qcframes.py).
 void() MF_PresencePoll =
 {
+	local float req;
+
 	if (clientstate() != 1 || !MF_Online())
 	{
 		mf_presence_req = mf_presence_phase = 0;
@@ -291,12 +294,13 @@ void() MF_PresencePoll =
 		return;
 	}
 	if (mf_presence_wire || time < mf_presence_next) return;
-	mf_presence_req = Lob_NextReq();
-	mf_presence_wire = mf_presence_req;
+	req = Lob_NextReq();
+	mf_presence_req = req;
+	mf_presence_wire = req;
 	mf_presence_phase = 1;
 	mf_presence_at = time;
 	mf_presence_next = time + 10;
-	if (!uri_get(strcat(MF_SITE, "/api/social/menu/challenge?op=presence&who=-"), mf_presence_req))
+	if (!uri_get(strcat(MF_SITE, "/api/social/menu/challenge?op=presence&who=-"), req))
 	{
 		mf_presence_req = mf_presence_wire = mf_presence_phase = 0;
 		mf_presence_next = time + 30;

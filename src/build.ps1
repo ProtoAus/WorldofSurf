@@ -257,6 +257,28 @@ try {
     }
 } finally { Pop-Location }
 
+# P1718: fteqcc can put a file-scope global inside a function's frame, and the VM puts it back on every return
+# (P1617's flag, P1715's run lines, P1718's menu globals -- each compiled with 0 warnings). tools/qcframes.py reads
+# the built .dats; a global inside a frame stops the build here, before anything is deployed.
+$qcOutputs = foreach ($src in @('sv_progs.src', 'cl_progs.src', 'm_progs.src')) {
+    $leaf = Split-Path ((Get-Content -LiteralPath (Join-Path $SrcDir $src) -TotalCount 1).Trim()) -Leaf
+    if ($NoDeploy) { Join-Path $NoDeployDir $leaf }
+    else { [IO.Path]::GetFullPath((Join-Path $SrcDir (Get-Content -LiteralPath (Join-Path $SrcDir $src) -TotalCount 1).Trim())) }
+}
+$python = $null
+foreach ($name in @('python3', 'python', 'py')) {
+    $cmd = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cmd) { $python = $cmd.Source; break }
+}
+if (-not $python) { throw 'python not found: tools/qcframes.py must check the built progs (P1718)' }
+$frames = & $python ([IO.Path]::Combine($SurfDir, 'tools', 'qcframes.py')) @qcOutputs --src $SrcDir 2>&1
+$framesExit = $LASTEXITCODE
+if ($framesExit -ne 0) {
+    $frames | Write-Host
+    throw "tools/qcframes.py exit ${framesExit}: a global inside a function frame (or unreadable progs); nothing deployed"
+}
+Ok 'qcframes: no global inside a function frame'
+
 # Generated artifacts only; native and QC deployment share .prev preservation.
 function Deploy($from, $to) {
     if (-not (Test-Path -LiteralPath $from)) { throw "missing build output: $from" }

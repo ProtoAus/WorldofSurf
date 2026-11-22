@@ -216,15 +216,19 @@ void(float L) Sty_AskPlayers =
 // The Friends proof, op list, phase 1: the challenge.
 // Asked again 30 s after a failure and 10 min after an answer (a link made
 // meanwhile changes it); never while connected, where the engine will not sign.
+// P1718: the declared local keeps fteqcc's frame off the tournament's mt_req (tools/qcframes.py).
 void() Sty_AskMe =
 {
+	local float req;
+
 	if (sty_mphase || time < sty_mnext || !Sty_Online()) return;
 	if (clientstate() != 1 || !checkbuiltin(friends_sign)) return;  // cannot sign: keep the saved one
-	sty_mreq = Lob_NextReq();
+	req = Lob_NextReq();
+	sty_mreq = req;
 	sty_mphase = 1;
 	sty_mat = time;
 	sty_mnext = time + 30;
-	if (!uri_get(sprintf("%s/api/social/menu/challenge?op=list&who=-", MF_SITE), sty_mreq))
+	if (!uri_get(sprintf("%s/api/social/menu/challenge?op=list&who=-", MF_SITE), req))
 		sty_mphase = 0;
 };
 

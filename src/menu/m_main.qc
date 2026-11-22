@@ -6911,11 +6911,16 @@ float() ui_dl_ready =
 float() downloadcancel = #0:downloadcancel;
 float  dl_have_cancel;          // 1 present, -1 absent, 0 unasked
 
+// P1718: the declared local keeps fteqcc's frame off dl_have_cancel (tools/qcframes.py), as P1617/P1715.
 float() ui_dl_cancel_ready =
 {
-	if (dl_have_cancel == 0)
-		dl_have_cancel = checkbuiltin(downloadcancel) ? 1 : -1;
-	return dl_have_cancel > 0;
+	local float have;
+
+	have = dl_have_cancel;
+	if (have == 0)
+		have = checkbuiltin(downloadcancel) ? 1 : -1;
+	dl_have_cancel = have;
+	return have > 0;
 };
 
 
