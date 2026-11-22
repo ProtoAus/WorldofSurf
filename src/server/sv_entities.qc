@@ -10056,6 +10056,11 @@ void() trigger_setspeed =
 	self.vbsp_io_solid = SOLID_BSPTRIGGER;
 	if (SV_Key2(self.StartDisabled, self.startdisabled))
 		self.solid = SOLID_NOT;
+	// P1743: the client predicts a pad whose Enable it cannot replay (the ported OnEndTouch cooldown,
+	// a 1 s delayed !self,Enable) from this gate, as pushes; outputs reach it by !self, so named or not.
+	self.SendEntity = SV_TrigStateSend;
+	self.SendFlags = 1;
+	self.pvsflags = PVSF_IGNOREPVS;
 };
 
 // Same entity under Momentum's own prefix.
