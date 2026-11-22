@@ -21,6 +21,13 @@
 
 ## next
 
+### P1733 Prediction reuses more of its work online
+- With ping, the game stops redoing movement it already worked out just because something far away moved, another player moved, or the server's slightly-behind copy of you moved. Movement is exactly the same.
+- Moving at 150 ms on the test PC: bhop_canals about 270 to 315 fps.
+
+### P1731 HL2 water and materials as Source draws them
+- Materials keep the settings Source uses on a modern GPU: HL2's canal water (bhop_canals) refracts at its proper strength and reflects players and props, the toxic slime gets its proper textures, and the Combine soldier skins load.
+
 ## 0.1.59 2026-11-22
 
 ### P1732 Dynamic shadows: faster, and closer to Source

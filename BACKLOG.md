@@ -31,23 +31,23 @@
   frame; cost only).
 
 ## Lobby/ahop_coast frame audit -- what P1714-P1720 leave (22 Nov, worldofsurf-08; root FTESurf-worktrees/coastperf-20261122-08)
-- Prediction (P1720 memo): a reused move costs a key build and a compare, but every new server snapshot changes the base
-  state, and on bhop_canals moving entities change the physents every frame, so ~30-50% of moves still run. Keying the
-  physents by the swept move's reach (as P1714 culls) would let far-away movers stop invalidating it. Falsifier:
-  cl_predict_memostats reused/run on bhop_canals moving at sv_minping 150.
-- P1714 claims only BIH trees: GoldSrc/Quake hull models, IQM convex hulls and Mod_Trace meshes are traced as before. A
-  hull-plane bound (the hull's own planes, not its box) would let the convex hull path be claimed.
-- Patch 318 (plugins/hl2 mod_vbsp.c VBSP_AddBrushBevels) skips axial edges believing the runtime adds axial bevels; the
-  live BIH brush clip does not (com_bih.c BIH_ClipBoxToBrush clips the brush's own sides only). VBSP's own axial sides
-  cover it today (P1714 refuses to claim a brush without them).
+- Done 23 Nov (P1733): the prediction memo keys only the physents a move can reach, and not the server's lagging copy of
+  the player (pmove.skipent, inside any reach at 150 ms: a third of bhop_canals' reruns). bhop_canals reused 32-40% ->
+  61-63% of moves, +17-30% fps at sv_minping 150; ahop_coast 65% -> 72%, fps within noise. Still rerun: every new
+  snapshot's base state, numphysent changes, GoldSrc/Quake brush entities (hull models, never claimed).
+- P1714 claims only BIH trees: GoldSrc/Quake hull models, IQM convex hulls and Mod_Trace meshes are traced as before.
+  Measured 23 Nov: bkz_goldbhop_gs moving at 150 ms traces 0 claimable physents and runs ~1180 fps, so a hull-plane bound
+  is not worth its risk until a GoldSrc map is shown slow.
+- Patch 318's axial-bevel assumption: census 23 Nov, 42 maps on disk (v20/21/25, ~135 k solid brushes), 0 brushes lack an
+  axial side -- VBSP writes them, so the BIH clip never meets the gap. Left as is; P1714 still refuses such a brush.
 - Cheap water (water_lod_control, $cheapwaterstart/enddistance; Source SDK 2013 viewrender.cpp DetermineWaterRenderInfo,
   water.cpp): Source applies them only to water without a local reflection, and on PC an absent $forceexpensive is 1
   (water.cpp:102-109), so every water whose (>=dx90) block has $reflecttexture reflects and refracts at every distance in
   Source, whatever the water setting: ahop_coast's water_coast02 and bhop_canals' water_canals_water_clear included.
   Only refract-only water takes the LOD. (The first version of this note said copying Source would drop refraction at
   hl2_water 1: wrong.) P1729's hl2_water_lod is the mechanics as an opt-in cutoff for any water with distances, labelled
-  not-Source. A Source-exact gate needs $reflecttexture from the >=dx90 blocks mat_vmt.c skips (VMT_IsKnownIgnoredBlock);
-  the same blocks hold bhop_canals' $reflectentities 1, which P868's world-only reflection therefore misses.
+  not-Source. P1731 (23 Nov) now applies the >=dx90 blocks (bhop_canals' $reflectentities 1 and $refractamount .2 included);
+  a Source-exact hl2_water_lod gate could now read $reflecttexture from them if Lex keeps the option.
 - ahop_coast's worst frames on the rig (7-12 ms) are wide views where PrepareFrame takes 3-5 ms and opaque draws 4-5 ms
   (setpos -8456 8138 5291, -13774 9966 9483). The menu fetches /api/board?maps=1 (133 KB) every 60 s in play
   (m_lobby.qc Mdl_Ask): not shown to cost a frame.

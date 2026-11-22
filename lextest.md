@@ -1,5 +1,11 @@
 # lextest.md — things waiting on a human
 
+## P1731 + P1733 (worldofsurf-08) -- next build of the dev install, then 0.1.60
+1. bhop_canals at hl2_water 2: the canal water shows players/props in its reflection (Source's $reflectentities) and a
+   calmer refraction ($refractamount .2). Check it reads like Momentum's canal.
+2. A lobby at your normal ping: moving feels the same (P1733 changes no movement); `cl_predict_memostats` after a minute
+   shows more "reused" than before. `cl_predict_memo 2` then `cl_predict_memostats`: "0 of those differed" is required.
+
 ## 0.1.59 release -- PUBLISHED 22 Nov 12:47Z (record: tools/release-0.1.59.md); lobbies on its progs 12:50Z; owner check PENDING
 - P1732 (dynamic shadows + r_exposure test cvar), P1730 (damaged replay angle), P1729 (optional distance water).
   Lobbies: the release's progs only (engine patch-1717 unchanged), one restart 12:49-12:50Z.
