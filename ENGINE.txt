@@ -1,4 +1,10 @@
 # The engine build this QuakeC requires.
+# P1713 (engine pm_source.c com_bih.c pmovetst.c gl_model.[ch] plugin.c com_mesh.h, plugin hl2 mod_vbsp.c mod_phy.c;
+# worldofsurf-88, Lex 22 Nov "please fix" + "proper across all map fixes"): mover 15 -- a landing zeroes vertical speed
+# (Source's SetGroundEntity; ahop_coast's teleport exits jump on time) and SOLID_VPHYSICS brush entities (func_brush
+# solidbsp 0, doors, rotators...) collide through their vcollide plus vphysics' half unit (ahop_coast's clip ramp).
+# ahop_coast vs Momentum demos 50 -> 16 ground disagreements, 13 surf demos unchanged, lobby gate identical. Lobbies,
+# verifier and clients change together (BACKLOG "P1713": canary one lobby first). Record: ENGINE_PATCHES P1713.
 # P1718 (game QC + build.ps1 only; worldofsurf-08): tools/qcframes.py gates build.ps1 (before deploy) and wos-build.sh;
 # menu globals dl_have_cancel / mt_req moved out of function frames. P1715 (QC only): run lines native again (LIVE on
 # the lobbies 22 Nov 01:52Z). No engine change: commit/tag stay patch-1714. Record: ENGINE_PATCHES P1715, P1718.
@@ -731,7 +737,7 @@
 
 repo     https://github.com/ProtoAus/ftequakers
 branch   main
-commit   1d1e11ae1
+commit   597385ac3
 # ^ The pin is the ENGINE_PATCHES.md work this QuakeC is written against, NOT the
 #   commit a shipped binary was built from -- those drift, deliberately: patches
 #   420-438 are all mod-side, so the engine source moved without any binary

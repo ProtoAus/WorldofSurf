@@ -28,6 +28,12 @@
 - With ping your game replays your recent movement every frame, and each replay checked every solid object on the map. It now skips the ones your movement cannot reach.
 - Moving at 150 ms ping on the test PC: ahop_coast about 330 to 550 fps, bhop_canals about 175 to 280 fps. Local games gain too. Movement itself is exactly the same.
 
+### P1713 Teleport exits and invisible clip ramps play as in Momentum
+- Holding jump as a teleport sets you down now jumps on that first tick at full height, as Momentum does. It used to jump a tick late (ahop_coast's stage teleports and water resets, and any map that drops you just above the floor).
+- Invisible clip ramps and other brush props that Momentum collides as physics objects now have Momentum's shape: ahop_coast's long climb lands every hop on time instead of a tick late, and you no longer stand on the cut-down top of some clip wedges.
+- Records and replays from older versions still verify with the movement they were set in. Players on older versions mispredict those spots until they update.
+- TAS projects saved before this update cannot be reopened exactly: the movement they were made with changed.
+
 ### P1712 A new TAS best offers itself for the TAS board
 - When a TAS run (Jargon or manual) beats your other saved TAS runs of that course, a box pops up where the F6 report box sits: F6 uploads it to the TAS board at once, F7 keeps it on your PC. Press nothing and it uploads itself when its 12-second timer ends.
 - The TAS menu's Upload tab chooses what a new best does: Auto-upload (the default), Ask, or Off. The timer only runs while you can see the box.

@@ -23,6 +23,25 @@
   (setpos -8456 8138 5291, -13774 9966 9483). The menu fetches /api/board?maps=1 (133 KB) every 60 s in play
   (m_lobby.qc Mdl_Ask): not shown to cost a frame.
 
+## P1713 Mover 15 -- what it leaves (22 Nov, worldofsurf-88; root FTESurf-worktrees/coastair-20261122-88)
+- No mover-15 recording verified end to end yet (ENGINE_PATCHES P1713 "Not shown"): a Jargon TAS .rec is refused by
+  pm_verify as a save-state run and its project stops at the last stretch save. Canary one lobby on the new engine,
+  record a plain run there, pm_verify it before the rest of the fleet.
+- Edges of a SOLID_VPHYSICS hull stand too far out: vphysics' separation is a sphere, ours is 0.5 on every plane.
+  Momentum twice passes within 0.40/0.47 of a func_brush *134 wedge's edge mid-sweep without a hit (9c2f97a4 tick
+  6013, 7367486c 5897). A rounded sweep would close it; a half unit kept only along the sweep (48 better / 12 worse)
+  and a face-only margin (40 / 3) were both measured worse.
+- Strata (BSP v25) physcollide is VPHY version 257, not IVP: bhop_canals' 23 VPHYSICS brush entities keep their brushes.
+  Decode it (StrataSource/VPhysics-Jolt vjolt_collide.cpp reads both layouts) before claiming v25 parity.
+- Remaining ahop_coast ground disagreements (16 over ten demos): three displacement landings 2.016-2.033 below (inside
+  Source's 1/32 trace reach, but a 1.97-2.00 band of airborne ticks argues against a plain reach rule); the 2025 demos'
+  jump settings.
+- Top-of-tick categorize: Source does it only for a game-moved body (m_bGameCodeMovedPlayer); we do it for any body not
+  rising past 140 (c6c68413 tick 789 jumps a tick early here). Carry a game-moved flag from QC teleports/loads.
+- TAS uploads can choose their mover (neither surfd nor tasupd sets a minimum pmsrcver): a 0.1.56 TAS keeps 14's brush
+  collision on func_brush ramps. Ranked runs are unaffected (keyed servers only). Policy question for Lex.
+- ahop_coast's two HL2 func_useableladder (+use ladders) are unhandled; no Momentum record route uses them.
+
 ## P1709 Momentum parity -- what it leaves (22 Nov, worldofsurf-5a; root FTESurf-worktrees/ahopcoast-20261122-5a)
 - DEPLOY ORDER, all together or not at all: the configs (default.cfg pm_fixslopes 2 / pm_groundtracedist 2 / pm_jumpzoffset 0,
   mode_ahop.cfg 3), a mover-14 lobby engine, surfd's verifier on a mover-14 build (an older one REFUSEs a 14 pin for good:
@@ -35,7 +54,7 @@
   zone says 2). Falsifier: tools/momstep.py on the ahop WR, jumps with IN_WALK exact.
 - With pm_fixedges on, the top-of-tick landing re-decides an edge-fix refusal with the next tick's buttons (Source
   re-grounds only a game-moved body; exact fix: carry a game-moved flag from QC/warps). A teleport left rising at
-  134-140 u/s is not re-grounded at the top. Three ahop_coast spots where Momentum stays airborne at 1.75 u (geometry).
+  134-140 u/s is not re-grounded at the top. (The "three ahop_coast spots at 1.75 u" were teleport exits: P1713.)
 - Jargon: the P1709 alignment covers KSF guides' start replay; Momentum- and own-recording guides keep reading a row as
   input -> its own state (not measured). The steering start cannot jump fast where the guide jumps close to the box's
   edge: its straight runway decays to the 260 cap (sandtrap b4's "x" guide: 262 u/s 77 u short; a guide-distance window
