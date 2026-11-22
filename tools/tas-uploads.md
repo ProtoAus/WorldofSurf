@@ -215,11 +215,12 @@ Pushed: engine main c05e443e4 (tag patch-1712), game main 91a26c9f; Lex's dev in
 Asked whether a made-up wall-clipping record staying up until he notices was acceptable: "thats fine"; his 20 Nov rule
 stays "as long as the run makes sense physics wise". So tasupd shows at once: a PASS; a new record (the record rule's
 note says "published without review"); and a HOLD whose every note only says the checker could not see (tasplaus
-note(..., unseen=True): stage leg, native resume records, low decimals, a gap whose move fits its ends' speeds (at most
-two), too little movement, lost packets, whole multi-tick sample steps, no zones). Those carry runs.unchecked = 1 (schema
+note(..., unseen=True): stage leg, native resume records, low decimals, too little movement, lost packets (gaps of 8
+ticks or fewer, still tested), whole multi-tick sample steps, no zones). A gap over 8 ticks is suspect: four review
+rounds kept finding room for a shortcut inside one, and our own runs have none. Those carry runs.unchecked = 1 (schema
 3) and read "not fully checked"; `tasupd.py list --state unreviewed` lists them and `approve` makes one "owner approved".
 Still held: a HOLD saying the physics looks wrong (tasplaus out["suspect"]: speed or energy past the bounds, position
-jumps, a move across a gap its speed cannot reach, steps between ticks, clock edits, start/finish faults), a copy of
+jumps, a gap over 8 ticks, steps between ticks past the allowance, clock edits, start/finish faults), a copy of
 another player's motion, a checker that could not run. Lex's Jargon runs (resume records, lost packets, 2-tick steps)
 come out unseen-only: published. `create_app(review=True)` / TASUPD_REVIEW=1 restores
 the review flow, which the existing tests pin (svc.REVIEW_DEFAULT = True in test_tasupd.py). Next: re-simulation of

@@ -23,6 +23,20 @@
   (setpos -8456 8138 5291, -13774 9966 9483). The menu fetches /api/board?maps=1 (133 KB) every 60 s in play
   (m_lobby.qc Mdl_Ask): not shown to cost a frame.
 
+## P1716 TAS uploads without review -- what it leaves (22 Nov, worldofsurf-5a)
+tasplaus is a plausibility check; publishing a non-suspect HOLD without review leans on it. Four adversarial rounds
+closed what P1716 itself opened (big gaps are suspect again; steps between ticks get the turn bound and count toward a
+suspect off-tick note). Still open, all PASS-level in review mode too (scripts: session scratchpad r6/, r5/):
+- dropped ticks inside one off-tick step of ~7.02 ticks (the half-velocity position, drift and exact-gravity tests skip
+  off-tick steps): 18 ticks / 0.27 s on a 7 s course, no note (r6/frac7.py). Fix: run them on off-tick steps.
+- the energy tolerance spent every air tick (never summed): 0.9-3.6% (r6/tolpump*.py). Fix: a windowed energy sum.
+- 1 dropped tick in a tick-sampled run, ~5 in a 2-tick one, inside the clock's fast-pair allowance (r5/ksteps2.py);
+  tightening it for 2-tick files held long Jargon-style runs with 3+ wall glances (r6/wallfp.py), so it was reverted.
+- a flat course claiming every landing as a slope landing PASSes (26%, r6/slopehop.py): the checker does not know walls.
+- honest runs sampled every 3+ ticks trip "still in the start zone N ticks after the clock started" (older).
+The real answer is re-simulation (pm_verify through same-state reloads: Jargon's runs replay 275/275 packets exactly
+once the reload clock is rebased -- scratchpad p1716_rebase.py), giving a "re-simulated" mark a fake cannot get.
+
 ## P1713 Mover 15 -- what it leaves (22 Nov, worldofsurf-88; root FTESurf-worktrees/coastair-20261122-88)
 - No mover-15 recording verified end to end yet (ENGINE_PATCHES P1713 "Not shown"): a Jargon TAS .rec is refused by
   pm_verify as a save-state run and its project stops at the last stretch save. Canary one lobby on the new engine,
