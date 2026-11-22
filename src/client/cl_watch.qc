@@ -751,54 +751,19 @@ string(float buf, string key) Watch_BufValue =
 	return "";
 };
 
-// Decimal grammar plus float32 finiteness; stof alone also accepts junk as zero.
+// P1727: the first and last characters plus float32 finiteness; stof alone also accepts junk as zero.
+// The full decimal grammar walked every character, ~300 runaway steps a row, and a long own view
+// (400 k rows) ran its open past QC's 100 M limit (Akatosh, 22 Nov). Words, nan/inf and a cut-off
+// exponent still fail; a damaged middle character ("1x2") passes as the number before it.
 float(string s, float limit) Watch_OwnViewNumber =
 {
-	local float i, c, len, digits, expstart, value;
+	local float c, value;
 
-	len = strlen(s);
-	i = digits = 0;
-	c = str2chr(s, i);
-	if (c == 43 || c == 45)
-		i++;
-	for (; i < len; i++)
-	{
-		c = str2chr(s, i);
-		if (c < 48 || c > 57)
-			break;
-		digits++;
-	}
-	if (str2chr(s, i) == 46)
-	{
-		i++;
-		for (; i < len; i++)
-		{
-			c = str2chr(s, i);
-			if (c < 48 || c > 57)
-				break;
-			digits++;
-		}
-	}
-	if (digits == 0)
+	c = str2chr(s, 0);
+	if (!((c >= 48 && c <= 57) || c == 43 || c == 45 || c == 46))
 		return FALSE;
-	c = str2chr(s, i);
-	if (c == 69 || c == 101)
-	{
-		i++;
-		c = str2chr(s, i);
-		if (c == 43 || c == 45)
-			i++;
-		expstart = i;
-		for (; i < len; i++)
-		{
-			c = str2chr(s, i);
-			if (c < 48 || c > 57)
-				break;
-		}
-		if (i == expstart)
-			return FALSE;
-	}
-	if (i != len)
+	c = str2chr(s, strlen(s) - 1);
+	if (c < 48 || c > 57)
 		return FALSE;
 	value = stof(s);
 	return (value >= -limit && value <= limit);
@@ -812,6 +777,9 @@ float(float buf, string map, string nonce, float cached) Watch_OwnViewValid =
 	rows = buf_getsize(buf);
 	first = FS_VIEWHEAD + cached;
 	if (rows <= first + cached)
+		return FALSE;
+	// P1727: no longer than Rec_ViewPut writes (its line cap counts the header), so the open stays bounded.
+	if (rows > FS_VIEWMAX + cached * 2)
 		return FALSE;
 	// Recover only the currently emitted native schema, not unknown versions.
 	if (strcmp(bufstr_get(buf, 0), "FTESURF-VIEW 2"))
