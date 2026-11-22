@@ -1,5 +1,11 @@
 # lextest.md — things waiting on a human
 
+## 0.1.60 release -- PUBLISHED 22 Nov 18:21Z (record: tools/release-0.1.60.md); lobbies on its progs 18:24Z; owner check PENDING
+- P1736-P1741 (your 23 Nov list: canals goop, report points, story font, game icons, favourites, edge-to-edge pictures),
+  P1742/P1733/P1731 (worldofsurf-08: prediction at ping, materials as Source). Lobbies: the release's progs + the report
+  points seed (145 earlier reports), one restart 18:24Z; engine patch-1717 unchanged.
+1. Start the game: it updates to 0.1.60. The P1736-P1741 and P1742 checks below.
+
 ## P1736-P1741 -- your 23 Nov list (worldofsurf-88) -- next release
 1. bhop_canals save 1: the goop by the start is steady goop, lit, no black flicker as you move and look around.
 2. Maps: pictures run edge to edge; the star on a picture turns gold and the map shows under Extra > favourites (and the

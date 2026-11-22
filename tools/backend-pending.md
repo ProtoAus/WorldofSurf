@@ -50,6 +50,12 @@ live e0fa1b80 / fb427ec1 exactly). All 12 were empty; one restart each; backups 
 175; engine patch-1717 untouched. Checked: 12 active, 12 answer status, 0 SIGSEGV/Host_Error/PR_ExecuteProgram/runaway
 since each lobby's last "Loaded progs". Next lobby progs build: start from deploy/p1727-lobby, or a release carrying P1727.
 
+## 0.1.60 lobby half -- LIVE 22 Nov 18:24Z (worldofsurf-88; record tools/release-0.1.60.md)
+LIVE: all 12 lobbies on the release's progs (tag v0.1.60 = 71155428; qw 033412f1 / cs 186e76bb, codes.txt appended) over
+v0.1.59's, with P1737's data/reportpoints/seed.txt (145 reports, 7 accounts; the lobbies append p<port>.txt there).
+Engine patch-1717 049f7062 + plugin 55778b14 unchanged. Backups *.pre0160-20261122T182356Z. Next lobby progs build: start
+from v0.1.60. Pending: surfd's report_points (P1737) rides the next generation.
+
 ## 0.1.59 lobby half -- LIVE 22 Nov 12:50Z (worldofsurf-88; record tools/release-0.1.59.md)
 LIVE: all 12 lobbies on the release's progs (tag v0.1.59 = 125fd7f0; qw 45b97cc5 / cs e01610d8, codes.txt appended) over
 v0.1.58's. Engine patch-1717 049f7062 + plugin 55778b14 unchanged. Backups *.pre0159-20261122T124927Z. Next lobby progs

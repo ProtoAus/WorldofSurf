@@ -21,6 +21,8 @@
 
 ## next
 
+## 0.1.60 2026-11-22
+
 ### P1741 Map pictures edge to edge
 - The map list's pictures now run edge to edge down the list, with no gap around them; the rows are a little shorter, so more maps fit on screen.
 
