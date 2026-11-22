@@ -1,5 +1,12 @@
 # lextest.md — things waiting on a human
 
+## 0.1.58 release -- PUBLISHED 22 Nov 10:09Z (record: tools/release-0.1.58.md); lobbies on its progs 10:10Z; owner check PENDING
+- P1721-P1724, P1726 (decals, sun on props, map bloom, shadow direction, windmill), P1727 (replay watch fix), P1728
+  (Story tiers). Lobbies: the release's progs only (engine patch-1717 unchanged), one restart 10:09-10:10Z.
+1. Start the game: it updates to 0.1.58. The P1721-P1726 checks below.
+2. Mover 15 is still not shown end to end: play one plain run to the end on any lobby (any map) so the verifier
+   checks a mover-15 recording (surfd's sweep.log on the Pi should then say PASS for it).
+
 ## P1721-P1726 -- decals, sun on props, bloom, shadow direction, windmill (worldofsurf-88) -- next release
 1. bhop_canals near the start: ivy hangs large on the walls and the danger signs read upright (they were turned sideways).
 2. ahop_coast: the windmill on the cliff turns (about one turn every 12 s); where it stood still blocks you as before.
