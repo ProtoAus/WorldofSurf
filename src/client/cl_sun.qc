@@ -250,6 +250,8 @@ void() Sun_MapLight =
 		}
 		if (cn == "shadow_control" && !havesc)
 		{
+			if (eang == '0 0 0')
+				eang = '80 30 0';	// CShadowControl::KeyValue's substitute for no angles
 			p = eang_x * (M_PI / 180);
 			y = eang_y * (M_PI / 180);
 			scdir = [cos(p) * cos(y), cos(p) * sin(y), 0 - sin(p)];

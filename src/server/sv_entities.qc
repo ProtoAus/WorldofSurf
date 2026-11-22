@@ -12007,7 +12007,9 @@ float(entity e, string lk) SV_RotButtonOutputKnown =
 .string attach1;
 .float  spinup;
 .float  vbsp_sp_ismotor;    // the motor itself, a turning root (its inputs are not func_rotating's)
-.entity vbsp_sp_motor;      // on the body: the motor it follows
+.entity vbsp_sp_motor;      // on the turning copy: the motor it follows
+.entity vbsp_sp_body;       // on the turning copy: the body it stands in for
+.float  vbsp_sp_motored;    // on the body: a motor has taken it
 // func_movelinear: position 0..1 as the rot button's (SV_RotButtonPos).
 .float  vbsp_sp_pos, vbsp_sp_ideal, vbsp_sp_dir, vbsp_sp_arrived;
 float   vbsp_sp_maxdepth, vbsp_sp_wnow, vbsp_sp_dev;
@@ -12216,17 +12218,20 @@ void() SV_SpResolve =
 
 	vbsp_sp_resolved = TRUE;
 	vbsp_sp_dev = cvar("developer");
-	// P1726: a phys_motor turns the physics body it names about its axis.  The body becomes a non-solid follower of
-	// the motor, which turns like a func_rotating about its own forward (roll).  A turning hull cannot be predicted
-	// (Patch 860), and Source's spinning body pushes rather than stands, so the frozen solid hull was never right.
+	// P1726: a phys_motor turns the physics body it names about its axis.  The body's own edict keeps its hull
+	// exactly -- solid or not, unmoved: the physents older runs were recorded against (review 1) -- and a non-solid
+	// copy of it follows the motor, which turns like a func_rotating about its own forward (roll).  The body is
+	// hidden once the copy survives the pruning below.  A motion-disabled body does not turn in Source either.
 	for (e = find(world, classname, "phys_motor"); e; e = find(e, classname, "phys_motor"))
 	{
 		q = world;
 		if (e.attach1 != "")
 			q = SV_FindByName(e.attach1, world);
-		if (!q || q.model == "" || q.vbsp_sp_kind
+		if (!q || q.model == "" || q.vbsp_sp_kind || q.vbsp_sp_motored
 		 || !(substring(q.classname, 0, 12) == "prop_physics" || substring(q.classname, 0, 12) == "func_physbox"
-		      || substring(q.classname, 0, 15) == "simple_physics_"))
+		      || substring(q.classname, 0, 15) == "simple_physics_")
+		 || (substring(q.classname, 0, 12) == "prop_physics" && (q.spawnflags & 8))     // SF_PHYSPROP_MOTIONDISABLED
+		 || (substring(q.classname, 0, 12) == "func_physbox" && (q.spawnflags & 512)))  // SF_PHYSBOX_MOTIONDISABLED
 		{
 			dprint(sprintf("motor %s: turns nothing (attach1 '%s')\n", e.targetname, e.attach1));
 			continue;
@@ -12251,10 +12256,22 @@ void() SV_SpResolve =
 		e.vbsp_sp_t0 = time;
 		if (e.spawnflags & 1)
 			SV_SpRotTarget(e, e.vbsp_sp_max);	// SF_MOTOR_START_ON
-		q.solid = SOLID_NOT;
-		setorigin(q, q.origin);
-		q.vbsp_sp_kind = SPK_FOLLOW;
-		q.vbsp_sp_motor = e;
+		q.vbsp_sp_motored = TRUE;
+		p = spawn();
+		p.classname = "vbsp_motorbody";
+		setmodel(p, q.model);
+		p.skin = q.skin;
+		p.frame = q.frame;
+		p.colormod = q.colormod;
+		p.alpha = q.alpha;
+		p.scale = q.scale;
+		p.angles = q.angles;
+		p.solid = SOLID_NOT;
+		p.movetype = MOVETYPE_NONE;
+		setorigin(p, q.origin);
+		p.vbsp_sp_kind = SPK_FOLLOW;
+		p.vbsp_sp_motor = e;
+		p.vbsp_sp_body = q;
 		dprint(sprintf("motor %s: turns %s at %g deg/s about %v\n", e.targetname, q.model, e.speed, d));
 	}
 	for (e = findfloat(world, vbsp_sp_cand, SPK_ROT); e; e = findfloat(e, vbsp_sp_cand, SPK_ROT))
@@ -12436,6 +12453,18 @@ void() SV_SpResolve =
 	// engine's 20 Hz lerp would make the server-written part trail). Also kept: a chain where an
 	// ambient_generic sounds from a member that travels -- a sound follows only an ordinary entity
 	// (snd_dma.c:2776, lerpents), so on csprogs it would stay where the edict spawned.
+	// P1726: a motor's copy that survived the pruning turns and its body is hidden (its hull stays); one that did
+	// not is hidden itself, so the body shows as before.
+	for (e = find(world, classname, "vbsp_motorbody"); e; e = find(e, classname, "vbsp_motorbody"))
+	{
+		if (e.vbsp_sp_kind == SPK_FOLLOW && e.vbsp_sp_depth)
+			e.vbsp_sp_body.effects = e.vbsp_sp_body.effects | EF_NODRAW;
+		else
+		{
+			e.vbsp_sp_kind = 0;
+			e.effects = e.effects | EF_NODRAW;
+		}
+	}
 	ncl = nsky = 0;
 	for (e = nextent(world); e; e = nextent(e))
 		if (e.vbsp_sp_depth && e.solid != SOLID_NOT)
@@ -13005,8 +13034,8 @@ float(entity t, string in, string pm) SV_SpinInput =
 	local float v;
 
 	if (!vbsp_sp_resolved)
-	if (t.vbsp_sp_cand)
-		SV_SpResolve();
+	if (t.vbsp_sp_cand || t.classname == "phys_motor")	// P1726 review 1: a motor has no cand (keeps it out of
+		SV_SpResolve();                                  // func_rotating's loop); a delay-0 TurnOn at spawn lands
 	if (t.vbsp_sp_kind == SPK_LIN)
 	{
 		if (in == "open")
