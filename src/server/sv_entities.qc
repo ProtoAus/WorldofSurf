@@ -715,19 +715,23 @@ entity  vbsp_onjump_head;
 .int    vbsp_touch_cmd;         // Patch 1025: touched during the slot's current command
 .float  vbsp_ss_stamp;          // trigger_setspeed: last touch, for the enter edge (vbsp_mp 0)
 .float  vbsp_ss_applied;        // ...and last time the speed was written
-.int    vbsp_ppoff;             // P1744: a booster switched off for that player alone (SV_PpInput)
 .entity vbsp_ss_who;            // P1744: whose touch vbsp_ss_stamp is (a new slot carries it on: SV_SsSlot)
 // P1744, on a PLAYER: trigger_setspeed's enter edge and OnThink clock per player (Source's StartTouch is per toucher), in
 // four slots: pad, last touch, last application (SV_SsSlot).
 .entity run_ssp1, run_ssp2, run_ssp3, run_ssp4;
 .float  run_sst1, run_sst2, run_sst3, run_sst4;
 .float  run_ssa1, run_ssa2, run_ssa3, run_ssa4;
-// P1744 review 3, on a PLAYER: P1185's off-cause for a booster's own per-player pair, per pad (SV_PpBank).
-.entity run_pbp1, run_pbp2, run_pbp3, run_pbp4;     // the pad
-.float  run_pbh1, run_pbh2, run_pbh3, run_pbh4;     // bank_off_have
-.entity run_pbo1, run_pbo2, run_pbo3, run_pbo4;     // bank_off_player
-.int    run_pba1, run_pba2, run_pba3, run_pba4;     // bank_off_attempt
-.float  run_pbb1, run_pbb2, run_pbb3, run_pbb4;     // bank_off_bad
+// P1744, on a PLAYER: a booster as this player's own world has it -- their own rows applied, everyone else's switches
+// too -- once it differs from the pad (the world everyone else shares). Four per player; a fifth falls back to the pad.
+.entity run_bwp1, run_bwp2, run_bwp3, run_bwp4;     // the pad
+.float  run_bws1, run_bws2, run_bws3, run_bws4;     // off (the pad's StartDisabled)
+.float  run_bwh1, run_bwh2, run_bwh3, run_bwh4;     // bank_off_have
+.entity run_bwo1, run_bwo2, run_bwo3, run_bwo4;     // bank_off_player
+.int    run_bwa1, run_bwa2, run_bwa3, run_bwa4;     // bank_off_attempt
+.float  run_bwb1, run_bwb2, run_bwb3, run_bwb4;     // bank_off_bad
+.entity run_bwq1, run_bwq2, run_bwq3, run_bwq4;     // bank_src_player
+.int    run_bwr1, run_bwr2, run_bwr3, run_bwr4;     // bank_src_attempt
+.float  run_bwx1, run_bwx2, run_bwx3, run_bwx4;     // bank_src_bad
 .int    vbsp_once_done;
 .float  FieldOfView, LookTime, Timeout;     // P1428: trigger_look's and game_ui's keys, Source's spelling
 // P1428: game_ui's outputs are not "On" keys (game_ui.cpp DEFINE_OUTPUT), lower-cased between newlines.
@@ -849,6 +853,107 @@ int(entity p) SV_TouchBit =
   One walk of the edict table per disconnect -- the same shape as the four
   map-init walks already in this file, on an event that happens far less often.
 */
+// P1744: the bank globals SV_IOBankCore (P1185) runs on, loaded from the pad's own record or from a player's copy.
+float  bk_have, bk_offb, bk_srcb;
+entity bk_offp, bk_srcp;
+int    bk_offa, bk_srca;
+entity bw_bp;                   // SV_BwSrc's answer
+int    bw_ba;
+float  bw_bb;
+
+float(entity pl, entity t) SV_BwFind =
+{
+	if (pl.run_bwp1 == t) return 1;
+	if (pl.run_bwp2 == t) return 2;
+	if (pl.run_bwp3 == t) return 3;
+	if (pl.run_bwp4 == t) return 4;
+	return 0;
+};
+float(entity pl, float s) SV_BwOff =
+{
+	if (s == 1) return pl.run_bws1;
+	if (s == 2) return pl.run_bws2;
+	if (s == 3) return pl.run_bws3;
+	return pl.run_bws4;
+};
+void(entity pl, float s) SV_BwLoad =
+{
+	if (s == 1)      { bk_have = pl.run_bwh1; bk_offp = pl.run_bwo1; bk_offa = pl.run_bwa1; bk_offb = pl.run_bwb1;
+	                   bk_srcp = pl.run_bwq1; bk_srca = pl.run_bwr1; bk_srcb = pl.run_bwx1; }
+	else if (s == 2) { bk_have = pl.run_bwh2; bk_offp = pl.run_bwo2; bk_offa = pl.run_bwa2; bk_offb = pl.run_bwb2;
+	                   bk_srcp = pl.run_bwq2; bk_srca = pl.run_bwr2; bk_srcb = pl.run_bwx2; }
+	else if (s == 3) { bk_have = pl.run_bwh3; bk_offp = pl.run_bwo3; bk_offa = pl.run_bwa3; bk_offb = pl.run_bwb3;
+	                   bk_srcp = pl.run_bwq3; bk_srca = pl.run_bwr3; bk_srcb = pl.run_bwx3; }
+	else             { bk_have = pl.run_bwh4; bk_offp = pl.run_bwo4; bk_offa = pl.run_bwa4; bk_offb = pl.run_bwb4;
+	                   bk_srcp = pl.run_bwq4; bk_srca = pl.run_bwr4; bk_srcb = pl.run_bwx4; }
+};
+void(entity pl, float s, entity t, float off) SV_BwStore =
+{
+	if (s == 1)      { pl.run_bwp1 = t; pl.run_bws1 = off; pl.run_bwh1 = bk_have; pl.run_bwo1 = bk_offp; pl.run_bwa1 = bk_offa;
+	                   pl.run_bwb1 = bk_offb; pl.run_bwq1 = bk_srcp; pl.run_bwr1 = bk_srca; pl.run_bwx1 = bk_srcb; }
+	else if (s == 2) { pl.run_bwp2 = t; pl.run_bws2 = off; pl.run_bwh2 = bk_have; pl.run_bwo2 = bk_offp; pl.run_bwa2 = bk_offa;
+	                   pl.run_bwb2 = bk_offb; pl.run_bwq2 = bk_srcp; pl.run_bwr2 = bk_srca; pl.run_bwx2 = bk_srcb; }
+	else if (s == 3) { pl.run_bwp3 = t; pl.run_bws3 = off; pl.run_bwh3 = bk_have; pl.run_bwo3 = bk_offp; pl.run_bwa3 = bk_offa;
+	                   pl.run_bwb3 = bk_offb; pl.run_bwq3 = bk_srcp; pl.run_bwr3 = bk_srca; pl.run_bwx3 = bk_srcb; }
+	else             { pl.run_bwp4 = t; pl.run_bws4 = off; pl.run_bwh4 = bk_have; pl.run_bwo4 = bk_offp; pl.run_bwa4 = bk_offa;
+	                   pl.run_bwb4 = bk_offb; pl.run_bwq4 = bk_srcp; pl.run_bwr4 = bk_srca; pl.run_bwx4 = bk_srcb; }
+};
+void(entity pl, float s) SV_BwFree =
+{
+	if (s == 1) pl.run_bwp1 = world;
+	else if (s == 2) pl.run_bwp2 = world;
+	else if (s == 3) pl.run_bwp3 = world;
+	else pl.run_bwp4 = world;
+};
+void(entity t) SV_PadLoad =
+{
+	bk_have = t.bank_off_have; bk_offp = t.bank_off_player; bk_offa = t.bank_off_attempt; bk_offb = t.bank_off_bad;
+	bk_srcp = t.bank_src_player; bk_srca = t.bank_src_attempt; bk_srcb = t.bank_src_bad;
+};
+void(entity t) SV_PadStore =
+{
+	t.bank_off_have = bk_have; t.bank_off_player = bk_offp; t.bank_off_attempt = bk_offa; t.bank_off_bad = bk_offb;
+	t.bank_src_player = bk_srcp; t.bank_src_attempt = bk_srca; t.bank_src_bad = bk_srcb;
+};
+// Off in pl's own world; any trigger without a copy answers with its StartDisabled, as before.
+float(entity t, entity pl) SV_PpOff =
+{
+	local float s;
+	s = SV_BwFind(pl, t);
+	if (s)
+		return SV_BwOff(pl, s);
+	return SV_Key2(t.StartDisabled, t.startdisabled);
+};
+// The bank owner a touch by pl is priced against: their own world's (bw_bp, bw_ba, bw_bb).
+void(entity t, entity pl) SV_BwSrc =
+{
+	local float s;
+	s = SV_BwFind(pl, t);
+	if (s)
+	{
+		SV_BwLoad(pl, s);
+		bw_bp = bk_srcp; bw_ba = bk_srca; bw_bb = bk_srcb;
+		return;
+	}
+	bw_bp = t.bank_src_player; bw_ba = t.bank_src_attempt; bw_bb = t.bank_src_bad;
+};
+void(entity t) SV_PpResolid;     // below vbsp_sp_kind
+void(entity p) SV_BwForget =
+{
+	local entity t;
+	local float s;
+	for (s = 1; s <= 4; s = s + 1)
+	{
+		if (s == 1) t = p.run_bwp1;
+		else if (s == 2) t = p.run_bwp2;
+		else if (s == 3) t = p.run_bwp3;
+		else t = p.run_bwp4;
+		SV_BwFree(p, s);
+		if (t && !wasfreed(t))
+			SV_PpResolid(t);
+	}
+};
+
 void(entity p) SV_TouchForget =
 {
 	local entity e;
@@ -865,15 +970,9 @@ void(entity p) SV_TouchForget =
 		e.vbsp_once_done    = e.vbsp_once_done    & keep;
 		e.vbsp_io_gate_seen = e.vbsp_io_gate_seen & keep;
 		e.vbsp_touch_cmd    = e.vbsp_touch_cmd    & keep;     // Patch 1025
-		if (e.vbsp_ppoff & ~keep)
-		{
-			e.vbsp_ppoff = e.vbsp_ppoff & keep;                 // P1744
-			if (e.SendEntity)
-				e.SendFlags = 1;                                // only boosters carry it: SV_TrigStateSend
-		}
 	}
 	p.run_ssp1 = p.run_ssp2 = p.run_ssp3 = p.run_ssp4 = world;  // P1744
-	p.run_pbp1 = p.run_pbp2 = p.run_pbp3 = p.run_pbp4 = world;
+	SV_BwForget(p);
 };
 
 // P1744: pl's setspeed slots (fields above). A slot is reused once its pad is untouched for the window; a fifth pad touched
@@ -1461,6 +1560,38 @@ float(entity t, string in, string pm) SV_TrkInput;
 float(entity to, float sf) SV_TrkSend;
 float(entity to, float sf) SV_TrkPropSend;
 void(entity t) SV_TrkKillRiders;
+
+// A pad off in the shared world stays solid while some player's own world has it on: their touches arrive, everyone
+// else's return at SV_PpOff. A moving brush (Patch 860) is left alone.
+void(entity t) SV_PpResolid =
+{
+	local float i, s, want;
+	local entity p;
+
+	if (t.SendEntity)
+		t.SendFlags = 1;        // boosters' only sender is SV_TrigStateSend
+	if (!SV_Key2(t.StartDisabled, t.startdisabled) || t.vbsp_sp_kind)
+		return;
+	want = FALSE;
+	for (i = 1; i <= 32; i = i + 1)
+	{
+		p = edict_num(i);
+		s = SV_BwFind(p, t);
+		if (s)
+		if (!SV_BwOff(p, s))
+			want = TRUE;
+	}
+	if (want && t.solid == SOLID_NOT)
+	{
+		t.solid = (t.vbsp_io_solid ? t.vbsp_io_solid : SOLID_BSPTRIGGER);
+		setorigin(t, t.origin);
+	}
+	else if (!want && t.solid != SOLID_NOT)
+	{
+		t.solid = SOLID_NOT;
+		setorigin(t, t.origin);
+	}
+};
 
 //Patch 256: logic_timer is defined near the other I/O endpoints at the bottom
 //of the file, but SV_IOEnable has to re-arm one and SV_ApplyInput has to
@@ -2924,18 +3055,16 @@ float(entity to, float changed) SV_TrigStateSend =
 	WriteByte(MSG_ENTITY, ENTWIRE_TYPED);
 	WriteByte(MSG_ENTITY, ENTWIRE_TRIGSTATE);
 	WriteShort(MSG_ENTITY, stof(substring(self.model, 1, -1)));
-	// P1744: each client gets its own view (its own cooldown, SV_PpInput).
-	WriteByte(MSG_ENTITY, self.solid != SOLID_NOT && !SV_Key2(self.StartDisabled, self.startdisabled)
-	                      && !(self.vbsp_ppoff & SV_TouchBit(to)));
+	// P1744: each client gets its own world's view (SV_PpOff).
+	WriteByte(MSG_ENTITY, self.solid != SOLID_NOT && !SV_PpOff(self, to));
 	return TRUE;
 };
 
-// P1744: a booster's own cooldown is per player, as in Momentum where each player has their own world (Lex: "every client
-// experiences their own timer"). Its own Disable for a player (surf_classics' OnEndTouch !self,Disable + !self,Enable 1 s
-// later) switches it off for that player alone; its own Enable for them undoes that. Every other switch -- another entity's
-// gate or timed window, the world's -- stays everyone's, and any Enable that is not the pad's own re-arms everyone (review
-// 1: bhop_sandtrap2's boost1 is re-armed by a setspeed). The bank runs on the activator's own view (review 2), so one
-// player sees the old global switch exactly, provenance included.
+// P1744: each player has their own world of a booster, as in Momentum (Lex: "every client experiences their own timer").
+// The pad's own rows fired by a player (surf_classics' OnEndTouch !self,Disable + !self,Enable 1 s later) change only that
+// player's copy; every other switch -- another entity's gate or timed window, the world's -- changes the pad and every copy.
+// A copy runs the old global switch exactly, P1185 bank included, so one player sees the old behaviour by construction and
+// each of several sees their own world (reviews 1-4 found the shortcuts that did not).
 float(entity t) SV_PpBooster =
 {
 	if (!vbsp_mp)
@@ -2944,94 +3073,79 @@ float(entity t) SV_PpBooster =
 	    || !strcmp(t.classname, "trigger_momentum_setspeed");
 };
 
-void(entity t, int nv) SV_PpWrite =
+void(entity t, float on, float wasoff) SV_IOBankCore;
+// One switch applied to pl's copy s as the old global switch would; a copy that matches the pad again is dropped.
+void(entity t, entity pl, float s, string in) SV_BwStep =
 {
-	if (t.vbsp_ppoff == nv)
-		return;
-	t.vbsp_ppoff = nv;
-	if (t.SendEntity == SV_TrigStateSend)
-		t.SendFlags = 1;
+	local float off, on;
+
+	off = SV_BwOff(pl, s);
+	if (in == "toggle")
+		in = (off ? "enable" : "disable");
+	on = (in == "enable");
+	SV_BwLoad(pl, s);
+	SV_IOBankCore(t, on, off);
+	SV_BwStore(pl, s, t, !on);
+	if ((!on) == SV_Key2(t.StartDisabled, t.startdisabled))
+	if (bk_have == t.bank_off_have && bk_offp == t.bank_off_player && bk_offa == t.bank_off_attempt && bk_offb == t.bank_off_bad)
+	if (bk_srcp == t.bank_src_player && bk_srca == t.bank_src_attempt && bk_srcb == t.bank_src_bad)
+		SV_BwFree(pl, s);
 };
 
-void(entity t, float on, float wx) SV_IOEnableX;
-void(entity t, float on, float wasoff) SV_IOBankSlot;
-void(entity t, float on, float wasoff, entity rh, .float fh, .entity fp, .int fa, .float fb) SV_IOBankRec;
-
-// P1744 review 3: a booster's own per-player pair keeps its P1185 off-cause in pl's slot for that pad, so two players'
-// interleaved cooldowns cannot overwrite each other's (the shared record made the pad player-owned for good). A Disable
-// takes a free slot (one whose pad is no longer off for pl); a fifth pad off for pl at once uses the shared record,
-// the old rule; an Enable consumes the slot it finds, or the shared record if there is none.
-void(entity t, entity pl, int bit, float on, float wasoff) SV_PpBank =
+// pl's copy of t, made from the pad when there is none (0: all four slots hold other pads).
+float(entity pl, entity t) SV_BwMake =
 {
 	local float s;
-	if (pl.run_pbp1 == t) s = 1;
-	else if (pl.run_pbp2 == t) s = 2;
-	else if (pl.run_pbp3 == t) s = 3;
-	else if (pl.run_pbp4 == t) s = 4;
-	else if (on) s = 0;
-	else if (!pl.run_pbp1 || wasfreed(pl.run_pbp1) || !(pl.run_pbp1.vbsp_ppoff & bit)) s = 1;
-	else if (!pl.run_pbp2 || wasfreed(pl.run_pbp2) || !(pl.run_pbp2.vbsp_ppoff & bit)) s = 2;
-	else if (!pl.run_pbp3 || wasfreed(pl.run_pbp3) || !(pl.run_pbp3.vbsp_ppoff & bit)) s = 3;
-	else if (!pl.run_pbp4 || wasfreed(pl.run_pbp4) || !(pl.run_pbp4.vbsp_ppoff & bit)) s = 4;
-	else s = 0;
-	if (s == 1)      { pl.run_pbp1 = t; SV_IOBankRec(t, on, wasoff, pl, run_pbh1, run_pbo1, run_pba1, run_pbb1); }
-	else if (s == 2) { pl.run_pbp2 = t; SV_IOBankRec(t, on, wasoff, pl, run_pbh2, run_pbo2, run_pba2, run_pbb2); }
-	else if (s == 3) { pl.run_pbp3 = t; SV_IOBankRec(t, on, wasoff, pl, run_pbh3, run_pbo3, run_pba3, run_pbb3); }
-	else if (s == 4) { pl.run_pbp4 = t; SV_IOBankRec(t, on, wasoff, pl, run_pbh4, run_pbo4, run_pba4, run_pbb4); }
+	s = SV_BwFind(pl, t);
+	if (s)
+		return s;
+	if (!pl.run_bwp1 || wasfreed(pl.run_bwp1)) s = 1;
+	else if (!pl.run_bwp2 || wasfreed(pl.run_bwp2)) s = 2;
+	else if (!pl.run_bwp3 || wasfreed(pl.run_bwp3)) s = 3;
+	else if (!pl.run_bwp4 || wasfreed(pl.run_bwp4)) s = 4;
 	else
-		SV_IOBankSlot(t, on, wasoff);
-	if (on)
-	{
-		if (s == 1) pl.run_pbp1 = world;
-		else if (s == 2) pl.run_pbp2 = world;
-		else if (s == 3) pl.run_pbp3 = world;
-		else if (s == 4) pl.run_pbp4 = world;
-	}
+		return 0;
+	SV_PadLoad(t);
+	SV_BwStore(pl, s, t, SV_Key2(t.StartDisabled, t.startdisabled));
+	return s;
 };
 
+void(entity t, float on) SV_IOEnable;
 void(entity t, entity o, entity act, string in) SV_PpInput =
 {
-	local int abit, bit;
-	local float on, own, ct, effoff;
+	local float ct, s, i;
+	local entity p;
+	local string kind;
 
-	own = (o && o.owner == t);
-	abit = 0i;
-	if (act.classname == "player")
+	if (o && o.owner == t && act.classname == "player")
 	{
 		ct = clienttype(act);
-		if (ct == CLIENTTYPE_REAL || ct == CLIENTTYPE_BOT)
-			abit = SV_TouchBit(act);
-		else if (own)
-			return;             // a departed client's own cooldown row (the end sweep, a pending delay): nobody to switch
-	}
-	bit = (own ? abit : 0i);    // another entity's or the world's switch is everyone's
-	on = (t.solid != SOLID_NOT && !SV_Key2(t.StartDisabled, t.startdisabled));
-	// Off as the old global switch saw it: for the activator, or (no player) while any player has it off.
-	effoff = ((abit ? (t.vbsp_ppoff & abit) : t.vbsp_ppoff) != 0i);
-	if (in == "toggle")
-		in = ((on && !effoff) ? "disable" : "enable");
-	if (in == "disable")
-	{
-		if (bit && on)
+		if (ct != CLIENTTYPE_REAL && ct != CLIENTTYPE_BOT)
+			return;             // a departed client's own row (the end sweep, a pending delay): their world is gone
+		if (SV_TouchBit(act))
 		{
-			SV_PpBank(t, act, bit, FALSE, effoff);
-			SV_PpWrite(t, t.vbsp_ppoff | bit);
-			if (cvar("developer") >= 2)
-				dprint(sprintf("booster %s %s: off for %s alone\n", t.classname, t.model, act.netname));
-			return;
+			s = SV_BwMake(act, t);
+			if (s)
+			{
+				SV_BwStep(t, act, s, in);
+				SV_PpResolid(t);
+				return;
+			}
 		}
-		SV_IOEnableX(t, FALSE, effoff);
-		return;
 	}
-	if (on && effoff)           // off -> on in the activator's view; SV_IOEnableX below then sees an on pad
+	// Everyone's: the pad's world, as the old switch, then each player's copy (a Toggle read by each world itself).
+	kind = in;
+	if (kind == "toggle")
+		kind = (SV_Key2(t.StartDisabled, t.startdisabled) ? "enable" : "disable");
+	SV_IOEnable(t, kind == "enable");
+	for (i = 1; i <= 32; i = i + 1)
 	{
-		if (abit)
-			SV_PpBank(t, act, abit, TRUE, TRUE);
-		else
-			SV_IOBankSlot(t, TRUE, TRUE);
+		p = edict_num(i);
+		s = SV_BwFind(p, t);
+		if (s)
+			SV_BwStep(t, p, s, in);
 	}
-	SV_PpWrite(t, bit ? (t.vbsp_ppoff & ~bit) : 0i);
-	SV_IOEnableX(t, TRUE, -1);
+	SV_PpResolid(t);
 };
 
 // P799: a func_areaportalwindow's target, which the client draws (SV_PortalWindowsActivate).
@@ -3191,10 +3305,9 @@ void() SV_NoColRestore =
 	nocol_off = world;
 };
 
-// The activation slots' provenance (P1185), moved out of SV_IOEnable verbatim except that the off-cause record is a
-// parameter: the pad's own (bank_off_*) for the global switch, a player's slot for P1744's per-player pair (SV_PpBank),
-// so two players' interleaved cooldowns cannot overwrite each other's cause (review 3).
-void(entity t, float on, float wasoff, entity rh, .float fh, .entity fp, .int fa, .float fb) SV_IOBankRec =
+// The activation slots' provenance (P1185), moved out of SV_IOEnable verbatim except that it runs on the bk_* globals
+// (SV_PadLoad/SV_BwLoad): the pad's own record and owner for the shared world, a player's copy for theirs (P1744).
+void(entity t, float on, float wasoff) SV_IOBankCore =
 {
 	local float act, same;
 
@@ -3214,49 +3327,50 @@ void(entity t, float on, float wasoff, entity rh, .float fh, .entity fp, .int fa
 	// cancels it, as that Enable would then override the map (reviews 1-3).
 	if (act && !on)
 	{
-		same = (bank_ctx_depth && rh.fp == bank_ctx_player
-			&& rh.fa == bank_ctx_attempt && rh.fb == bank_ctx_bad);
+		same = (bank_ctx_depth && bk_offp == bank_ctx_player
+			&& bk_offa == bank_ctx_attempt && bk_offb == bank_ctx_bad);
 		if (!wasoff)
 		{
-			rh.fh = (bank_ctx_depth && bank_ctx_attempt != 0i
-				&& t.bank_src_attempt == 0i && !t.bank_src_bad);
-			rh.fp = bank_ctx_depth ? bank_ctx_player : world;
-			rh.fa = bank_ctx_depth ? bank_ctx_attempt : 0i;
-			rh.fb = bank_ctx_depth ? bank_ctx_bad : FALSE;
+			bk_have = (bank_ctx_depth && bank_ctx_attempt != 0i
+				&& bk_srca == 0i && !bk_srcb);
+			bk_offp = bank_ctx_depth ? bank_ctx_player : world;
+			bk_offa = bank_ctx_depth ? bank_ctx_attempt : 0i;
+			bk_offb = bank_ctx_depth ? bank_ctx_bad : FALSE;
 		}
 		else if (!same)
-			rh.fh = FALSE;
+			bk_have = FALSE;
 	}
 	if (act && on && wasoff)
 	{
-		if (rh.fh && bank_ctx_depth && rh.fp == bank_ctx_player
-			&& rh.fa == bank_ctx_attempt && rh.fb == bank_ctx_bad)
+		if (bk_have && bank_ctx_depth && bk_offp == bank_ctx_player
+			&& bk_offa == bank_ctx_attempt && bk_offb == bank_ctx_bad)
 		{
 			if (cvar("developer"))
 				dprint(sprintf("bank: %s %s on again by the cause that switched it off; stays world's\n",
 				               t.classname, t.targetname));
-			t.bank_src_player = world;
-			t.bank_src_attempt = 0i;
-			t.bank_src_bad = FALSE;
+			bk_srcp = world;
+			bk_srca = 0i;
+			bk_srcb = FALSE;
 		}
-		else if (bank_ctx_depth) SV_BankSnapshot(t);
+		else if (bank_ctx_depth) { bk_srcp = bank_ctx_player; bk_srca = bank_ctx_attempt; bk_srcb = bank_ctx_bad; }
 		else
 		{
-			t.bank_src_player = world;
-			t.bank_src_attempt = 0i;
-			t.bank_src_bad = FALSE;
+			bk_srcp = world;
+			bk_srca = 0i;
+			bk_srcb = FALSE;
 		}
-		rh.fh = FALSE;
+		bk_have = FALSE;
 	}
 };
 
 void(entity t, float on, float wasoff) SV_IOBankSlot =
 {
-	SV_IOBankRec(t, on, wasoff, t, bank_off_have, bank_off_player, bank_off_attempt, bank_off_bad);
+	SV_PadLoad(t);
+	SV_IOBankCore(t, on, wasoff);
+	SV_PadStore(t);
 };
 
-// P1744: wx is the caller's view of "was off" (a booster off for its activator alone); -1 reads StartDisabled, as before.
-void(entity t, float on, float wx) SV_IOEnableX =
+void(entity t, float on) SV_IOEnable =
 {
 	local float wasoff;
 	// P1387 review 2: Source's func_tracktrain has no Enable/Disable; a csprogs train made solid here
@@ -3266,8 +3380,6 @@ void(entity t, float on, float wx) SV_IOEnableX =
 	if (t == nocol_off)
 		SV_NoColRestore();        // P1193: I/O acts on the real solidity
 	wasoff = SV_Key2(t.StartDisabled, t.startdisabled);
-	if (wx >= 0)
-		wasoff = (wasoff || wx);
 	SV_IOBankSlot(t, on, wasoff);
 	if (!on)
 	{
@@ -3319,7 +3431,6 @@ void(entity t, float on, float wx) SV_IOEnableX =
 	if (on && t.classname == "logic_timer")
 		SV_TimerSchedule(t, time + SV_TimerInterval(t), wasoff);
 };
-void(entity t, float on) SV_IOEnable = { SV_IOEnableX(t, on, -1); };
 
 /*
   `Command` is remote code execution by map, so it is allow-listed.
@@ -6827,10 +6938,8 @@ void(entity p) SV_TriggerJumpEdge =
 	{
 		if (!t.vbsp_io_out)
 			continue;
-		if (SV_Key2(t.StartDisabled, t.startdisabled))
-			continue;			// a disabled trigger touches nothing
-		if (t.vbsp_ppoff & bit)
-			continue;			// P1744: nor one off for this player
+		if (SV_PpOff(t, p))
+			continue;			// a disabled trigger touches nothing (P1744: in this player's own world)
 
 		// Nested, not `&&`: this tree's rule where an array or a mask is read.
 		if (bit)
@@ -9634,8 +9743,8 @@ void() trigger_push_touch =
 
 	if (other.classname != "player")
 		return;
-	if (self.vbsp_ppoff & SV_TouchBit(other))
-		return;             // P1744: off for this player alone, as SOLID_NOT (never dispatched)
+	if (SV_PpOff(self, other))
+		return;             // P1744: off in this player's own world, as SOLID_NOT (never dispatched)
 	// MOVETYPE_NOCLIP falls into Source's do-nothing arm of the movetype
 	// switch (triggers.cpp:2215-2218), so a noclipping player is not pushed.
 	if (other.movetype == MOVETYPE_NOCLIP)
@@ -9650,9 +9759,10 @@ void() trigger_push_touch =
 	if (!SV_TouchFilter(self, other))
 		return;
 	// Bind the accepted enabled state before reentrant touch outputs.
-	bp = self.bank_src_player;
-	ba = self.bank_src_attempt;
-	bb = self.bank_src_bad;
+	SV_BwSrc(self, other);         // P1744: the owner in this player's own world
+	bp = bw_bp;
+	ba = bw_ba;
+	bb = bw_bb;
 	// Patch 786: past the returns that leave you untouched (SV_TrigStamp).
 	SV_TrigStamp(other);
 
@@ -9906,7 +10016,7 @@ void(entity e) SV_TASPushPrep =
 		if (t.filtername != "" && vbsp_io_on) continue;
 		st = SV_TASPushSelfToggle(t);
 		if (t.vbsp_io_out && !st) continue;
-		if (t.vbsp_ppoff & ebit) { t.tas_rpushk = 4; continue; }   // P1744: off for this body alone, run through
+		if (t.solid != SOLID_NOT && SV_PpOff(t, e)) { t.tas_rpushk = 4; continue; }   // P1744: off in this body's world
 		makevectors(t.pushdir);
 		spd = SV_Key2(t.speed, t.Speed);
 		if (!spd)
@@ -10032,8 +10142,8 @@ void() trigger_setspeed_touch =
 
 	if (other.classname != "player")
 		return;
-	if (self.vbsp_ppoff & SV_TouchBit(other))
-		return;             // P1744: off for this player alone, as SOLID_NOT (never dispatched)
+	if (SV_PpOff(self, other))
+		return;             // P1744: off in this player's own world, as SOLID_NOT (never dispatched)
 	if (other.movetype == MOVETYPE_NOCLIP)
 		return;
 	if (!SV_TriggerTakesPlayers(self))
@@ -10041,9 +10151,10 @@ void() trigger_setspeed_touch =
 	if (!SV_TouchFilter(self, other))
 		return;
 	// Freeze the admitted activation before touch outputs can re-enable us.
-	bp = self.bank_src_player;
-	ba = self.bank_src_attempt;
-	bb = self.bank_src_bad;
+	SV_BwSrc(self, other);         // P1744: the owner in this player's own world
+	bp = bw_bp;
+	ba = bw_ba;
+	bb = bw_bb;
 	// Patch 786: past the returns that leave you untouched (SV_TrigStamp).
 	SV_TrigStamp(other);
 
