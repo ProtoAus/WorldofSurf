@@ -1,5 +1,12 @@
 # lextest.md — things waiting on a human
 
+## P1721-P1726 -- decals, sun on props, bloom, shadow direction, windmill (worldofsurf-88) -- next release
+1. bhop_canals near the start: ivy hangs large on the walls and the danger signs read upright (they were turned sideways).
+2. ahop_coast: the windmill on the cliff turns (about one turn every 12 s); where it stood still blocks you as before.
+3. ahop_coast save 7: the crate's top is sunlit, the fence stays in shade (as Momentum).
+4. Optional: r_postprocess 1 + r_bloom 1 on ahop_coast gives only a faint bloom; r_shadows 2 throws shadows away from
+   the low sun (and typing it in game no longer breaks props).
+
 ## P1727 -- your own long replay opens (worldofsurf-08) -- lobbies now, local games next release
 1. Akatosh: open the run that failed ("cant even watch a replay": scoreboard -> his own run). Expect it to open with
    no "runaway loop" in the console; a very long one may take a second or two.

@@ -1,13 +1,21 @@
 # BACKLOG.md
 
 ## P1717 prop lighting + the ahop_coast/bhop_canals visual audit -- what they leave (22 Nov, worldofsurf-88; root FTESurf-worktrees/coastair-20261122-88)
-- P1721 (claimed): infodecals. The client places 18 of 48 on ahop_coast and 80 of 416 on bhop_canals (cl_decals.qc
-  Decal_Place: six 24-unit axis probes, world hits only) and draws every one as a 32-unit square (vbsp_decal_size);
-  Source paints every surface within the decal's radius (brush entities included) at the texture's size x $decalscale.
-  Overlays: bhop_canals 41 of 53 (9 no faces, 3 off-surface).
-- The sun on movable props: Source's light cache adds emit_skylight to a dynamic model when a trace from it reaches a
-  SURF_SKY face; Patch 302 drops both sky lights for want of that trace. ahop_coast's sun (1.92 1.74 1.29 linear, 20
-  degrees up from the NE) would light the fences' camera side wherever the cliff does not shade it.
+- P1721 DONE (ahop_coast 45/48, bhop_canals 383/416). Left: brush-entity decals (the engine clips them only from the
+  entity packet, absent at world load -- a re-clip once entities arrive would place them); the depth fade stays +-4, so
+  a large decal on a curved displacement fades where the surface leaves its plane. Overlays: bhop_canals 40 of 53.
+- P1722 DONE (the sun on unbaked models where a trace ENDS on sky). hl2_lightprobe does not show it.
+- P1723: only the bloom scale; exposure deliberately not copied (ahop_coast's .8-.9 band would darken a frame already
+  matching Momentum's world at scale 1). Vulkan's built-in bloom_final ignores r_bloom_mapscale.
+- P1724/P1725: r_shadows 2 now throws along shadow_control (else the Strata cascade sun), honours disableshadows and
+  survives a live toggle. Still NOT Source's shadows: props shadow themselves (no caster identity in the depth map),
+  a fixed 50% tint (not shadow_control's colour), shadow_control disableallshadows ignored, instanced props off while
+  on, and on Strata maps the shadow darkens the baked sun's shade a second time (needs a mix(min(lm, ambient), lm, s)
+  blend with light_environment's ambient in lightmapped.glsl).
+- P1726 DONE for a body whose forward is the motor axis (windmills, fans): the motor's own late edict draws it. Left:
+  bodies at another angle (most func_physbox, angles 0 0 0) stay still; the pivot is the body's origin, not the hinge
+  (ahop_coast 13 units off); a phys_constraint welding the body to the world is not read; a motor-driven body that is
+  solid keeps its frozen hull (Source pushes the player).
 - Residual on ahop_coast: fences 15-25% and the crate ~12% under Momentum's frame while the cube math is within 5% of
   Source's n^2 read; Momentum/Strata's tonemap (env_tonemap_controller is unhandled) is the unmeasured term. Falsifier:
   Momentum screenshots of a lit and a shaded prop at fixed exposure (mat_autoexposure_max/min equal).

@@ -28,6 +28,23 @@
 ### P1727 Your own long replays open again
 - Opening your own run from the leaderboard could shut the game's interface down with a "runaway loop" error when the run's camera file was very long (long sessions or high fps). It now opens, and the replay is unchanged. (Akatosh's report.)
 
+### P1726 Windmills turn
+- Props a map spins with a motor now turn as in Source: ahop_coast's windmill turns. Their collision is unchanged.
+
+### P1724 Dynamic shadows follow the map
+- With dynamic shadows on (r_shadows 2), shadows fall the way the map's shadow settings or its sun point, and props the mapper marked shadowless cast none.
+- Switching dynamic shadows on in a running game no longer breaks prop drawing on Source maps.
+
+### P1723 The map's own bloom strength
+- With bloom on, a map's own bloom setting now applies (ahop_coast asks for very little).
+
+### P1722 The sun lights movable props
+- Movable props and players on Source maps now catch the map's sun where it can reach them, as in Momentum; shaded ones stay shaded.
+
+### P1721 Decals where the map puts them, at their real size
+- Signs, graffiti, ivy, stains and trash on Source maps now appear where the mapper put them, at the right size and the right way up.
+- ahop_coast shows 45 of its 48 (was 18), bhop_canals 383 of 416 (was 80).
+
 ## 0.1.57 2026-11-22
 
 ### P1717 Props on Source maps lit as in Momentum
