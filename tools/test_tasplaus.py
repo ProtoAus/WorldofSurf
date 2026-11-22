@@ -94,6 +94,18 @@ class Synthetic(unittest.TestCase):
     def reasons(self, r):
         return " | ".join(x["what"] for x in r["reasons"])
 
+
+    def test_gaps_are_unseen_only_while_the_move_fits(self):   # P1716 review 2: a teleport inside a gap
+        rows, fin = simulate()
+        i0 = next(i for i, r in enumerate(rows) if r[0] >= 0.3)
+        honest = [r for i, r in enumerate(rows) if not (i0 < i <= i0 + 9)]
+        r = verdict(honest, fin)
+        self.assertEqual((r['verdict'], r['suspect']), ('HOLD', False), r['reasons'])
+        self.assertTrue(all(x.get('unseen') for x in r['reasons']), r['reasons'])
+        tele = [(t, [o[0] + (600 if i > i0 else 0), o[1], o[2]], v) for i, (t, o, v) in enumerate(rows)]
+        r = verdict([x for i, x in enumerate(tele) if not (i0 < i <= i0 + 9)], fin)
+        self.assertTrue(r['suspect'], r['reasons'])
+        self.assertIn('across a 10-tick gap, more than its speed reaches', json.dumps(r['reasons']))
     def test_clean_passes(self):
         r = verdict(self.rows, self.fin)
         self.assertEqual(r["verdict"], "PASS", self.reasons(r))

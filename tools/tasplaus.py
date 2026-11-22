@@ -484,7 +484,7 @@ def check(run, zones=None, maxvel=None):
             if m: sq = max(sq, 0.5 * 10.0 ** (m - 1 - 5))
         return max(0.5 * 10.0 ** -d, min(sq, 0.05))
     worst_air = worst_ground = worst_turn = worst_drift = 0.0
-    nchk = njump = ntele = nduck = offtick = gaps = 0
+    nchk = njump = ntele = nduck = offtick = gaps = bigaps = 0
     duck_net = 0.0
     drift = []          # horizontal residuals of the last second (aligned single ticks after t=0)
     drift_said = False
@@ -534,7 +534,19 @@ def check(run, zones=None, maxvel=None):
             # HOLD, not FAIL: the cap given may be lower than the map's (cfg/maps, a trigger, a stage).
             note(HOLD, b[0], f"velocity {b[2][over_cap]:.1f} past sv_maxvelocity {maxvel:.0f}")
         if k > MAX_GAP:
-            note(HOLD, t, f"{k}-tick gap between samples: cannot check it", unseen=True)
+            # P1716: unseen only while the move across it fits its ends' speeds: at most the faster end, what gravity
+            # adds over the gap and the air cap's 30 u/s a tick; speed grows by no more than air and height lost.
+            # A teleport inside a gap was published as "could not see" (review 2: 600 u in 10 ticks).
+            dtg, sa, sb = b[0] - a[0], math.sqrt(sum(x * x for x in a[2])), math.sqrt(sum(x * x for x in b[2]))
+            reach = dtg * (max(sa, sb) + GRAVITY * dtg + 30.0 * kk) + 2.0
+            moved = math.sqrt(sum((b[1][c] - a[1][c]) ** 2 for c in range(3)))
+            bigaps += 1
+            if moved > reach:
+                note(HOLD, t, f"moves {moved:.0f} u across a {k:.0f}-tick gap, more than its speed reaches ({reach:.0f})")
+            elif sb * sb > sa * sa + AIR_DV2 * kk + 2 * GRAVITY * max(0.0, a[1][2] - b[1][2]) + 500.0:
+                note(HOLD, t, f"speed {sa:.0f} -> {sb:.0f} u/s across a {k:.0f}-tick gap: more than air control and the drop give")
+            else:
+                note(HOLD, t, f"{k}-tick gap between samples: cannot check it", unseen=bigaps <= 2)
             drift = []
             continue
         nchk += 1
@@ -760,7 +772,7 @@ def check(run, zones=None, maxvel=None):
     # The allowance counts samples from t=0: padding the pre-start must not buy skipped ticks (review 4).
     if offtick > 2 + sum(1 for x in win if x[0] >= 0) // 500:   # packet timing: 1-2 in 3 of 164 of ours
         note(HOLD, None, f"{offtick} sample steps are not one whole tick: the per-tick bounds cannot be applied"
-             " (one sample a tick, please; native recordings need the exact verifier)", unseen=True)
+             " (one sample a tick, please; native recordings need the exact verifier)")   # skips turn/drift: suspect (review 2)
 
     # Zones: start, every checkpoint in order, finish.
     t0s = min(s, key=lambda x: abs(x[0]))

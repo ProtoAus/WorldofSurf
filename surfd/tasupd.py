@@ -672,7 +672,8 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         return dict(id=r['id'], map=r['map'], track=r['track'], course=course(r['track']), ticks=r['ticks'],
                     time=round(r['ticks'] * TICK, 3), steamid=r['steamid'], name=who(r['steamid'], accts),
                     tool=r['tool'], state=r['state'], verdict=r['verdict'], uploaded=r['uploaded_at'],
-                    note=r['note'], file='%s/run/%d.rec' % (base, r['id']) if r['state'] == 'shown' else None)
+                    note=r['note'], file='%s/run/%d.rec' % (base, r['id']) if r['state'] == 'shown' else None,
+                    unchecked=int(bool(r['unchecked']) and not r['reviewed_at']), label=label(r))   # P1716
 
     def board_rows(db, mapname, track):
         rows = db.execute("SELECT " + LIST + " FROM runs WHERE map = ? AND track = ? AND state = 'shown'"
@@ -751,8 +752,10 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
 
     INTRO = ('<h1>Uploaded TAS records</h1><p class="lede">Made a run with your own bot, a fork, or by hand? Upload its '
              '<code>.rec</code>. It is checked against the game\'s movement physics (gravity, air acceleration, ground '
-             'speed, start, checkpoints and end zone). Runs are listed here at once; one the check could not fully '
-             'confirm, or a new record, says so ("not fully checked"), and one whose physics looks wrong waits for review. '
+             'speed, start, checkpoints and end zone). ' + (
+                 'Runs that check out are listed here; anything the check cannot clear waits for review. ' if review else
+                 'Runs are listed here at once; one the check could not fully confirm, or a new record, says so ("not fully '
+                 'checked"), and one whose physics looks wrong waits for review. ') +
              'TAS runs stay off the normal leaderboards.</p>')
 
     def upload_card(sid):
