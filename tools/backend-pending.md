@@ -31,6 +31,13 @@ CURRENT = cd1965f1 (root /srv/nvme/agent-work/gen1674-20261121-e3; kit FTESurf-p
 pins native fteqw-svarm64 1753f9d4 (lobby engine patch-1683, swapped 01:38Z), and keeps the consumer's 900 s
 `systemctl start` (its drop-in will have 18 ExecStartPre blocks, ~280 s; or the owner prunes retired blocks).
 
+## P1727 own long replays -- lobby csprogs LIVE 22 Nov 09:47Z (worldofsurf-08)
+LIVE: all 12 lobbies on qw e0fa1b80 (unchanged) / cs f1c57d33 = tag v0.1.57 + P1727's cl_watch.qc (aa43a77a, 39ee29a0,
+b75b37fc; branch deploy/p1727-lobby 7c908dc0; 0.1.57's fteqcc in FTESurf-worktrees/release0157-88, which rebuilds the
+live e0fa1b80 / fb427ec1 exactly). All 12 were empty; one restart each; backups *.pre1727-20261122T094655Z; codes.txt
+175; engine patch-1717 untouched. Checked: 12 active, 12 answer status, 0 SIGSEGV/Host_Error/PR_ExecuteProgram/runaway
+since each lobby's last "Loaded progs". Next lobby progs build: start from deploy/p1727-lobby, or a release carrying P1727.
+
 ## 0.1.57 lobby half -- LIVE 22 Nov 03:47Z (worldofsurf-88; record tools/release-0.1.57.md)
 LIVE: all 12 lobbies on engine patch-1717 (fteqw-svarm64 049f7062 + fteplug_hl2_arm64 55778b14, engine main e4f48ac0e,
 stamp git-9001-patch-1717-0-ge4f48ac0e; also the surfd verifier) and the release's qw e0fa1b80 / cs fb427ec1 (tag
