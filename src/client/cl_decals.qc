@@ -193,7 +193,7 @@ vector(float i) Decal_ProbeDir =
   THE VECTOR CONVENTION IS RECIPROCAL.  CL_Decal_SetupCtx (cl_ents.c) takes the LENGTHS of `up` and `side` as
   1/depth and 1/height: a bigger vector is a smaller decal, `up` points out of the surface (the engine negates
   it), `side` is the image's UP (texture t runs from +side to -side) and s runs along N x T.  srange's third
-  figure carries PDC_SOURCE (1: displacements and brush entities too) and PDC_SOURCESIZE (2: the material's
+  figure carries PDC_SOURCE (1: displacements too; brush entities only once entities arrive) and PDC_SOURCESIZE (2: the material's
   `decalsize`, its texture x $decalscale, replaces side's length and the aspect; an older engine ignores both
   and draws vbsp_decal_size).
 
@@ -213,20 +213,21 @@ void(vector org, string tex, float size) Decal_Place =
 	{
 		bestd = DECAL_PROBE + 1;
 		n = '0 0 0';
-		// Each direction twice: out from the origin, and in from DECAL_PROBE out to just past it.  Hammer leaves
-		// most origins a fraction inside the face's (often func_detail) brush, where every outward trace starts
-		// solid; the inward one still meets the face (ahop_coast: 25 of 26 misses).
+		// Each direction twice: out from the origin, and in across it from DECAL_EMBED out to DECAL_EMBED past.
+		// Hammer leaves most origins a fraction inside the face's (often func_detail) brush, where every outward
+		// trace starts solid; the inward one still meets the face (ahop_coast: 25 of 26 misses).
 		for (i = 0; i < 52; i = i + 1)
 		{
 			dir = Decal_ProbeDir(floor(i / 2));
 			if (i & 1)
-				traceline(org + dir * DECAL_PROBE, org - dir * DECAL_EMBED, MOVE_NOMONSTERS, world);
+				traceline(org + dir * DECAL_EMBED, org - dir * DECAL_EMBED, MOVE_NOMONSTERS, world);
 			else
 				traceline(org, org + dir * DECAL_PROBE, MOVE_NOMONSTERS, world);
 			if (trace_fraction >= 1 || trace_startsolid || trace_plane_normal == '0 0 0')
 				continue;
-			// Source paints brushes only: the world and brush entities (PDC_SOURCE clips the latter).
-			if (trace_ent != world && substring(trace_ent.model, 0, 1) != "*")
+			// World faces only.  Source paints brush entities too, but this clip runs at world load, before the
+			// first entity frame, and the engine clips brush entities only from that packet (review 1).
+			if (trace_ent != world)
 				continue;
 			if (ntried > 0 && trace_plane_normal * t0 > 0.99)
 				continue;
