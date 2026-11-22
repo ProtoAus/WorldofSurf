@@ -1,5 +1,10 @@
 # lextest.md — things waiting on a human
 
+## 0.1.59 release -- PUBLISHED 22 Nov 12:47Z (record: tools/release-0.1.59.md); lobbies on its progs 12:50Z; owner check PENDING
+- P1732 (dynamic shadows + r_exposure test cvar), P1730 (damaged replay angle), P1729 (optional distance water).
+  Lobbies: the release's progs only (engine patch-1717 unchanged), one restart 12:49-12:50Z.
+1. Start the game: it updates to 0.1.59. The P1732 and P1729 checks below.
+
 ## P1732 -- dynamic shadows + exposure test cvar (worldofsurf-88) -- next release
 1. `r_shadows 2` on ahop_coast save 7: the crate and fence are no longer blackened by their own shadow; the crate still
    shadows the ground beside it, in a cool grey (the map's shadow_control colour).

@@ -38,6 +38,11 @@ live e0fa1b80 / fb427ec1 exactly). All 12 were empty; one restart each; backups 
 175; engine patch-1717 untouched. Checked: 12 active, 12 answer status, 0 SIGSEGV/Host_Error/PR_ExecuteProgram/runaway
 since each lobby's last "Loaded progs". Next lobby progs build: start from deploy/p1727-lobby, or a release carrying P1727.
 
+## 0.1.59 lobby half -- LIVE 22 Nov 12:50Z (worldofsurf-88; record tools/release-0.1.59.md)
+LIVE: all 12 lobbies on the release's progs (tag v0.1.59 = 125fd7f0; qw 45b97cc5 / cs e01610d8, codes.txt appended) over
+v0.1.58's. Engine patch-1717 049f7062 + plugin 55778b14 unchanged. Backups *.pre0159-20261122T124927Z. Next lobby progs
+build: start from v0.1.59.
+
 ## 0.1.58 lobby half -- LIVE 22 Nov 10:10Z (worldofsurf-88; record tools/release-0.1.58.md)
 LIVE: all 12 lobbies on the release's progs (tag v0.1.58 = 3d6624f8; qw 1ab03d45 / cs 0b99ceff, codes.txt appended) over
 v0.1.57 + P1727 (deploy/p1727-lobby, now obsolete). Engine patch-1717 049f7062 + plugin 55778b14 unchanged. Backups
