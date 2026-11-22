@@ -5103,9 +5103,10 @@ void(entity t, entity o, entity act) SV_ApplyInput =
 		t.effects = (t.effects - (t.effects & EF_NODRAW)) | (t.vbsp_sp_bodynodraw ? EF_NODRAW : 0);
 		SV_ApplyInputRaw(t, o, act);
 		t.vbsp_sp_inbody = FALSE;
-		// review 4: re-check the pair -- a nested input may have removed the motor and given the body back
-		if (!wasfreed(m) && m.vbsp_sp_body == t && (wasfreed(t) || t.vbsp_sp_motor == m))
-			SV_MotorSync(m, t);
+		// review 4: re-check the pair -- a nested input may have removed the motor and given the body back.
+		// review 5: a body whose link no longer points at the motor was killed and its slot reused: gone.
+		if (!wasfreed(m) && m.vbsp_sp_body == t)
+			SV_MotorSync(m, (t.vbsp_sp_motor == m) ? t : world);
 		return;
 	}
 	SV_ApplyInputRaw(t, o, act);
@@ -5116,7 +5117,8 @@ void(entity t, entity o, entity act) SV_ApplyInput =
 		b = t.vbsp_sp_body;
 		if (b && !wasfreed(b) && b.vbsp_sp_motor == t)
 		{
-			b.effects = (b.effects - (b.effects & EF_NODRAW)) | (b.vbsp_sp_bodynodraw ? EF_NODRAW : 0);
+			if (!b.vbsp_sp_inbody)	// review 5: inside an input to the body its effects are already its own
+				b.effects = (b.effects - (b.effects & EF_NODRAW)) | (b.vbsp_sp_bodynodraw ? EF_NODRAW : 0);
 			b.vbsp_sp_motor = world;
 		}
 	}
