@@ -204,6 +204,10 @@ box acts only on its own run (the tab's Back or another Upload closes it); bests
 Known limit: SV_TASUpBest reads every own `*_tas.rec` in the folder, a place a server's csprogs can write, so a planted
 fast file can stop offers for that course; over 2000 files there is no offer at all (never a slower run as a best; the console says so). Checked headless against a scratch tasupd: auto send taken (held: Jargon's resume records), old engine refuses -7,
 a finish slower than a saved one gets no box.
+TO INSTALL (Lex, root; worldofsurf-5a 22 Nov): source checkout as proto /srv/nvme/ftesurf-ops/tasupd-src-91a26c9f (partial
+clone at 91a26c9f), installer sha256 688efc3c...b880; proto dry run passed ("Preflight (upgrade) ... DRY RUN"). Until it
+is installed, the live service refuses the box's by-itself sends ("carries no account proof") and takes F6 (header 1).
+Pushed: engine main c05e443e4 (tag patch-1712), game main 91a26c9f; Lex's dev install rebuilt (cs 79ceab96, allow-coded).
 
 ## P1700: on the website
 
