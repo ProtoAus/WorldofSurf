@@ -114,6 +114,8 @@ float(string shadername, vector origin, vector up, vector side,
 void(float handle) Decal_RemoveStatic = #0:removedecal;
 
 float  vbsp_decal_n;          // placed on this map
+float  vbsp_decal_nosurf;     // P1721: no brush face within DECAL_PROBE in any of 26 directions
+float  vbsp_decal_noclip;     // P1721: faces found, every clip produced nothing
 float  vbsp_decal_hbuf;       // Patch 894: this map's decal + overlay handles (paint keeps its own)
 float  vbsp_decal_hbuf_have;
 float  vbsp_decal_want;       // vbsp_decals / vbsp_overlays as the last load read them
@@ -168,101 +170,120 @@ float  vbsp_overlay_sheared;  // rejected: the quad is too far from a rectangle 
 // corner does not wrap around it; the engine clips to max(size, depth).
 #define DECAL_DEPTH 8
 
+// How far behind the origin an inward probe still counts (P1721): an origin embedded deeper is not on that face.
+#define DECAL_EMBED 4
+
+// The 26 neighbours of a cube: a decal on a slope or in a corner finds its face, as Source's radius search
+// over the BSP does (r_decal.cpp R_DecalNode), where six axis probes missed (P1721).
 vector(float i) Decal_ProbeDir =
 {
-	if (i == 0) return '1 0 0';
-	if (i == 1) return '-1 0 0';
-	if (i == 2) return '0 1 0';
-	if (i == 3) return '0 -1 0';
-	if (i == 4) return '0 0 1';
-	return '0 0 -1';
+	local float x, y;
+	if (i >= 13)
+		i = i + 1;	// skip the centre
+	x = i - 3 * floor(i / 3);
+	i = floor(i / 3);
+	y = i - 3 * floor(i / 3);
+	i = floor(i / 3);
+	return normalize([x - 1, y - 1, i - 1]);
 };
 
 /*
   Decal_Place -- find the surface, then hand the engine its axes.
 
-  THE VECTOR CONVENTION IS RECIPROCAL, which is not obvious and is easy to get
-  backwards.  CL_Decal_SetupCtx (cl_ents.c:3629-3650) takes the LENGTHS of
-  `up` and `side` as 1/depth and 1/size respectively:
+  THE VECTOR CONVENTION IS RECIPROCAL.  CL_Decal_SetupCtx (cl_ents.c) takes the LENGTHS of `up` and `side` as
+  1/depth and 1/height: a bigger vector is a smaller decal, `up` points out of the surface (the engine negates
+  it), `side` is the image's UP (texture t runs from +side to -side) and s runs along N x T.  srange's third
+  figure carries PDC_SOURCE (1: displacements and brush entities too) and PDC_SOURCESIZE (2: the material's
+  `decalsize`, its texture x $decalscale, replaces side's length and the aspect; an older engine ignores both
+  and draws vbsp_decal_size).
 
-        axis[0] = normalize(-up)      vradius = 1/|up|     <- depth
-        axis[2] = normalize(side)     radius  = 1/|side|   <- half-size
-
-  so a BIGGER vector means a SMALLER decal.  Hence the divisions below rather
-  than multiplications, and hence `up` pointing along the surface normal --
-  the engine negates it to get the projection direction, which must point INTO
-  the surface.
+  P1721: Source orients a decal from the surface alone (r_decal.cpp R_DecalComputeBasis): a wall's T is
+  straight down, a floor's S is world x.  The old tangent cross(n, z) put a wall decal's up sideways.  A clip
+  that produces nothing (the nearest hit was a static prop's hull, which Source never decals) tries the
+  next-nearest face with another normal, up to four.
 */
 void(vector org, string tex, float size) Decal_Place =
 {
-	local vector dir, n, tang, hit;
-	local float  i, d, bestd;
-	local float  h;
+	local vector dir, n, hit, s, t, t0, t1, t2;
+	local float i, d, bestd, tries, h, ntried;
 
-	bestd = DECAL_PROBE + 1;
-	n = '0 0 0';
-	hit = org;
-
-	// Six axis probes, nearest wins.  Cheap (this runs once per decal at map
-	// load) and it finds floors, ceilings and walls without knowing which.
-	for (i = 0; i < 6; i = i + 1)
+	ntried = 0;
+	hit = t0 = t1 = t2 = '0 0 0';
+	for (tries = 0; tries < 4; tries = tries + 1)
 	{
-		dir = Decal_ProbeDir(i);
-		traceline(org, org + dir * DECAL_PROBE, MOVE_NOMONSTERS, world);
-		if (trace_fraction >= 1)
-			continue;
-		/*
-		  BUILD 53 -- WORLD SURFACES ONLY, and this line exists to keep that
-		  true rather than to make it true.
-
-		  csqc_world used to contain nothing but the world model, so "the trace
-		  hit something" and "the trace hit the world" were the same statement
-		  and neither had to be written down.  cl_sprites.qc now links the map's
-		  solid brush entities into the same world so the glare and spotlight
-		  traces can see them (vbsp_glare_brush), which silently made those two
-		  statements different here.
-
-		  Source's own infodecal does paint on brush entities, so hitting one is
-		  not wrong in principle -- but adddecal_static clips the decal against
-		  the world model, and a decal whose plane belongs to a func_brush has
-		  nothing there to clip to.  Declining the hit keeps every decal in the
-		  library exactly where it has been.  Painting on brush entities is a
-		  feature to add deliberately, with its own clip, not a side effect to
-		  inherit from a change about light glows.
-		*/
-		if (trace_ent != world)
-			continue;
-		d = trace_fraction * DECAL_PROBE;
-		if (d < bestd)
+		bestd = DECAL_PROBE + 1;
+		n = '0 0 0';
+		// Each direction twice: out from the origin, and in from DECAL_PROBE out to just past it.  Hammer leaves
+		// most origins a fraction inside the face's (often func_detail) brush, where every outward trace starts
+		// solid; the inward one still meets the face (ahop_coast: 25 of 26 misses).
+		for (i = 0; i < 52; i = i + 1)
 		{
-			bestd = d;
-			n     = trace_plane_normal;
-			hit   = trace_endpos;
+			dir = Decal_ProbeDir(floor(i / 2));
+			if (i & 1)
+				traceline(org + dir * DECAL_PROBE, org - dir * DECAL_EMBED, MOVE_NOMONSTERS, world);
+			else
+				traceline(org, org + dir * DECAL_PROBE, MOVE_NOMONSTERS, world);
+			if (trace_fraction >= 1 || trace_startsolid || trace_plane_normal == '0 0 0')
+				continue;
+			// Source paints brushes only: the world and brush entities (PDC_SOURCE clips the latter).
+			if (trace_ent != world && substring(trace_ent.model, 0, 1) != "*")
+				continue;
+			if (ntried > 0 && trace_plane_normal * t0 > 0.99)
+				continue;
+			if (ntried > 1 && trace_plane_normal * t1 > 0.99)
+				continue;
+			if (ntried > 2 && trace_plane_normal * t2 > 0.99)
+				continue;
+			d = vlen(trace_endpos - org);
+			if (d < bestd)
+			{
+				bestd = d;
+				n     = trace_plane_normal;
+				hit   = trace_endpos;
+			}
 		}
+		if (n == '0 0 0')
+			break;
+
+		if (fabs(n_z) > 0.7071)
+		{
+			s = '1 0 0';
+			t = crossproduct(s, n);
+		}
+		else
+		{
+			t = '0 0 -1';
+			s = crossproduct(n, t);
+			t = crossproduct(s, n);
+		}
+		t = normalize(t);
+
+		// Lift fractionally off the surface: the clip wants the decal's centre just outside the face.
+		h = adddecal_static(tex, hit + n * 0.5,
+		                    n  * (1 / DECAL_DEPTH),
+		                    -t * (1 / size),
+		                    '1 1 1', '1 1 0',      // alpha 1, aspect 1, lifetime 0
+		                    '0 1 3', '0 1 0');     // full texture; PDC_SOURCE | PDC_SOURCESIZE
+		if (h >= 0)
+		{
+			vbsp_decal_n = vbsp_decal_n + 1;
+			Decal_Keep(h);
+			return;
+		}
+		if (ntried == 0)
+			t0 = n;
+		else if (ntried == 1)
+			t1 = n;
+		else
+			t2 = n;
+		ntried = ntried + 1;
 	}
-
-	if (n == '0 0 0')
-		return;                 // floating in space; nothing to paint on
-
-	// Any tangent will do -- the decal is square and its rotation is not
-	// recorded (Source derives it from the surface too).  Cross with whichever
-	// world axis is least parallel to the normal, so the cross never degenerates.
-	if (fabs(n_z) < 0.9)
-		tang = normalize(crossproduct(n, '0 0 1'));
+	if (ntried)
+		vbsp_decal_noclip = vbsp_decal_noclip + 1;
 	else
-		tang = normalize(crossproduct(n, '1 0 0'));
-
-	// Lift fractionally off the surface: the clip wants the decal's centre
-	// just outside the face, not embedded in it.
-	h = adddecal_static(tex, hit + n * 0.5,
-	                    n    * (1 / DECAL_DEPTH),
-	                    tang * (1 / size),
-	                    '1 1 1', '1 1 0');   // alpha 1, aspect 1, lifetime 0
-	if (h >= 0)
-	{
-		vbsp_decal_n = vbsp_decal_n + 1;
-		Decal_Keep(h);
-	}
+		vbsp_decal_nosurf = vbsp_decal_nosurf + 1;
+	if (vbsp_decal_noclip + vbsp_decal_nosurf <= 12)
+		dprint(sprintf("decal miss: %s at %v, %s, contents %g\n", tex, org, ntried ? "clipped to nothing" : "no surface", pointcontents(org)));
 };
 
 /*
@@ -424,6 +445,8 @@ void() Decal_LoadForMap =
 		shearmax = 0.1;
 
 	vbsp_decal_n = 0;
+	vbsp_decal_nosurf = 0;
+	vbsp_decal_noclip = 0;
 	vbsp_decal_seen = 0;
 	vbsp_overlay_n = 0;
 	vbsp_overlay_seen = 0;
@@ -551,7 +574,8 @@ void() Decal_LoadForMap =
 	if (vbsp_decal_seen)
 	{
 		if (wantdecals)
-			print(sprintf("decals: %g of %g placed\n", vbsp_decal_n, vbsp_decal_seen));
+			print(sprintf("decals: %g of %g placed (%g no surface within %g, %g clipped to nothing)\n", vbsp_decal_n,
+				vbsp_decal_seen, vbsp_decal_nosurf, DECAL_PROBE, vbsp_decal_noclip));
 		else
 			print(sprintf("decals: %g found, none placed (vbsp_decals 0)\n", vbsp_decal_seen));
 	}
