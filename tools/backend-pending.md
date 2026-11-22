@@ -31,6 +31,13 @@ CURRENT = cd1965f1 (root /srv/nvme/agent-work/gen1674-20261121-e3; kit FTESurf-p
 pins native fteqw-svarm64 1753f9d4 (lobby engine patch-1683, swapped 01:38Z), and keeps the consumer's 900 s
 `systemctl start` (its drop-in will have 18 ExecStartPre blocks, ~280 s; or the owner prunes retired blocks).
 
+## P1715 run lines native -- lobby csprogs LIVE 22 Nov 01:52Z (worldofsurf-08)
+LIVE: all 12 lobbies on qw 8bbf41ba (unchanged) / cs 20be3cff = tag v0.1.56 + 2aa72543 + 7d97c6b8 + P1715's cl_lines.qc
+(branch deploy/p1715-lobby 12f060dc; 0.1.56's fteqcc in FTESurf-worktrees/release0156-88, which rebuilds the live
+8bbf41ba / 36fbd89c exactly); backups *.pre1715-20261122T015158Z; codes.txt 173; engine patch-1709 59bc2e04 untouched.
+Checked: 12 active, 12 in lobbies.json, 0 SIGSEGV/Host_Error/PR_ExecuteProgram since each lobby's last "Loaded progs".
+Next lobby progs build: start from deploy/p1715-lobby, not v0.1.56. Script: FTESurf-worktrees/coastperf-20261122-08/deploy1715/.
+
 ## P1710 "unchecked" mark -- LIVE end to end 21 Nov 23:57Z (lobby side 21:23Z; surfd half in gen1710) (worldofsurf-2c)
 LIVE: all 12 lobbies on qw 8bbf41ba / cs 36fbd89c = tag v0.1.56 (a0c594f3) + 2aa72543 + 7d97c6b8 only (built with 0.1.56's
 fteqcc, which rebuilds the tag's bb26775e / b5dc2419 exactly; NOT main, so worldofsurf-5a's later sv_tasautosurf.qc

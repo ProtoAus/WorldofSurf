@@ -6,7 +6,7 @@
 2. Movement feels exactly the same (exact by construction; `pm_physentcull 0` is the old path to compare against).
 3. After the next release: ask Akatosh to repeat his lobby dump (same steps as before).
 
-## P1715 -- replay paths and run lines draw natively again (worldofsurf-08) -- lobbies and dev install
+## P1715 -- replay paths and run lines draw natively again (worldofsurf-08) -- LIVE on the lobbies 22 Nov 01:52Z; dev install
 1. In a replay: `lines native` says "native builtins 1 in use 1" with passes counting up and refused 0.
 2. The replay's path looks exactly as before (thin, smooth, coloured by speed).
 
