@@ -192,9 +192,8 @@ void(string mat, vector eye, float hs, vector col, float a) Sun_Quad =
 	R_EndPolygon();
 };
 
-// P1723-P1725/P1730: the map's bloom, exposure and dynamic-shadow settings, read once at load.  Sources and the
-// fidelity notes: ENGINE_PATCHES P1723, P1724, P1730.
-float sun_exposet;	// the game, not the player, set r_exposure
+// P1723-P1725/P1732: the map's bloom, exposure and dynamic-shadow settings, read once at load.  Sources and the
+// fidelity notes: ENGINE_PATCHES P1723, P1724, P1732.
 
 // VRAD LightForString: "r g b [brightness [r g b brightness HDR]]" -> linear intensity / 255.  '-1 -1 -1' = not legal.
 vector(string val, float hdr) Sun_VradLight =
@@ -222,6 +221,35 @@ vector(string val, float hdr) Sun_VradLight =
 	return [pow(r / 255, 2.2), pow(g / 255, 2.2), pow(b / 255, 2.2)] * (k / 255);
 };
 
+// VRAD ParseLightEnvironment's sky ambient: a legal _ambientHDR (HDR), else _ambient, else half the sun (_light,
+// _lightHDR, _lightscaleHDR as ParseLightGeneric); x _AmbientScaleHDR on HDR.  Linear, VRAD units / 255.
+vector(float hdr, string lt, string lthdr, float ltscale, string amb, string ambhdr, float ambscale) Sun_SkyAmbient =
+{
+	local vector sun, v;
+
+	sun = Sun_VradLight(lt, hdr);
+	if (hdr)
+	{
+		v = Sun_VradLight(lthdr, TRUE);
+		if (v_x >= 0)
+			sun = v;
+	}
+	if (sun_x < 0)
+		sun = '0 0 0';
+	if (hdr)
+		sun = sun * ltscale;
+	v = '-1 -1 -1';
+	if (hdr)
+		v = Sun_VradLight(ambhdr, TRUE);
+	if (v_x < 0)
+		v = Sun_VradLight(amb, hdr);
+	if (v_x < 0)
+		v = sun * 0.5;
+	if (hdr)
+		v = v * ambscale;
+	return [max(0, v_x), max(0, v_y), max(0, v_z)];
+};
+
 float(float x) Sun_SRGB =
 {
 	if (x <= 0.0031308)
@@ -231,27 +259,25 @@ float(float x) Sun_SRGB =
 
 void() Sun_MapLight =
 {
-	local string tok, key, cn, inp, amb, ambhdr;
+	local string tok, key, cn, inp, amb, ambhdr, lt, lthdr;
 	local float bloom, bat, d, p, y, havesc, havecsm, csmle, havele, epitch, ehaspitch, emin, emax, eminat, emaxat;
-	local float ambscale, hascol, hdr, hdrk, expo;
-	local vector eang, scdir, csmdir, ledir, thr, ecol, sccol, skyamb, v;
+	local float ambscale, ltscale, hascol, hdr, hdrk, expo;
+	local vector eang, scdir, csmdir, ledir, thr, ecol, sccol, skyamb, skyambhdr, v;
 
-	hdrk = Emit_MapHDR(CL_LumpMapName());	// -1: not read (a map over EM_BSPREAD)
-	hdr = hdrk == 1;					// Source's tonemap and HDR keys apply only to HDR lighting
 	bloom = 1;
 	bat = eminat = emaxat = -1;
 	emin = emax = 0;
 	havesc = havecsm = csmle = havele = FALSE;
-	scdir = csmdir = ledir = sccol = skyamb = '0 0 0';
+	scdir = csmdir = ledir = sccol = skyamb = skyambhdr = '0 0 0';
 	getentitytoken(0);
 	while ((tok = getentitytoken()) != "")
 	{
 		if (tok != "{")
 			continue;
-		cn = amb = ambhdr = "";
+		cn = amb = ambhdr = lt = lthdr = "";
 		eang = ecol = '0 0 0';
 		epitch = ehaspitch = hascol = 0;
-		ambscale = 1;
+		ambscale = ltscale = 1;
 		d = 0;
 		while ((key = getentitytoken()) != "" && key != "}")
 		{
@@ -279,6 +305,12 @@ void() Sun_MapLight =
 				ambhdr = tok;
 			else if (key == "_ambientscalehdr")
 				ambscale = stof(tok);
+			else if (key == "_light")
+				lt = tok;
+			else if (key == "_lighthdr")
+				lthdr = tok;
+			else if (key == "_lightscalehdr")
+				ltscale = stof(tok);
 			else if (key == "onmapspawn")
 			{
 				if (tokenizebyseparator(strreplace(chr2str(27), ",", tok), ",") < 4)
@@ -318,16 +350,8 @@ void() Sun_MapLight =
 			y = eang_y * (M_PI / 180);
 			ledir = [cos(p) * cos(y), cos(p) * sin(y), sin(p)];
 			havele = TRUE;
-			skyamb = Sun_VradLight(amb, hdr);
-			if (hdr)
-			{
-				v = Sun_VradLight(ambhdr, TRUE);
-				if (v_x >= 0)
-					skyamb = v;
-				skyamb = skyamb * ambscale;
-			}
-			if (skyamb_x < 0)
-				skyamb = '0 0 0';
+			skyamb = Sun_SkyAmbient(FALSE, lt, lthdr, ltscale, amb, ambhdr, ambscale);
+			skyambhdr = Sun_SkyAmbient(TRUE, lt, lthdr, ltscale, amb, ambhdr, ambscale);
 		}
 		else if (cn == "env_cascade_light" && !havecsm)
 		{
@@ -339,6 +363,16 @@ void() Sun_MapLight =
 		}
 	}
 	cvar_set("r_bloom_mapscale", ftos(bloom));
+
+	// Which lighting is drawn only matters to the exposure test and to a map whose HDR keys change the sky ambient;
+	// asking reads the BSP header (Emit_MapHDR: the whole file, once per map and hl2_favour_ldr).  mapname, not
+	// serverkey("map"): that can still be "" or the previous map here (P948).
+	hdrk = 0;
+	if (cvar("vbsp_exposure") || skyamb != skyambhdr)
+		hdrk = Emit_MapHDR(CL_WorldShortName());	// -1: not read (a map over EM_BSPREAD)
+	hdr = hdrk == 1;
+	if (hdr)
+		skyamb = skyambhdr;
 
 	// Exposure test: Source's band (values above 0 count; defaults 0.5..2; min over max raises max) clamped round 1.
 	// An LDR-lit map has no tonemap: 1.  vbsp_exposure 0 hands r_exposure back to the player.
@@ -352,12 +386,12 @@ void() Sun_MapLight =
 	if (cvar("vbsp_exposure"))
 	{
 		cvar_set("r_exposure", ftos(expo));
-		sun_exposet = TRUE;
+		cvar_set("_vbsp_exposure_set", "1");
 	}
-	else if (sun_exposet)
+	else if (cvar("_vbsp_exposure_set"))
 	{
 		cvar_set("r_exposure", cvar_defstring("r_exposure"));
-		sun_exposet = FALSE;
+		cvar_set("_vbsp_exposure_set", "0");
 	}
 
 	if (havesc)

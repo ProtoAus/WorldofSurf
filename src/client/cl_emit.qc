@@ -2460,7 +2460,8 @@ void() Emit_RegisterCvars =
 	// What the motes' light is multiplied by: -1 is the map's (Emit_Exposure),
 	// 1 Source without HDR.  Read at map load.
 	registercvar("vbsp_emit_exposure", "-1", CVAR_ARCHIVE);
-	registercvar("vbsp_exposure", "0", CVAR_ARCHIVE);	// P1730 (test): 1 = r_exposure from the map's env_tonemap_controller (cl_sun.qc)
+	registercvar("vbsp_exposure", "0", CVAR_ARCHIVE);	// P1732 (test): 1 = r_exposure from the map's env_tonemap_controller (cl_sun.qc)
+	registercvar("_vbsp_exposure_set", "0");			// P1732: the game set r_exposure (outlives the CSQC VM)
 	// func_precipitation's rain and snowfall (Emit_PrecipFrame).
 	registercvar("vbsp_emit_precip", "1", CVAR_ARCHIVE);
 	registercvar("vbsp_emit_embers",  "1", CVAR_ARCHIVE);
