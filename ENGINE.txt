@@ -14,7 +14,7 @@
 # (Source's SetGroundEntity; ahop_coast's teleport exits jump on time) and SOLID_VPHYSICS brush entities (func_brush
 # solidbsp 0, doors, rotators...) collide through their vcollide plus vphysics' half unit (ahop_coast's clip ramp).
 # ahop_coast vs Momentum demos 50 -> 16 ground disagreements, 13 surf demos unchanged, lobby gate identical. Lobbies,
-# verifier and clients change together (BACKLOG "P1713": canary one lobby first). Record: ENGINE_PATCHES P1713.
+# verifier and clients changed together in 0.1.57 (22 Nov 03:47Z). Record: ENGINE_PATCHES P1713.
 # P1718 (game QC + build.ps1 only; worldofsurf-08): tools/qcframes.py gates build.ps1 (before deploy) and wos-build.sh;
 # menu globals dl_have_cancel / mt_req moved out of function frames. P1715 (QC only): run lines native again (LIVE on
 # the lobbies 22 Nov 01:52Z). No engine change: commit/tag stay patch-1714. Record: ENGINE_PATCHES P1715, P1718.

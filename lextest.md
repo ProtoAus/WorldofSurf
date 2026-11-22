@@ -1,5 +1,13 @@
 # lextest.md — things waiting on a human
 
+## 0.1.57 release -- PUBLISHED 22 Nov 03:46Z (record: tools/release-0.1.57.md); lobbies on it 03:47Z; owner check PENDING
+- P1710-P1717, P1719, P1720. Lobbies: engine patch-1717 (also the surfd verifier; mover 15), the release's progs, no cfg
+  change, one restart 03:46-03:47Z.
+1. Start the game: it updates to 0.1.57 (title menu version). Join a lobby on ahop_coast: the stage teleports jump on the
+   first tick when you hold jump through them, and the long clip-ramp climb lands every hop on time.
+2. The P1717 checks below (props on ahop_coast and bhop_canals). An un-updated 0.1.56 client mispredicts at those
+   teleports and clip ramps until it updates.
+
 ## P1717 -- props on Source maps lit as in Momentum (worldofsurf-88) -- engine main; players with the next release
 1. ahop_coast, your save 7 (`setpos -14891.7 256.3 -13593.0 -7.3 69.1 0`): the white fence panels and the crate look
    weathered grey like the concrete wall behind them, not glowing; the shed (a baked prop) looks exactly as before.

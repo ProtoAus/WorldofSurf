@@ -21,6 +21,8 @@
 
 ## next
 
+## 0.1.57 2026-11-22
+
 ### P1717 Props on Source maps lit as in Momentum
 - Movable props (fences, crates, drums, signs and the like) on Source maps were drawn about twice as bright as in Momentum; on ahop_coast the fences glowed white. They now take Source's lighting and sit in the scene like the walls around them.
 - Newer Momentum maps (bhop_canals and other Strata-format maps) now light their props from the map's own light instead of a flat grey.

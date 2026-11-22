@@ -59,9 +59,11 @@ The real answer is re-simulation (pm_verify through same-state reloads: Jargon's
 once the reload clock is rebased -- scratchpad p1716_rebase.py), giving a "re-simulated" mark a fake cannot get.
 
 ## P1713 Mover 15 -- what it leaves (22 Nov, worldofsurf-88; root FTESurf-worktrees/coastair-20261122-88)
-- No mover-15 recording verified end to end yet (ENGINE_PATCHES P1713 "Not shown"): a Jargon TAS .rec is refused by
-  pm_verify as a save-state run and its project stops at the last stretch save. Canary one lobby on the new engine,
-  record a plain run there, pm_verify it before the rest of the fleet.
+- Mover 15 is LIVE on all 12 lobbies and the verifier since 0.1.57 (22 Nov 03:47Z). The one-lobby canary was not run:
+  every lobby runs from one game dir, so swapping files for one would load the new progs on the old engine at the
+  others' next map change. In its place: the Pi gate (live patch-1709 vs patch-1717 identical on pm_dettest x7 and 12
+  lobby runs, 9 PASS / 3 REFUSE) and the released client on lobby 12 (pm_sourceversion 15, 0 prederr). Still not
+  shown: a mover-15 run verified end to end -- read surfd's verdicts for the first runs after 03:47Z.
 - Edges of a SOLID_VPHYSICS hull stand too far out: vphysics' separation is a sphere, ours is 0.5 on every plane.
   Momentum twice passes within 0.40/0.47 of a func_brush *134 wedge's edge mid-sweep without a hit (9c2f97a4 tick
   6013, 7367486c 5897). A rounded sweep would close it; a half unit kept only along the sweep (48 better / 12 worse)
