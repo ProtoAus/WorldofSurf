@@ -1362,6 +1362,7 @@ void(entity e) SV_SpDrop;
 .float  vbsp_sp_motored;    // on the body: a motor has taken it
 .float  vbsp_sp_bodynodraw; // on the body: its own EF_NODRAW, kept while the motor draws it
 .float  vbsp_sp_flip;       // on the motor: the body faces against the axis (roll runs the other way)
+.float  vbsp_sp_inbody;     // on the body: an input to it is being delivered (a nested one runs plainly)
 float(entity to, float sf) SV_SpSend;     // P1387: a mover csprogs draws
 entity(entity e) SV_MotorBody;             // P1726
 void(entity m, entity b) SV_MotorSync;     // P1726
@@ -5096,19 +5097,28 @@ void(entity t, entity o, entity act) SV_ApplyInput =
 {
 	local entity m, b;
 	m = t.vbsp_sp_motor;
-	if (m && m.vbsp_sp_body == t)
+	if (m && !t.vbsp_sp_inbody && !wasfreed(m) && m.vbsp_sp_body == t)
 	{
+		t.vbsp_sp_inbody = TRUE;
 		t.effects = (t.effects - (t.effects & EF_NODRAW)) | (t.vbsp_sp_bodynodraw ? EF_NODRAW : 0);
 		SV_ApplyInputRaw(t, o, act);
-		SV_MotorSync(m, t);
+		t.vbsp_sp_inbody = FALSE;
+		// review 4: re-check the pair -- a nested input may have removed the motor and given the body back
+		if (!wasfreed(m) && m.vbsp_sp_body == t && (wasfreed(t) || t.vbsp_sp_motor == m))
+			SV_MotorSync(m, t);
 		return;
 	}
-	b = t.vbsp_sp_body;
 	SV_ApplyInputRaw(t, o, act);
-	if (b && wasfreed(t) && !wasfreed(b))
+	// A removed motor gives its body back.  Read after the call: a delay-0 Kill at spawn resolves the motor (and
+	// hides the body) inside it, and a freed edict keeps its fields.
+	if (wasfreed(t) && t.vbsp_sp_ismotor)
 	{
-		b.effects = (b.effects - (b.effects & EF_NODRAW)) | (b.vbsp_sp_bodynodraw ? EF_NODRAW : 0);
-		b.vbsp_sp_motor = world;
+		b = t.vbsp_sp_body;
+		if (b && !wasfreed(b) && b.vbsp_sp_motor == t)
+		{
+			b.effects = (b.effects - (b.effects & EF_NODRAW)) | (b.vbsp_sp_bodynodraw ? EF_NODRAW : 0);
+			b.vbsp_sp_motor = world;
+		}
 	}
 };
 void(entity t, entity o, entity act) SV_ApplyInputRaw =
@@ -12267,9 +12277,10 @@ entity(entity e) SV_MotorBody =
 void(entity m, entity b) SV_MotorSync =
 {
 	if (wasfreed(b) || m.vbsp_sp_body != b)
-	{
+	{	// the body is gone: so is its drawing, and what rode it stops where it is
 		m.effects = m.effects | EF_NODRAW;
 		m.vbsp_sp_body = world;
+		SV_SpKillKids(m);
 	}
 	else
 	{
