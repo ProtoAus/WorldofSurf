@@ -21,6 +21,9 @@
 
 ## next
 
+### P1715 Replay paths and run lines draw fast again
+- Run lines (a replay's path, board lines, your trail, ghost lines) were being drawn the slow way since 20 Nov; on ahop_coast a replay's path cost about a sixth of the frame rate. They draw at full speed again, in lobbies too.
+
 ### P1712 A new TAS best offers itself for the TAS board
 - When a TAS run (Jargon or manual) beats your other saved TAS runs of that course, a box pops up where the F6 report box sits: F6 uploads it to the TAS board at once, F7 keeps it on your PC. Press nothing and it uploads itself when its 12-second timer ends.
 - The TAS menu's Upload tab chooses what a new best does: Auto-upload (the default), Ask, or Off. The timer only runs while you can see the box.

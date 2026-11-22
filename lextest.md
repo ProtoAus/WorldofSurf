@@ -1,5 +1,9 @@
 # lextest.md — things waiting on a human
 
+## P1715 -- replay paths and run lines draw natively again (worldofsurf-08) -- lobbies and dev install
+1. In a replay: `lines native` says "native builtins 1 in use 1" with passes counting up and refused 0.
+2. The replay's path looks exactly as before (thin, smooth, coloured by speed).
+
 ## P1712 -- a new TAS best offers itself for the TAS board (worldofsurf-5a) -- your dev install, after the Pi update
 1. Finish a TAS run (Jargon or manual) faster than your other saved TAS runs of that course: a "New TAS best" box
    appears under the finish card with a 12 s timer; F6 uploads at once ("uploaded: run N ..."); F7 keeps it local.
