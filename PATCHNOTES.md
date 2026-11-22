@@ -27,13 +27,16 @@
 - Player models are unchanged.
 
 ### P1720 Prediction stops redoing moves it already worked out
-- With ping your game replays your recent movement every frame; it now reuses the moves it already worked out instead of recalculating them, which is most of them. Moving at 150 ms on the test PC: ahop_coast about 530 to 660 fps, bhop_canals about 270 to 320 fps. Movement is exactly the same.
+- With ping your game replays your recent movement every frame; it now reuses the moves it already worked out instead of recalculating most of them. Movement is exactly the same.
+- Moving at 150 ms on the test PC: ahop_coast about 530 to 660 fps, bhop_canals about 270 to 320 fps.
 
 ### P1719 The sky's ocean stops drawing its own reflections
 - Water in a map's 3D sky (ahop_coast's ocean) now uses the main view's reflection, as in Source, instead of drawing its own: about 6% more fps on ahop_coast, same picture.
 
 ### P1716 TAS uploads go up straight away
-- A TAS run you upload appears on the TAS board at once, records included. Anything the physics check could not confirm (for example Jargon's save/load retries) is listed on the run's page and the run is marked "not fully checked". A run whose physics looks wrong still waits for review, and runs the check refuses are still refused.
+- A TAS run you upload appears on the TAS board at once, records included.
+- Anything the physics check could not confirm (for example Jargon's save/load retries) is listed on the run's page, and the run is marked "not fully checked".
+- A run whose physics looks wrong still waits for review, and runs the check refuses are still refused.
 
 ### P1715 Replay paths and run lines draw fast again
 - Run lines (a replay's path, board lines, your trail, ghost lines) were being drawn the slow way since 20 Nov; on ahop_coast a replay's path cost about a sixth of the frame rate. They draw at full speed again, in lobbies too.
@@ -49,7 +52,8 @@
 - TAS projects saved before this update cannot be reopened exactly: the movement they were made with changed.
 
 ### P1712 A new TAS best offers itself for the TAS board
-- When a TAS run (Jargon or manual) beats your other saved TAS runs of that course, a box pops up where the F6 report box sits: F6 uploads it to the TAS board at once, F7 keeps it on your PC. Press nothing and it uploads itself when its 12-second timer ends.
+- When a TAS run (Jargon or manual) beats your other saved TAS runs of that course, a box pops up where the F6 report box sits.
+- F6 uploads it to the TAS board at once, F7 keeps it on your PC. Press nothing and it uploads itself when its 12-second timer ends.
 - The TAS menu's Upload tab chooses what a new best does: Auto-upload (the default), Ask, or Off. The timer only runs while you can see the box.
 - Runs the physics check clears appear on the board; a new record or anything it cannot clear waits for review, as before.
 
