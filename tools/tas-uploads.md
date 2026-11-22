@@ -210,6 +210,16 @@ tasupd-src-91a26c9f, installer sha256 688efc3c...b880): release /opt/ftesurf-tas
 check (409) where e5ecca2b refused it as "no account proof" (400).
 Pushed: engine main c05e443e4 (tag patch-1712), game main 91a26c9f; Lex's dev install rebuilt (cs 79ceab96, allow-coded).
 
+## P1716: published without review (Lex 22 Nov)
+
+Asked whether a made-up wall-clipping record staying up until he notices was acceptable: "thats fine". tasupd now shows
+every upload the checker does not refuse: a tasplaus HOLD and the record rule ("a new record waits for the owner") become
+notes on the run ("published without review"), labelled "not fully checked" on the board and run page (reviewed_at 0;
+an owner-approved one still reads "owner approved"). Still held: a copy of another player's motion (whose run it is is a
+person's call) and a checker that could not run (it said nothing). `create_app(review=True)` / TASUPD_REVIEW=1 restores
+the review flow, which the existing tests pin (svc.REVIEW_DEFAULT = True in test_tasupd.py). Next: re-simulation of
+game uploads (pm_verify on the Pi) for a "re-simulated" mark -- Lex: "a cool part of the anti-cheat that I would want".
+
 ## P1700: on the website
 
 tasupd's pages carry the site's menu (SITE_NAV, `TAS uploads` current) and every site page links here (the release

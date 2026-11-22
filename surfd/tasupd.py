@@ -53,6 +53,10 @@ TICK = 0.015                        # the board is the game's 66.67 Hz; another 
 MAX_TRACK = 99
 USER_DAY, DAY_ITEMS, DAY_BYTES = 30, 1000, 1024 ** 3   # uploads an account / everyone a day
 HELD_CAP = 10                       # an account's runs waiting for the owner
+# P1716 (Lex 22 Nov, on a made-up record staying up until he notices: "thats fine"): what the checker does not refuse is
+# shown at once -- a physics HOLD and a new record too, their reasons on the run. A copy of another player's motion and a
+# checker that could not run still wait. create_app(review=True) / TASUPD_REVIEW=1 holds them all as before.
+REVIEW_DEFAULT = False
 STORE_CAP = 4 * 1024 ** 3
 SESSION_TTL, STATE_TTL = 12 * 3600, 600
 PEER_READS, PEER_SIGNINS = 120, 10  # a minute, per address (an IPv6 /64)
@@ -70,7 +74,7 @@ REASONS_MAX = 40                    # kept and shown per run; a bad file can giv
 # Pages never load `sig` (up to MBs a row): these columns only.
 ROW = ('id, sha, steamid, map, track, ticks, verdict, state, reasons, stats, tool, size, uploaded_at,'
        ' reviewed_at, note')
-LIST = 'id, steamid, map, track, ticks, verdict, state, tool, uploaded_at, note'
+LIST = 'id, steamid, map, track, ticks, verdict, state, tool, uploaded_at, note, reviewed_at'
 COPY_CANDIDATES, COPY_PER_PLAYER = 60, 10   # per upload; per other account (review 8: 3 of a victim's own nearer runs hid the copied one)
 COPY_BUDGET = 20.0                  # s per copy_of call (up to four an upload), then a person looks (review 7: ~60-100 s on the Pi worst case)
 COPY_TICKS, COPY_FULL = 3000, 5     # ticks compared per pass; full passes per upload before a person looks
@@ -463,15 +467,18 @@ LABEL = {'shown': 'physics checked', 'held': 'waiting for review', 'rejected': '
 
 
 def label(r):
-    return 'owner approved' if r['state'] == 'shown' and r['verdict'] != 'PASS' else LABEL[r['state']]
+    if r['state'] == 'shown' and r['verdict'] != 'PASS':
+        return 'owner approved' if r['reviewed_at'] else 'not fully checked'   # P1716: published without review
+    return LABEL[r['state']]
 
 
 def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=time.time, map_cfg_dirs=(),
-               game_files=(), releases=None, fetch=fetch_https, verify=None, mapmeta=None):
+               game_files=(), releases=None, fetch=fetch_https, verify=None, mapmeta=None, review=None):
     """game_files: csprogs the lobbies serve; releases: the site's releases/ (<version>/update.json) -- the game code
     whose proofs are taken (P1696). verify: an ed25519 module (tests), else tools/ed25519.py. mapmeta: the site's
     media/mapmeta.txt (tools/mapmeta.py) -- the course finder's maps, their courses and thumbnails (P1700)."""
     tp = load_tasplaus()
+    review = REVIEW_DEFAULT if review is None else bool(review)
     app = Flask(__name__)
     app.config['MAX_CONTENT_LENGTH'] = MAX_FORM
     store, account_db = Path(store), Path(account_db)
@@ -1288,7 +1295,7 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                     res = tp.check(run, zones, maxvel=max(caps) if caps else None)
                 except Exception as e:   # e.g. a zone file with the wrong types: cannot see, so a person looks
                     app.logger.exception('tasplaus failed on an upload for %s', mapname)
-                    res = {'verdict': tp.HOLD, 'stats': {}, 'reasons': [
+                    res = {'verdict': tp.HOLD, 'stats': {}, 'crashed': True, 'reasons': [
                         {'level': tp.HOLD, 't': None, 'what': 'the checker could not finish (%s)' % type(e).__name__}]}
             # Only these leave the slot: the parsed samples go before the next upload's check starts.
             end = run.end
@@ -1308,7 +1315,7 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         if res['verdict'] == tp.FAIL:
             return refuse('The physics check refused it.', 422, reasons)
         series, trail = unpack_sig(sig)
-        state = 'shown' if res['verdict'] == tp.PASS else 'held'
+        state = 'shown' if res['verdict'] == tp.PASS or not (review or res.get('crashed')) else 'held'   # P1716
         lo, hi = end - max(30, end // 10), end + max(30, end // 10)
         # At most COPY_PER_PLAYER nearest in length per other account, shown and removed ones first: a few
         # accounts' parked runs cannot push the run being copied out of the candidates (review 4).
@@ -1425,7 +1432,12 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                        'no other time on this course to compare with: the first upload waits for the owner' if best is None else
                        '%s the best known time on this course (%s): a new record waits for the owner'
                        % ('matches' if mine > best - 0.5 else 'faster than', fmt_time(best / 1000)) if mine <= best + 0.5 else None)
-                if why:
+                if why and not review:   # P1716: said on the run, not held
+                    why = (why.replace(': the first upload waits for the owner', ', published without review')
+                              .replace(': a new record waits for the owner', ': a new record, published without review'))
+                    if record_why: why += ', published without review'
+                    reasons = reasons + [{'level': tp.HOLD, 't': None, 'what': why}]
+                elif why:
                     state = 'held'
                     reasons = reasons + [{'level': tp.HOLD, 't': None, 'what': why}]
                 if state == 'held' and db.execute("SELECT COUNT(*) FROM runs WHERE steamid = ? AND state = 'held'",

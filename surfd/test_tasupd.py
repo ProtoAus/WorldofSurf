@@ -19,6 +19,7 @@ import test_tasplaus as fx
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import steam
 import tasupd as svc
+svc.REVIEW_DEFAULT = True   # these tests pin the review flow; P1716's publish-at-once ones pass review=False
 
 ALICE, BOB, BANNED, STRANGER = '76561198000000001', '76561198000000002', '76561198000000003', '76561198000000004'
 BASE = 'http://localhost/tasup'
@@ -632,6 +633,51 @@ class Service(unittest.TestCase):
         j = self.upload(c, rec()).get_json()
         self.assertEqual(j['state'], 'held')
         self.assertIn('the first upload waits for the owner', j['reasons'][-1]['what'])
+
+    def auto(self):   # P1716: the service as it runs by default
+        self.app = svc.create_app(self.store, self.accounts, self.zdirs, BASE, http=self.fake_http, clock=self.clock, review=False)
+
+    def test_published_at_once_a_physics_hold_says_so(self):
+        self.auto()
+        c, _ = self.sign_in(ALICE)
+        j = self.upload(c, edited_speed()).get_json()
+        self.assertEqual((j['verdict'], j['state']), ('HOLD', 'shown'), j)
+        anon = self.app.test_client()
+        self.assertEqual([x['id'] for x in anon.get('/tasup/api/board?map=synth&track=0').get_json()['runs']], [j['id']])
+        page = anon.get('/tasup/run/%d' % j['id']).get_data(as_text=True)
+        self.assertIn('not fully checked', page)
+        self.assertIn('energy', page)                                   # the reasons are on the public page
+        self.assertIn('not fully checked', anon.get('/tasup/board?map=synth&track=0').get_data(as_text=True))
+        self.cli('approve', str(j['id']))                               # already shown: approve has nothing to do
+        self.assertIn('not fully checked', anon.get('/tasup/run/%d' % j['id']).get_data(as_text=True))
+
+    def test_published_at_once_a_new_record_says_so(self):
+        self.auto()
+        self.surfd('UPDATE runs SET millis = 5000')
+        c, _ = self.sign_in(ALICE)
+        j = self.upload(c, rec()).get_json()
+        self.assertEqual((j['verdict'], j['state']), ('PASS', 'shown'), j)
+        self.assertIn('a new record, published without review', j['reasons'][-1]['what'])
+        self.surfd('DELETE FROM runs')
+        b, _ = self.sign_in(BOB)
+        j = self.upload(b, rec(*variant(17.0))).get_json()
+        self.assertEqual(j['state'], 'shown', j)
+        self.assertIn('a new record, published without review', j['reasons'][-1]['what'])
+
+    def test_published_at_once_still_holds_copies_and_a_checker_that_could_not_run(self):
+        self.auto()
+        c, _ = self.sign_in(ALICE)
+        rows, fin = fx.simulate()
+        a = self.upload(c, rec(rows, fin)).get_json()
+        self.assertEqual(a['state'], 'shown')
+        b, _ = self.sign_in(BOB)
+        self.assertCopyHeld(self.upload(b, rec([(t, [o[0], o[1] + 3.0, o[2]], v) for t, o, v in rows], fin)), a['id'])
+        z = json.loads(json.dumps(fx.ZONES))
+        z['tracks']['main']['zones']['end']['regions'][0]['bottom'] = None
+        Path(self.zdirs[1], 'synth.json').write_text(json.dumps(z))
+        j = self.upload(c, rec(*variant(9.0))).get_json()
+        self.assertEqual(j['state'], 'held', j)
+        self.assertIn('could not finish', json.dumps(j['reasons']))
 
     def test_an_unreadable_record_holds(self):
         self.surfd('DROP TABLE runs')

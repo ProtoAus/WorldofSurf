@@ -1,5 +1,11 @@
 # lextest.md — things waiting on a human
 
+## P1716 -- TAS uploads go up straight away (worldofsurf-5a) -- after the Pi update
+1. Upload a TAS run (a Jargon finish with backtracks is fine): it is on play.proto.bar/tasup at once, not "waiting for
+   review"; its page says "not fully checked" and lists why (resume records, lost packets, a new record).
+2. `tasupd.py list --state held` stays empty for these; a copy of another player's run still waits there.
+3. To go back to reviewing: TASUPD_REVIEW=1 in the ftesurf-tasupd unit's environment (root).
+
 ## P1714 -- lobbies with ping and prop-heavy maps run much faster (worldofsurf-08) -- dev install; players with the next release
 1. In a lobby on ahop_coast or bhop_canals, `r_budget 2` while moving: "prediction" should be a fraction of before
    (rig at 150 ms: 1.88 -> 0.72 ms on ahop_coast, 3.23 -> 1.75 on bhop_canals; Akatosh's dump had 1.9-2.4 ms).
