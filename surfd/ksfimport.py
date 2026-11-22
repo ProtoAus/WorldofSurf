@@ -165,7 +165,7 @@ KSF_MODES = {0: S.STYLE_CLEAN, 1: S.STYLE_SW, 2: S.STYLE_HSW, 3: S.STYLE_BW}
 KSF_LIST_PAGE = 10         # maps per /api/maps/new page (measured 5 Oct)
 
 # --watch, the unattended crawl.  40 requests every 5 minutes, 3 s apart, is ~11,500 a day.
-WATCH_BOARDS = 16          # board requests a --watch tick; --demos downloads come on top
+WATCH_BOARDS = 16          # board requests a --watch tick, at most half of it with --demos (P1734)
 DEMO_MAX = 24              # P1240, Lex 3 Nov "do what you can" with ~46,000 waiting (P896: 6)
 WATCH_MAX = WATCH_BOARDS + DEMO_MAX
 UNBLOCK_MAX = 2            # Patch 896: pages a tick re-asks for recordings on null-ID rows
@@ -1233,8 +1233,10 @@ def watch_mode(args, have, cache):
             maps = {m for m in names if m in have}
             prio = wanted_maps(now) & maps
             topup_step(cache, idx, pacer, args._topups, fetched, filing, have)
+            # P1734: a quarter, so 4 board requests (--max 8 with --demos) keep one for the sweep;
+            # 8 and up unchanged.
             unblocked = unblock_step(cache, idx, maps, prio, pacer,
-                                     min(UNBLOCK_MAX, args.max // 2), fetched, now)
+                                     min(UNBLOCK_MAX, args.max // 4), fetched, now)
             if cat["done"]:
                 refreshed = refresh_step(cache, idx, maps, prio, pacer,
                                          max(1, args.max // 4), now, fetched)
@@ -1491,7 +1493,7 @@ def main():
     ap.add_argument("--watch", action="store_true",
                     help="one unattended crawl tick, for cron (see the docstring)")
     ap.add_argument("--demos", action="store_true",
-                    help="--watch --go: download up to DEMO_MAX (24) advertised demos after the board requests\n(at least half of a small --max)")
+                    help="--watch --go: download up to DEMO_MAX (24) advertised demos after the board requests\n(half of a small --max, rounded down)")
     ap.add_argument("--delay", type=float, default=None,
                     help="--from-maps/--watch: seconds between requests\n(default %.1f, --watch %.1f)"
                     % (KSF_DELAY_MS / 1000.0, WATCH_DELAY))
@@ -1551,8 +1553,8 @@ def main():
 
     demo_max = 0
     if args.watch and args.go and args.demos:
-        # Boards keep the first WATCH_BOARDS, but never more than half: P1734, the 17 Nov cron row's
-        # --max 8 left demos 0 under the old rule. 40 stays 16 + 24; 8 is 4 + 4.
+        # Boards keep the first WATCH_BOARDS, but demos get half (rounded down): P1734, the 17 Nov
+        # cron row's --max 8 left demos 0 under the old rule. 40 stays 16 + 24; 8 is 4 + 4.
         demo_max = min(DEMO_MAX, max(0, args.max - WATCH_BOARDS, args.max // 2))
         args.max -= demo_max
     lock = take_lock(cache)
