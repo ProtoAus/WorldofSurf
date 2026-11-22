@@ -12007,8 +12007,8 @@ float(entity e, string lk) SV_RotButtonOutputKnown =
 .string attach1;
 .float  spinup;
 .float  vbsp_sp_ismotor;    // the motor itself, a turning root (its inputs are not func_rotating's)
-.entity vbsp_sp_motor;      // on the turning copy: the motor it follows
-.entity vbsp_sp_body;       // on the turning copy: the body it stands in for
+.entity vbsp_sp_motor;      // on the body: the motor that draws it turning
+.entity vbsp_sp_body;       // on the motor: the body it draws
 .float  vbsp_sp_motored;    // on the body: a motor has taken it
 // func_movelinear: position 0..1 as the rot button's (SV_RotButtonPos).
 .float  vbsp_sp_pos, vbsp_sp_ideal, vbsp_sp_dir, vbsp_sp_arrived;
@@ -12218,10 +12218,12 @@ void() SV_SpResolve =
 
 	vbsp_sp_resolved = TRUE;
 	vbsp_sp_dev = cvar("developer");
-	// P1726: a phys_motor turns the physics body it names about its axis.  The body's own edict keeps its hull
-	// exactly -- solid or not, unmoved: the physents older runs were recorded against (review 1) -- and a non-solid
-	// copy of it follows the motor, which turns like a func_rotating about its own forward (roll).  The body is
-	// hidden once the copy survives the pruning below.  A motion-disabled body does not turn in Source either.
+	// P1726: a phys_motor turns the physics body it names.  The motor's own late edict (no new one: an allocation
+	// here would renumber later solids the physent digest hashes, review 2) takes the body's pose, model and look
+	// and rolls about its forward; the body keeps its hull exactly (solid or not, unmoved: the physents older runs
+	// were recorded against, review 1) and is hidden once the motor survives the pruning below.  Only a body whose
+	// forward lies along the motor's axis can be drawn so (a windmill, a fan); a motion-disabled one stays still
+	// in Source too.
 	for (e = find(world, classname, "phys_motor"); e; e = find(e, classname, "phys_motor"))
 	{
 		q = world;
@@ -12230,48 +12232,49 @@ void() SV_SpResolve =
 		if (!q || q.model == "" || q.vbsp_sp_kind || q.vbsp_sp_motored
 		 || !(substring(q.classname, 0, 12) == "prop_physics" || substring(q.classname, 0, 12) == "func_physbox"
 		      || substring(q.classname, 0, 15) == "simple_physics_")
-		 || (substring(q.classname, 0, 12) == "prop_physics" && (q.spawnflags & 8))     // SF_PHYSPROP_MOTIONDISABLED
-		 || (substring(q.classname, 0, 12) == "func_physbox" && (q.spawnflags & 512)))  // SF_PHYSBOX_MOTIONDISABLED
+		 || (substring(q.classname, 0, 12) == "prop_physics" && (q.spawnflags & 8))       // SF_PHYSPROP_MOTIONDISABLED
+		 || (substring(q.classname, 0, 12) == "func_physbox" && (q.spawnflags & 32768)))  // SF_PHYSBOX_MOTIONDISABLED
 		{
 			dprint(sprintf("motor %s: turns nothing (attach1 '%s')\n", e.targetname, e.attach1));
 			continue;
 		}
 		d = normalize(e.axis - e.origin);
-		if (d == '0 0 0')
+		SV_SpBasis(q.angles);
+		f = vbsp_sp_bf * d;
+		if (fabs(f) < 0.999)
+		{
+			dprint(sprintf("motor %s: turns nothing (%s's forward is not its axis)\n", e.targetname, q.model));
 			continue;
-		pu = '0 0 1';
-		if (fabs(d_z) > 0.99)
-			pu = '1 0 0';
-		pl = normalize(crossproduct(pu, d));
-		pu = crossproduct(d, pl);
-		e.angles = SV_SpAngles(d, pl, pu);
+		}
+		e.angles = q.angles;
+		setmodel(e, q.model);
+		if (q.scale && q.scale != 1)
+			setsize(e, e.mins * q.scale, e.maxs * q.scale);
+		setorigin(e, q.origin);
+		e.skin = q.skin;
+		e.frame = q.frame;
+		e.body = q.body;
+		e.colormod = q.colormod;
+		e.alpha = q.alpha;
+		e.scale = q.scale;
+		e.effects = q.effects;
+		e.pvsflags = q.pvsflags;		// SV_SkyRoomAll marked the body, which ran first
+		e.vbsp_skyent = q.vbsp_skyent;
+		e.solid = SOLID_NOT;
 		e.vbsp_sp_ismotor = TRUE;
 		e.vbsp_sp_kind = SPK_ROT;
-		e.vbsp_sp_draw = FALSE;
+		e.vbsp_sp_draw = TRUE;
 		e.vbsp_sp_axis = '0 0 1';
 		e.vbsp_sp_max = fabs(e.speed);
-		e.vbsp_sp_rev = (e.speed < 0);
+		e.vbsp_sp_rev = (f > 0) ? (e.speed < 0) : (e.speed > 0);	// roll is right-handed about forward
 		if (e.spinup > 0)
 			e.vbsp_sp_up = e.vbsp_sp_dn = e.vbsp_sp_max / e.spinup;
 		e.vbsp_sp_t0 = time;
 		if (e.spawnflags & 1)
 			SV_SpRotTarget(e, e.vbsp_sp_max);	// SF_MOTOR_START_ON
+		e.vbsp_sp_body = q;
 		q.vbsp_sp_motored = TRUE;
-		p = spawn();
-		p.classname = "vbsp_motorbody";
-		setmodel(p, q.model);
-		p.skin = q.skin;
-		p.frame = q.frame;
-		p.colormod = q.colormod;
-		p.alpha = q.alpha;
-		p.scale = q.scale;
-		p.angles = q.angles;
-		p.solid = SOLID_NOT;
-		p.movetype = MOVETYPE_NONE;
-		setorigin(p, q.origin);
-		p.vbsp_sp_kind = SPK_FOLLOW;
-		p.vbsp_sp_motor = e;
-		p.vbsp_sp_body = q;
+		q.vbsp_sp_motor = e;
 		dprint(sprintf("motor %s: turns %s at %g deg/s about %v\n", e.targetname, q.model, e.speed, d));
 	}
 	for (e = findfloat(world, vbsp_sp_cand, SPK_ROT); e; e = findfloat(e, vbsp_sp_cand, SPK_ROT))
@@ -12356,8 +12359,8 @@ void() SV_SpResolve =
 		p = world;
 		if (pn != "")
 			p = SV_FindByName(pn, world);
-		else if (e.vbsp_sp_motor)
-			p = e.vbsp_sp_motor;	// P1726
+		if (p.vbsp_sp_motor)
+			p = p.vbsp_sp_motor;	// P1726: what rides the body rides the motor that draws it
 		if (p == e || !p.vbsp_sp_kind)
 			p = world;
 		e.vbsp_sp_parent = p;
@@ -12453,18 +12456,20 @@ void() SV_SpResolve =
 	// engine's 20 Hz lerp would make the server-written part trail). Also kept: a chain where an
 	// ambient_generic sounds from a member that travels -- a sound follows only an ordinary entity
 	// (snd_dma.c:2776, lerpents), so on csprogs it would stay where the edict spawned.
-	// P1726: a motor's copy that survived the pruning turns and its body is hidden (its hull stays); one that did
-	// not is hidden itself, so the body shows as before.
-	for (e = find(world, classname, "vbsp_motorbody"); e; e = find(e, classname, "vbsp_motorbody"))
-	{
-		if (e.vbsp_sp_kind == SPK_FOLLOW && e.vbsp_sp_depth)
-			e.vbsp_sp_body.effects = e.vbsp_sp_body.effects | EF_NODRAW;
-		else
+	// P1726: a motor that survived the pruning draws its body, which is hidden (its hull stays); one that did not
+	// draws nothing, and the body shows as before.
+	for (e = find(world, classname, "phys_motor"); e; e = find(e, classname, "phys_motor"))
+		if (e.vbsp_sp_body)
 		{
-			e.vbsp_sp_kind = 0;
-			e.effects = e.effects | EF_NODRAW;
+			if (e.vbsp_sp_kind == SPK_ROT && e.vbsp_sp_depth)
+				e.vbsp_sp_body.effects = e.vbsp_sp_body.effects | EF_NODRAW;
+			else
+			{
+				e.vbsp_sp_kind = 0;
+				e.effects = e.effects | EF_NODRAW;
+				e.vbsp_sp_body.vbsp_sp_motor = world;
+			}
 		}
-	}
 	ncl = nsky = 0;
 	for (e = nextent(world); e; e = nextent(e))
 		if (e.vbsp_sp_depth && e.solid != SOLID_NOT)
