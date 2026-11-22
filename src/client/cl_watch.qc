@@ -710,15 +710,17 @@ void() Watch_Free =
   FILE_READ reads the file whole on the first fgets and splits it in memory
   (34 ms there).  An empty line is a blank line until the offset reaches the end.
 */
-float(string path, float buf) Watch_BufLoad =
+// P1727: max > 0 stops after that many lines (an own view past Rec_ViewPut's cap is refused anyway).
+float(string path, float buf, float max) Watch_BufLoadMax =
 {
-	local float fh, n;
+	local float fh, n, lines;
 	local string l;
 
 	fh = fopen(path, FILE_READ);
 	if (fh < 0)
 		return FALSE;
 	n = fsize(fh);
+	lines = 0;
 	while (1)
 	{
 		l = fgets(fh);
@@ -726,10 +728,15 @@ float(string path, float buf) Watch_BufLoad =
 		if (fseek(fh) >= n)
 			break;
 		bufstr_add(buf, l, TRUE);
+		lines++;
+		if (max > 0 && lines >= max)
+			break;
 	}
 	fclose(fh);
 	return TRUE;
 };
+
+float(string path, float buf) Watch_BufLoad = { return Watch_BufLoadMax(path, buf, 0); };
 
 // P814: online names carry a database ID, while a player's private staged
 // view is keyed by the recording nonce. Never borrow it by name or duration.
@@ -751,11 +758,64 @@ string(float buf, string key) Watch_BufValue =
 	return "";
 };
 
-// P1727: the first and last characters plus float32 finiteness; stof alone also accepts junk as zero.
-// The full decimal grammar walked every character, ~300 runaway steps a row, and a long own view
-// (400 k rows) ran its open past QC's 100 M limit (Akatosh, 22 Nov). Words, nan/inf and a cut-off
-// exponent still fail; a damaged middle character ("1x2") passes as the number before it.
+// Decimal grammar plus float32 finiteness; stof alone also accepts junk as zero.
 float(string s, float limit) Watch_OwnViewNumber =
+{
+	local float i, c, len, digits, expstart, value;
+
+	len = strlen(s);
+	i = digits = 0;
+	c = str2chr(s, i);
+	if (c == 43 || c == 45)
+		i++;
+	for (; i < len; i++)
+	{
+		c = str2chr(s, i);
+		if (c < 48 || c > 57)
+			break;
+		digits++;
+	}
+	if (str2chr(s, i) == 46)
+	{
+		i++;
+		for (; i < len; i++)
+		{
+			c = str2chr(s, i);
+			if (c < 48 || c > 57)
+				break;
+			digits++;
+		}
+	}
+	if (digits == 0)
+		return FALSE;
+	c = str2chr(s, i);
+	if (c == 69 || c == 101)
+	{
+		i++;
+		c = str2chr(s, i);
+		if (c == 43 || c == 45)
+			i++;
+		expstart = i;
+		for (; i < len; i++)
+		{
+			c = str2chr(s, i);
+			if (c < 48 || c > 57)
+				break;
+		}
+		if (i == expstart)
+			return FALSE;
+	}
+	if (i != len)
+		return FALSE;
+	value = stof(s);
+	return (value >= -limit && value <= limit);
+};
+
+// P1727: an own view's numbers by their first and last characters plus float32 finiteness. Watch_OwnViewNumber's
+// grammar walks every character, ~300 runaway steps a row, and a long own view (400 k rows) ran its open past
+// QC's 100 M limit (Akatosh, 22 Nov). Words, nan/inf and a cut-off exponent still fail; a damaged middle
+// character ("1x2") passes as the number before it.
+float(string s, float limit) Watch_ViewNumber =
 {
 	local float c, value;
 
@@ -822,7 +882,7 @@ float(float buf, string map, string nonce, float cached) Watch_OwnViewValid =
 			frames++;
 		}
 		for (j = column; j < n; j++)
-			if (!Watch_OwnViewNumber(argv(j), limit))
+			if (!Watch_ViewNumber(argv(j), limit))
 				return FALSE;
 	}
 	return (frames > 0);
@@ -839,7 +899,7 @@ float(string path, float buf) Watch_OwnViewLoad =
 	fclose(fh);
 	if (bytes <= 0 || bytes >= 67108864)
 		return FALSE;
-	return Watch_BufLoad(path, buf);
+	return Watch_BufLoadMax(path, buf, FS_VIEWMAX + 3);
 };
 
 float(string path, float recbuf) Watch_OnlineOwnView =
@@ -884,9 +944,13 @@ float(string path, float recbuf) Watch_OnlineOwnView =
 	}
 	buf = buf_create_ex("string", 0);
 	good = FALSE;
+	c = 0;
 	if (buf >= 1)
 	if (Watch_OwnViewLoad(cache, buf))
+	{
 		good = Watch_OwnViewValid(buf, map, nonce, TRUE);
+		c = buf_getsize(buf);
+	}
 	if (good)
 	{
 		// The completion record must never enter frame/index interpolation.
@@ -903,6 +967,14 @@ float(string path, float recbuf) Watch_OnlineOwnView =
 	}
 	if (good)
 		print("replay: using your cached per-frame view\n");
+	else if (c > FS_VIEWMAX / 4)
+	{
+		// P1727: validating a long damaged cache and then the staged view could pass the runaway limit in one call
+		print("^3replay: your cached per-frame view is damaged -- not used\n");
+		if (buf >= 1)
+			buf_del(buf);
+		buf = 0;
+	}
 	else
 	{
 		if (buf >= 1)
