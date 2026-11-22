@@ -1,5 +1,10 @@
 # lextest.md — things waiting on a human
 
+## P1742 (worldofsurf-08) -- next dev-install build, then the release after it
+1. A lobby at high ping (or `sv_minping 300` on a local server): movement feels the same as before, fps higher.
+2. `cl_predict_memostats` after a minute: "replays from an agreeing prediction" should be nearly all of them.
+3. Anything that feels off (a slow drift, a small pop): `cl_predict_keep 0` restores the old behaviour; report the map.
+
 ## P1731 + P1733 (worldofsurf-08) -- next build of the dev install, then 0.1.60
 1. bhop_canals at hl2_water 2: the canal water shows players/props in its reflection (Source's $reflectentities) and a
    calmer refraction ($refractamount .2). Check it reads like Momentum's canal.

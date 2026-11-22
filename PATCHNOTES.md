@@ -21,6 +21,10 @@
 
 ## next
 
+### P1742 Ping costs far less frame time
+- With ping, the game no longer redoes your recent movement every time the server confirms it: when the server agrees with what your game predicted, it keeps the prediction, as Source does. Movement is the same.
+- At 300 ms on the test PC: bhop_canals about 295 to 390 fps.
+
 ### P1733 Prediction reuses more of its work online
 - With ping, the game stops redoing movement it already worked out just because something far away moved, another player moved, or the server's slightly-behind copy of you moved. Movement is exactly the same.
 - Moving at 150 ms on the test PC: bhop_canals about 270 to 315 fps.
