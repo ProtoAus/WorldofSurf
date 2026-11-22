@@ -534,20 +534,21 @@ def check(run, zones=None, maxvel=None):
         if over_cap is not None:
             # HOLD, not FAIL: the cap given may be lower than the map's (cfg/maps, a trigger, a stage).
             note(HOLD, b[0], f"velocity {b[2][over_cap]:.1f} past sv_maxvelocity {maxvel:.0f}")
-        if k > MAX_GAP:
-            # P1716: unseen only while the move across it fits its ends' speeds: at most the faster end, what gravity
-            # adds over the gap and the air cap's 30 u/s a tick; speed grows by no more than air and height lost.
-            # A teleport inside a gap was published as "could not see" (review 2: 600 u in 10 ticks).
+        if k > MAX_GAP + 0.02:   # an exact 8-tick step prints as 8.0000000007 (review 3)
+            # P1716: unseen only while the move across it fits its ends' speeds -- air adds 900 to |v|^2 a tick, a jump
+            # its vz once, gravity 0.5 g dt^2 -- and speed grows by no more than air and height lost; over 33 ticks or
+            # past two such gaps, suspect. A teleport inside a gap was published as "could not see" (reviews 2, 3:
+            # 600 u in 10 ticks; 2700 u in 66).
             dtg, sa, sb = b[0] - a[0], math.sqrt(sum(x * x for x in a[2])), math.sqrt(sum(x * x for x in b[2]))
-            reach = dtg * (max(sa, sb) + GRAVITY * dtg + 30.0 * kk) + 2.0
+            reach = dtg * math.sqrt(max(sa, sb) ** 2 + AIR_DV2 * kk + JUMP_VZ[1] ** 2) + 0.5 * GRAVITY * dtg * dtg + 2.0
             moved = math.sqrt(sum((b[1][c] - a[1][c]) ** 2 for c in range(3)))
             bigaps += 1
             if moved > reach:
                 note(HOLD, t, f"moves {moved:.0f} u across a {k:.0f}-tick gap, more than its speed reaches ({reach:.0f})")
-            elif sb * sb > sa * sa + AIR_DV2 * kk + 2 * GRAVITY * max(0.0, a[1][2] - b[1][2]) + 500.0:
+            elif sb * sb > sa * sa + AIR_DV2 * kk + JUMP_VZ[1] ** 2 + 2 * GRAVITY * max(0.0, a[1][2] - b[1][2]) + 500.0:
                 note(HOLD, t, f"speed {sa:.0f} -> {sb:.0f} u/s across a {k:.0f}-tick gap: more than air control and the drop give")
             else:
-                note(HOLD, t, f"{k}-tick gap between samples: cannot check it", unseen=bigaps <= 2)
+                note(HOLD, t, f"{k}-tick gap between samples: cannot check it", unseen=bigaps <= 2 and k <= 33.02)
             drift = []
             continue
         nchk += 1
@@ -698,15 +699,15 @@ def check(run, zones=None, maxvel=None):
         if gain > AIR_DV2 * kk + tol:
             note(HOLD, t, f"energy +{gain:.0f} in {k:.2g} tick(s), air cap {AIR_DV2 * kk:.0f}"
                  f" ({gain / (AIR_DV2 * kk):.1f}x): push, booster or speed change")
-        elif aligned and round(k) >= 2 and t >= 0 and min(ha, hb) > 1.0:
+        elif ((aligned and round(k) >= 2) or not aligned) and t >= 0 and min(ha, hb) > 1.0:
             # A step of k ticks: air control turns at most 2 asin(30/|v|) a tick, a wall or ramp only
-            # by taking speed.
+            # by taking speed. A step between ticks gets its ticks rounded up (P1716 review 3: it skipped both tests).
             turn = turn_deg(va, vb, 2)
-            most = math.degrees(2 * math.asin(min(1.0, AIR_CAP / min(ha, hb)))) * round(k) + 1.0
+            most = math.degrees(2 * math.asin(min(1.0, AIR_CAP / min(ha, hb)))) * (round(k) if aligned else kk) + 1.0
             extra = AIR_CAP * kk + GRAVITY * rate * kk + 4 * q
             landing = va[2] < -1.0 and abs(vb[2]) < 0.01 and hb <= math.sqrt(sum(c * c for c in va)) + extra
             if turn > most and not landing and not clip_ok(va, vb, 2, extra):
-                note(HOLD, t, f"{ha:.0f} -> {hb:.0f} u/s turning {turn:.1f} deg in {round(k)} ticks: air control"
+                note(HOLD, t, f"{ha:.0f} -> {hb:.0f} u/s turning {turn:.1f} deg in {round(k) if aligned else kk} ticks: air control"
                      f" turns at most {most:.1f}, and a wall or ramp would have taken speed")
         elif aligned and round(k) == 1 and t >= 0:
             # Air control adds a*w with w horizontal and v'.w <= 30, so v'.(v' - v) <= 30 |v' - v|
@@ -754,6 +755,10 @@ def check(run, zones=None, maxvel=None):
                     x3 = max(1.0, x3 / max(1.0, math.sqrt(sum(c * c for c in b[2])) / vm3))
                 ratios3.append(x3)
     clock = sorted(ratios)[len(ratios) // 2] if len(ratios) >= 20 else None
+    allow = 2 + sum(1 for x in win if x[0] >= 0) // 500   # packet timing: 1-2 in 3 of 164 of ours
+    # P1716 review 3: sampled in whole multi-tick steps (our TAS runs), a step can hide a dropped tick within the per-step
+    # bounds; such a file gets no 1% of fast pairs on top (5 drops on an 11 s bhop run took 0.075 s)
+    whole_steps = offtick > allow and fractional <= allow
     if clock is None:
         note(HOLD, None, "too little movement to check the clock", unseen=True)
     elif not CLOCK_RATIO[0] <= clock <= CLOCK_RATIO[1]:
@@ -765,13 +770,12 @@ def check(run, zones=None, maxvel=None):
             mean, fast = sum(kept) / max(1, len(kept)), sum(1 for x in rs if x > CLOCK_PAIR)
             if mean > CLOCK_RATIO[1]:
                 note(HOLD, None, f"the body covers {mean:.4f}x the {word} its speed and clock allow on average: clock edited?")
-            if fast > CLOCK_PAIRS + len(rs) // 100:   # long honest runs meet a few walls (tensor2's 3:19 WR: 3 of ~13k)
+            if fast > CLOCK_PAIRS + (0 if whole_steps else len(rs) // 100):   # long honest runs meet a few walls (tensor2's 3:19 WR: 3 of ~13k)
                 note(HOLD, None, f"{fast} steps cover more than {CLOCK_PAIR}x the {word} their speed allows: ticks dropped?")
     if gaps > 1:
         note(HOLD, None, f"{gaps} lost packets after the start (each could hide a tick or two): the owner reviews it;"
              " a recording with a sample every tick is checked by itself", unseen=True)
     # The allowance counts samples from t=0: padding the pre-start must not buy skipped ticks (review 4).
-    allow = 2 + sum(1 for x in win if x[0] >= 0) // 500   # packet timing: 1-2 in 3 of 164 of ours
     if offtick > allow:
         # P1716: whole 2+-tick steps (our TAS runs sample every 2) keep the k-tick bounds: unseen; steps between ticks
         # skip the turn and drift tests too (review 2): suspect
