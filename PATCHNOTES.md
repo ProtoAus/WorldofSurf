@@ -21,6 +21,9 @@
 
 ## next
 
+### P1730 A damaged replay file no longer freezes the game
+- A replay or camera file with a corrupted turn angle could freeze the game's interface while opening or playing it. It now plays, with the damaged moments using the replay's own angles.
+
 ### P1729 Optional distance water
 - New console setting hl2_water_lod 1 (with hl2_water 1): water far from you fades to simple water and skips its refraction render, using the distances the map gives. Off by default. Momentum always draws reflecting water in full, so this is an extra.
 

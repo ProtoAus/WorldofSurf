@@ -39,9 +39,6 @@
 - Patch 318 (plugins/hl2 mod_vbsp.c VBSP_AddBrushBevels) skips axial edges believing the runtime adds axial bevels; the
   live BIH brush clip does not (com_bih.c BIH_ClipBoxToBrush clips the brush's own sides only). VBSP's own axial sides
   cover it today (P1714 refuses to claim a brush without them).
-- A corrupted per-frame view with a huge finite yaw (e.g. 3e38) hangs CSQC: Interp_Wrap leaves ~2e31 and
-  HUD_UpdateTurn's `while (d > 180) d -= 360` never ends (cl_hud.qc:5906). Old as the view; a local sidecar is not
-  validated at all. Fix: the closed-form wrap there, or bound the angle columns. (P1727 review, 22 Nov.)
 - Cheap water (water_lod_control, $cheapwaterstart/enddistance; Source SDK 2013 viewrender.cpp DetermineWaterRenderInfo,
   water.cpp): Source applies them only to water without a local reflection, and on PC an absent $forceexpensive is 1
   (water.cpp:102-109), so every water whose (>=dx90) block has $reflecttexture reflects and refracts at every distance in
