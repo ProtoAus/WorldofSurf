@@ -48,9 +48,12 @@
   hl2_water 1: wrong.) P1729's hl2_water_lod is the mechanics as an opt-in cutoff for any water with distances, labelled
   not-Source. P1731 (23 Nov) now applies the >=dx90 blocks (bhop_canals' $reflectentities 1 and $refractamount .2 included);
   a Source-exact hl2_water_lod gate could now read $reflecttexture from them if Lex keeps the option.
-- ahop_coast's worst frames on the rig (7-12 ms) are wide views where PrepareFrame takes 3-5 ms and opaque draws 4-5 ms
-  (setpos -8456 8138 5291, -13774 9966 9483). The menu fetches /api/board?maps=1 (133 KB) every 60 s in play
-  (m_lobby.qc Mdl_Ask): not shown to cost a frame.
+- ahop_coast's worst views, re-measured 23 Nov (engine patch-1733, standing, 4 yaws each): setpos -8456 8138 5291 is
+  1.2-1.6 ms, -13774 9966 9483 1.1-2.7 ms (yaw 0: 1451 draws -- draw calls 1.0 ms, PrepareFrame 0.67, CSQC 0.66), a
+  reference spot 1.3-1.6 ms. The 22 Nov 7-12 ms frames there were spikes, not the steady cost: likely the first frames a
+  big view comes into sight (vis, props, uploads). Next: r_spikes after a setpos from far away into those views, to see
+  whether first-sight frames still spike; draw-call count is the steady lever (P1732's instancing). The menu's
+  /api/board?maps=1 fetch every 60 s (133 KB) was never shown to cost a frame.
 - Done 22 Nov: bih_tracecache is a net win after P1714 (+3-10% on/off at ahop_coast/bhop_canals 150 ms, bhop_canals
   local, surf_classics 60 ms), kept on; the 3D sky's water no longer captures its own (P1719); qcframes gates the builds
   (P1718).
