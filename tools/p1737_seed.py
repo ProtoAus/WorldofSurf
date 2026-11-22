@@ -22,7 +22,7 @@ def header(path):
     acct = utc = mapname = None
     with open(path, "rb") as fh:
         body = fh.read().decode("latin-1", "replace")
-    head = body[:4096].split("\n")         # not splitlines: latin-1 \x85 etc. are bytes of UTF-8 names
+    head = [l.rstrip("\r") for l in body[:4096].split("\n")]   # not splitlines: latin-1 \x85 etc. are bytes of UTF-8 names
     if not head or head[0].strip() != "FTESURF-PREDERR 1":
         return None
     if not re.search(r"^== (end|http)\r?$", body, re.M):
