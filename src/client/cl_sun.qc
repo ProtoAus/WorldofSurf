@@ -192,21 +192,36 @@ void(string mat, vector eye, float hs, vector col, float a) Sun_Quad =
 	R_EndPolygon();
 };
 
-/*
-  P1723/P1724/P1725/P1730: what the map says about its bloom, exposure and dynamic shadows, set where the engine reads it.
-  - SetBloomScale (env_tonemap_controller, from a logic_auto OnMapSpawn: the latest delay wins, of two at one delay
-    the first listed, as Emit_Exposure) -> r_bloom_mapscale, a multiplier on the player's own r_bloom; 1 where the map
-    says nothing.
-  - Exposure (P1730, a TEST: vbsp_exposure 1): SetAutoExposureMin/Max the same way -> r_exposure = clamp(1, min, max),
-    Source's static answer for a band (values above 0 count; min over max raises max; no controller = 0.5..2 = 1).
-    vbsp_exposure 0 leaves r_exposure to the player.
-  - The direction r_shadows 2 throws shadows: shadow_control's angles (Source AngleVectors, positive pitch down; 0 0 0
-    = 80 30 0), else an env_cascade_light's sun (its own angles, or light_environment's with uselightenvangles; VRAD's
-    sign, negative pitch down), else the engine's default.  shadow_control's colour -> r_shadows_color (else the classic
-    0.5).  On a cascade map the lightmap already holds the sun's shadows, so r_shadows_sunfloor = the sky's ambient
-    share from light_environment's _ambient ((c/255)^2.2 x brightness/255 x _AmbientScaleHDR, sRGB-encoded as the
-    lightmap is): a dynamic shadow takes the sun out and leaves baked shade alone.  Only r_shadows 2 shows any of it.
-*/
+// P1723-P1725/P1730: the map's bloom, exposure and dynamic-shadow settings, read once at load.  Sources and the
+// fidelity notes: ENGINE_PATCHES P1723, P1724, P1730.
+float sun_exposet;	// the game, not the player, set r_exposure
+
+// VRAD LightForString: "r g b [brightness [r g b brightness HDR]]" -> linear intensity / 255.  '-1 -1 -1' = not legal.
+vector(string val, float hdr) Sun_VradLight =
+{
+	local float n, r, g, b, k;
+
+	n = tokenize(val);
+	if (n == 8 && hdr)
+	{
+		r = stof(argv(4)); g = stof(argv(5)); b = stof(argv(6)); k = stof(argv(7));
+		n = 4;
+	}
+	else
+	{
+		r = stof(argv(0)); g = stof(argv(1)); b = stof(argv(2)); k = stof(argv(3));
+		if (n == 8)
+			n = 4;
+	}
+	if (n == 1)
+		g = b = r;
+	if ((n != 1 && n != 3 && n != 4) || r < 0 || g < 0 || b < 0 || k < 0)
+		return '-1 -1 -1';
+	if (n != 4)
+		k = 255;
+	return [pow(r / 255, 2.2), pow(g / 255, 2.2), pow(b / 255, 2.2)] * (k / 255);
+};
+
 float(float x) Sun_SRGB =
 {
 	if (x <= 0.0031308)
@@ -216,26 +231,27 @@ float(float x) Sun_SRGB =
 
 void() Sun_MapLight =
 {
-	local string tok, key, cn, inp;
+	local string tok, key, cn, inp, amb, ambhdr;
 	local float bloom, bat, d, p, y, havesc, havecsm, csmle, havele, epitch, ehaspitch, emin, emax, eminat, emaxat;
-	local float ambscale, ambb, havecol;
-	local vector eang, scdir, csmdir, ledir, thr, ecol, sccol, eamb, leamb;
+	local float ambscale, hascol, hdr, hdrk, expo;
+	local vector eang, scdir, csmdir, ledir, thr, ecol, sccol, skyamb, v;
 
+	hdrk = Emit_MapHDR(CL_LumpMapName());	// -1: not read (a map over EM_BSPREAD)
+	hdr = hdrk == 1;					// Source's tonemap and HDR keys apply only to HDR lighting
 	bloom = 1;
 	bat = eminat = emaxat = -1;
 	emin = emax = 0;
-	havesc = havecsm = csmle = havele = havecol = FALSE;
-	scdir = csmdir = ledir = sccol = leamb = '0 0 0';
+	havesc = havecsm = csmle = havele = FALSE;
+	scdir = csmdir = ledir = sccol = skyamb = '0 0 0';
 	getentitytoken(0);
 	while ((tok = getentitytoken()) != "")
 	{
 		if (tok != "{")
 			continue;
-		cn = "";
-		eang = ecol = eamb = '0 0 0';
-		epitch = ehaspitch = 0;
+		cn = amb = ambhdr = "";
+		eang = ecol = '0 0 0';
+		epitch = ehaspitch = hascol = 0;
 		ambscale = 1;
-		ambb = 0;
 		d = 0;
 		while ((key = getentitytoken()) != "" && key != "}")
 		{
@@ -253,13 +269,14 @@ void() Sun_MapLight =
 			else if (key == "uselightenvangles")
 				d = stof(tok);
 			else if (key == "color")
-				ecol = stov(tok);
-			else if (key == "_ambient")
 			{
-				eamb = stov(tok);
-				if (tokenize(tok) >= 4)
-					ambb = stof(argv(3));
+				ecol = stov(tok);
+				hascol = TRUE;
 			}
+			else if (key == "_ambient")
+				amb = tok;
+			else if (key == "_ambienthdr")
+				ambhdr = tok;
 			else if (key == "_ambientscalehdr")
 				ambscale = stof(tok);
 			else if (key == "onmapspawn")
@@ -292,12 +309,8 @@ void() Sun_MapLight =
 			p = eang_x * (M_PI / 180);
 			y = eang_y * (M_PI / 180);
 			scdir = [cos(p) * cos(y), cos(p) * sin(y), 0 - sin(p)];
+			sccol = hascol ? ecol * (1 / 255) : '1 1 1' * (64 / 255);	// the keyvalue's default "64 64 64"
 			havesc = TRUE;
-			if (ecol != '0 0 0')
-			{
-				sccol = ecol * (1 / 255);
-				havecol = TRUE;
-			}
 		}
 		else if (cn == "light_environment" && !havele)
 		{
@@ -305,10 +318,16 @@ void() Sun_MapLight =
 			y = eang_y * (M_PI / 180);
 			ledir = [cos(p) * cos(y), cos(p) * sin(y), sin(p)];
 			havele = TRUE;
-			if (ambb > 0)
-				leamb = [Sun_SRGB(pow(eamb_x / 255, 2.2) * ambb / 255 * ambscale),
-				         Sun_SRGB(pow(eamb_y / 255, 2.2) * ambb / 255 * ambscale),
-				         Sun_SRGB(pow(eamb_z / 255, 2.2) * ambb / 255 * ambscale)];
+			skyamb = Sun_VradLight(amb, hdr);
+			if (hdr)
+			{
+				v = Sun_VradLight(ambhdr, TRUE);
+				if (v_x >= 0)
+					skyamb = v;
+				skyamb = skyamb * ambscale;
+			}
+			if (skyamb_x < 0)
+				skyamb = '0 0 0';
 		}
 		else if (cn == "env_cascade_light" && !havecsm)
 		{
@@ -320,16 +339,27 @@ void() Sun_MapLight =
 		}
 	}
 	cvar_set("r_bloom_mapscale", ftos(bloom));
+
+	// Exposure test: Source's band (values above 0 count; defaults 0.5..2; min over max raises max) clamped round 1.
+	// An LDR-lit map has no tonemap: 1.  vbsp_exposure 0 hands r_exposure back to the player.
+	if (emin <= 0)
+		emin = 0.5;
+	if (emax <= 0)
+		emax = 2;
+	if (emin > emax)
+		emax = emin;
+	expo = hdr ? bound(emin, 1, emax) : 1;
 	if (cvar("vbsp_exposure"))
 	{
-		if (emin <= 0)
-			emin = 0.5;
-		if (emax <= 0)
-			emax = 2;
-		if (emin > emax)
-			emax = emin;
-		cvar_set("r_exposure", ftos(bound(emin, 1, emax)));
+		cvar_set("r_exposure", ftos(expo));
+		sun_exposet = TRUE;
 	}
+	else if (sun_exposet)
+	{
+		cvar_set("r_exposure", cvar_defstring("r_exposure"));
+		sun_exposet = FALSE;
+	}
+
 	if (havesc)
 		thr = scdir;
 	else if (havecsm && csmle && havele)
@@ -340,15 +370,19 @@ void() Sun_MapLight =
 		thr = stov(cvar_defstring("r_shadows_throwdirection"));
 	if (thr != '0 0 0')
 		cvar_set("r_shadows_throwdirection", sprintf("%g %g %g", thr_x, thr_y, thr_z));
-	if (!havecol)
-		sccol = '0.5 0.5 0.5';
+	// No shadow_control: CClientShadowMgr::LevelInitPreEntity's min(1, 3 x sky ambient + 0.3).
+	if (!havesc)
+		sccol = [min(1, 3 * skyamb_x + 0.3), min(1, 3 * skyamb_y + 0.3), min(1, 3 * skyamb_z + 0.3)];
 	cvar_set("r_shadows_color", sprintf("%g %g %g", sccol_x, sccol_y, sccol_z));
-	if (!havecsm || !havele)
-		leamb = '0 0 0';
-	cvar_set("r_shadows_sunfloor", sprintf("%g %g %g", leamb_x, leamb_y, leamb_z));
-	dprint(sprintf("maplight: bloom %g; exposure band %g..%g%s\n", bloom, emin, emax, cvar("vbsp_exposure") ? " (applied)" : ""));
+	// A cascade map's lightmap holds the sun's shadows: a dynamic one takes the sun out, down to the sky's share.
+	v = '0 0 0';
+	if (havecsm && havele)
+		v = [Sun_SRGB(skyamb_x), Sun_SRGB(skyamb_y), Sun_SRGB(skyamb_z)];
+	cvar_set("r_shadows_sunfloor", sprintf("%g %g %g", v_x, v_y, v_z));
+	dprint(sprintf("maplight: bloom %g; exposure %g (band %g..%g, %s lighting)%s\n", bloom, expo, emin, emax,
+		hdrk < 0 ? "unread" : hdr ? "HDR" : "LDR", cvar("vbsp_exposure") ? ", applied" : ", not applied"));
 	dprint(sprintf("maplight: shadows thrown %v (%s), colour %v, sun floor %v\n", thr,
-		havesc ? "shadow_control" : havecsm ? "env_cascade_light" : "engine default", sccol, leamb));
+		havesc ? "shadow_control" : havecsm ? "env_cascade_light" : "engine default", sccol, v));
 };
 
 void() Sun_Draw =
