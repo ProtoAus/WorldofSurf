@@ -670,8 +670,12 @@ void() Line_AllocSlots =
 	ln_srmx = memalloc(sizeof(float) * LN_SLOTS);
 };
 
+// The declared local keeps fteqcc's frame for this function off ln_nath/ln_nat: with only temporaries the frame
+// covered them and the VM put them back to 0 on return, so the native strip (Patch 645) never ran (tools/qcframes.py).
 void() Line_Alloc =
 {
+	local float nat;
+
 	if (ln_pos)
 		return;
 	ln_allocms = gettime(1);        // Patch 649: 68.9 MiB now (36.7 before): `lines native` says how long
@@ -732,7 +736,8 @@ void() Line_Alloc =
 		memnostrings(ln_eh);
 		memnostrings(ln_lff);
 	}
-	if (checkbuiltin(lines_draw))
+	nat = checkbuiltin(lines_draw);
+	if (nat)
 	{
 		lines_arrays(ln_pos, ln_col, ln_t, ln_brk, ln_born, LN_TOTAL, 3 * LN_CAP);
 		lines_lod(ln_cc, ln_cr, ln_cerr, ln_gc, ln_gr, LN_TOTAL / LN_CHUNK,
