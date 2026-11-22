@@ -591,6 +591,7 @@ void() PE_Send =
 	}
 	pe_send_i = 0;
 	pe_sent_ok = 0;
+	pe_points_plus = FALSE;             // P1737 review 2: this report's +1 is the lobby's to say
 	pe_box_end = max(pe_box_end, cltime + 20);
 	pe_up_t0 = cltime;
 	// P1552: each upload's course goes in the notes, so the NEXT report says how this one went (8 of the

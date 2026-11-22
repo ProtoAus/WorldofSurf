@@ -22,10 +22,10 @@ def header(path):
     acct = utc = mapname = None
     with open(path, "rb") as fh:
         body = fh.read().decode("latin-1", "replace")
-    head = body[:4096].splitlines()
+    head = body[:4096].split("\n")         # not splitlines: latin-1 \x85 etc. are bytes of UTF-8 names
     if not head or head[0].strip() != "FTESURF-PREDERR 1":
         return None
-    if not re.search(r"^== (end|http)$", body, re.M):
+    if not re.search(r"^== (end|http)\r?$", body, re.M):
         return None
     for line in head[1:12]:
         if line.startswith("player "):
@@ -52,11 +52,11 @@ def main():
             for name in sorted(files):
                 if not re.fullmatch(r".+_\d{8}_\d{6}_p\d+_s\d+\.txt", name) or name in seen:
                     continue
-                seen.add(name)
                 row = header(os.path.join(root, name))
                 if row is None or row.split(" ")[1] >= before:
-                    skipped += 1
+                    skipped += 1                # a mid-upload copy may come first: the finished one still counts
                     continue
+                seen.add(name)
                 lines.append(row)
     lines.sort(key=lambda r: r.split(" ")[1])
     with open(out, "w", encoding="ascii", newline="\n") as fh:
@@ -64,8 +64,8 @@ def main():
     counts = {}
     for r in lines:
         counts[r.split(" ")[0]] = counts.get(r.split(" ")[0], 0) + 1
-    print("%d reports (%d distinct files, %d unfinished, without an account, or from --before on); %d accounts: %s"
-          % (len(lines), len(seen), skipped, len(counts),
+    print("%d reports (%d files skipped: unfinished, without an account, or from --before on); %d accounts: %s"
+          % (len(lines), skipped, len(counts),
              ", ".join("%s %d" % kv for kv in sorted(counts.items(), key=lambda kv: -kv[1]))))
 
 

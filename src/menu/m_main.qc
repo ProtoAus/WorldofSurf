@@ -2326,7 +2326,7 @@ void(float k) ui_dep_loadicon =
 	id = ui_dep_appid(dep_game[k]);
 	if (id <= 0 || !checkbuiltin(steam_libraryimage))
 		return;
-	nm = sprintf("wos_steamicon_%g", id);
+	nm = sprintf("wos_steamicon_%d", id);    // %d: %g writes 1802710 as 1.80271e+06
 	if (steam_libraryimage(nm, id, "icon"))
 		dep_icon[k] = strzone(nm);
 };
@@ -2346,10 +2346,11 @@ string(string spec) ui_dep_gamename =
 	p = strstrofs(spec, "/", 0);
 	return (p > 0) ? substring(spec, 0, p) : spec;
 };
-// The row's mount games as 20 px icons, right to left ending at x `right` (row-relative); the width used.
+// The row's mount games as 20 px icons, right to left ending at x `right` (row-relative); the width used.  No click
+// element of their own: one over the row would take its clicks (the detail line names them, red when missing).
 float(vector rp, float right, float row, float idx) ui_dep_icons =
 {
-	local string d, id;
+	local string d;
 	local float n, i, k, x, inst;
 	d = bufstr_get(ms_deps, row);
 	if (d == "")
@@ -2364,11 +2365,7 @@ float(vector rp, float right, float row, float idx) ui_dep_icons =
 		x = x - 20;
 		inst = (dep_state[k] > 0);
 		sui_pic(rp + [x, 0], '20 20 0', dep_icon[k], '1 1 1', inst ? 1 : 0.35, 0);   // faded: not installed
-		id = sprintf("cs_dep%g_%g", idx, k);
-		sui_action_element(rp + [x, 0], '20 20 0', id, sui_noop);
-		sui_tooltip_for(id, sprintf("Needs %s%s", dep_game[k], inst ? "" : " (not installed)"), 2);
 		x = x - 4;
-		n = tokenize(d);                        // the tooltip may have tokenized
 	}
 	return right - x;
 };
@@ -2404,6 +2401,7 @@ void() ui_deps_load =
 	{
 		strunzone(dep_spec[i]);
 		strunzone(dep_lbl[i]);
+		strunzone(dep_game[i]);     // P1739
 	}
 	dep_n = 0;
 	ms_depcount = 0;
