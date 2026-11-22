@@ -95,6 +95,18 @@ class Synthetic(unittest.TestCase):
         return " | ".join(x["what"] for x in r["reasons"])
 
 
+    def test_two_tick_sampling_is_unseen_between_ticks_is_suspect(self):   # P1716: our TAS runs sample every 2
+        rows, fin = simulate()
+        j0 = next(i for i, r in enumerate(rows) if r[0] >= 0)
+        every2 = rows[:j0 + 1] + [r for i, r in enumerate(rows) if i > j0 and (i - j0) % 2 == 0]
+        r = verdict(every2, fin)
+        self.assertFalse(r['suspect'], r['reasons'])
+        self.assertIn('not one whole tick', json.dumps(r['reasons']))
+        n = len(rows)
+        half = [(round(t + RATE * 0.4, 6) if j0 < i < n - 3 and i % 2 else t, o, v) for i, (t, o, v) in enumerate(rows)]
+        r = verdict(half, fin)
+        self.assertTrue(r['suspect'], r['reasons'])
+
     def test_gaps_are_unseen_only_while_the_move_fits(self):   # P1716 review 2: a teleport inside a gap
         rows, fin = simulate()
         i0 = next(i for i, r in enumerate(rows) if r[0] >= 0.3)

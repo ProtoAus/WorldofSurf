@@ -484,7 +484,7 @@ def check(run, zones=None, maxvel=None):
             if m: sq = max(sq, 0.5 * 10.0 ** (m - 1 - 5))
         return max(0.5 * 10.0 ** -d, min(sq, 0.05))
     worst_air = worst_ground = worst_turn = worst_drift = 0.0
-    nchk = njump = ntele = nduck = offtick = gaps = bigaps = 0
+    nchk = njump = ntele = nduck = offtick = gaps = bigaps = fractional = 0
     duck_net = 0.0
     drift = []          # horizontal residuals of the last second (aligned single ticks after t=0)
     drift_said = False
@@ -529,6 +529,7 @@ def check(run, zones=None, maxvel=None):
             # Each pair gets a whole step's allowance (ten samples a tick would get ten), and a step of
             # 2+ ticks skips the one-tick turn and drift tests: both counted (honest: 0-1 of the latter).
             offtick += 1
+            fractional += (not aligned or k < 0.98)   # P1716: between ticks -- the k-tick turn/drift tests skip it too
         over_cap = next((c for c in range(3) if abs(b[2][c]) > maxvel + GRAVITY * rate + 0.5), None)
         if over_cap is not None:
             # HOLD, not FAIL: the cap given may be lower than the map's (cfg/maps, a trigger, a stage).
@@ -770,9 +771,12 @@ def check(run, zones=None, maxvel=None):
         note(HOLD, None, f"{gaps} lost packets after the start (each could hide a tick or two): the owner reviews it;"
              " a recording with a sample every tick is checked by itself", unseen=True)
     # The allowance counts samples from t=0: padding the pre-start must not buy skipped ticks (review 4).
-    if offtick > 2 + sum(1 for x in win if x[0] >= 0) // 500:   # packet timing: 1-2 in 3 of 164 of ours
+    allow = 2 + sum(1 for x in win if x[0] >= 0) // 500   # packet timing: 1-2 in 3 of 164 of ours
+    if offtick > allow:
+        # P1716: whole 2+-tick steps (our TAS runs sample every 2) keep the k-tick bounds: unseen; steps between ticks
+        # skip the turn and drift tests too (review 2): suspect
         note(HOLD, None, f"{offtick} sample steps are not one whole tick: the per-tick bounds cannot be applied"
-             " (one sample a tick, please; native recordings need the exact verifier)")   # skips turn/drift: suspect (review 2)
+             " (one sample a tick, please; native recordings need the exact verifier)", unseen=fractional <= allow)
 
     # Zones: start, every checkpoint in order, finish.
     t0s = min(s, key=lambda x: abs(x[0]))
