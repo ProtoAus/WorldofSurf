@@ -11,6 +11,12 @@ The Pi service is LIVE (23 Nov 07:24Z) and Proto and Markbeaton54 hold the map r
    says "Saved videos/<map>_<time>.mp4". Play it: smooth, no HUD, nothing from the bar. Once with Motion blur Film and
    HUD Shown: the blur looks like a camera's, the HUD the size it is on screen.
 
+## P1754-P1757 (worldofsurf-08) -- LIVE in all lobbies 23 Nov 11:44Z (and Lex's dev install); local games next release
+1. In a lobby, make three timed saves, then press previous/first/last: the timer shows that save's time the moment you
+   press (held while you hold the load key), and the save panel's "N / M" and "run at" change on the press.
+2. Remove a save (7) or delete all (8 8) with the panel open: the count changes at once and does not jump back.
+3. A long run (5+ min): saving and reloading the same save no longer stutters; the line redraws smoothly after a load.
+
 ## 0.1.63 release -- PUBLISHED 23 Nov ~09:58Z, lobbies on it 10:01Z
 1. The launcher offers 0.1.63; after updating, the corner reads World of Surf 0.1.63.
 2. Local game: make more than 24 saves on a map, load an old one -- the run carries on (P1752 now local too).

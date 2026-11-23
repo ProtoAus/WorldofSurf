@@ -18,6 +18,13 @@ since, re-take its sha256 and re-run the dry run first. Rollback: `systemctl dis
 /etc/nginx/play.proto.bar.conf.pre-mapupd-99171e807f56 back over the site file, remove
 /etc/nginx/snippets/ftesurf-mapupd.conf and /etc/nginx/conf.d/ftesurf-mapupd-zones.conf, `nginx -t && systemctl reload
 nginx`. Pi task root /srv/nvme/agent-work/mapupd-20261123-cb (OWNER.md).
+## 23 Nov 2026 11:44Z: lobby progs = v0.1.63 + P1754-P1757 LIVE (worldofsurf-08)
+All 12 lobbies: qwprogs 6b48b32b / csprogs 29439f65 (deploy/p1757-lobby efb40572; its 14 src files byte-identical to
+main 5d2b1d48), over 0.1.63's 1e85d160 / d3f29f23; backups *.pre1757-20261123T114331Z; codes.txt 183; engine
+unchanged; script coastperf-20261122-08/deploy1757.sh. New string stat STAT_FS_WOPCLK (213). After: 12 active, no
+error lines. Lex's dev install has the same qw/cs (menu stays 0.1.63's). The released-client check on a lobby waits
+(Lex was playing when it landed).
+
 ## 23 Nov 2026 10:01Z: lobbies on 0.1.63 (engine e000687bf + its progs) LIVE (worldofsurf-08)
 All 12 lobbies: fteqw-svarm64 54421115 / fteplug_hl2_arm64.so f642ceec (patch-1747 records, mover 16 unchanged) and
 qwprogs 1e85d160 / csprogs d3f29f23 (= release 0.1.63), over be372f27 / b96bb483 / 2f45684a / 6d6c5bb6; backups
