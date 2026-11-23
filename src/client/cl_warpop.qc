@@ -1039,7 +1039,6 @@ float(float charged) WarpOp_Save =
 		return FALSE;
 	wop_cap[wop_slot] = FALSE;
 	wop_opsave = TRUE;
-	sl_delall_show = 0;                 // P1755 round 1: a save after a delete-all ends its panel 0
 	tr_saveack = -1;
 	if (tr_rep_raw >= 1)
 	{

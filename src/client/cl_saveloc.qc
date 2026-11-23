@@ -92,6 +92,8 @@ float sl_delall_at;              // P1753: cltime a delete-all went
 float sl_delpend[SL_DELPEND];
 float sl_delpendi, sl_delallsent;
 float sl_delall_show;           // round 1: the panel reads 0 through the sweep (SL_DELBATCH rows a frame)
+float sl_delall_cnt, sl_delall_cntat;   // round 2: the count it last saw, and when that changed
+float sl_delall_moved;          // ...the count has dropped since it went (the first SL_DELBATCH runs in the command)
 float rec_sl_armdel;             // cltime of the first press; 0 = not armed
 
 #define FS_SL_ARMTIME 3
@@ -363,9 +365,12 @@ void(string c) SaveLoc_Cmd =
 			sl_delpendi = (sl_delpendi + 1) % SL_DELPEND;
 		}
 		if (c == "sl_delall")
+		{
 			sl_delallsent = sl_delall_show = rec_sl_sent;
-		if (c == "sl_save")
-			sl_delall_show = 0;
+			sl_delall_cnt = getstatf(STAT_FS_SAVECOUNT);
+			sl_delall_cntat = cltime;
+			sl_delall_moved = FALSE;
+		}
 		if (!strcmp(c, "sl_load"))
 		if (rec_sl_pv_on)
 			rec_sl_pv_ack = rec_sl_sent;
@@ -1298,22 +1303,37 @@ void() SaveLoc_PanelList =
 	sl_pl_cnt = getstatf(STAT_FS_SAVECOUNT);
 	if (!LT_StatsAreMine())
 		return;
+	SaveLoc_Resync();
+	ack = getstatf(STAT_FS_SLACK);
+	// Round 2: through the sweep, before any pending save (SV_SaveLocBegin refuses saves while it runs). Its first
+	// SL_DELBATCH runs in the command, so an ack with the count never dropped is a refusal (rate, saves off), and a
+	// count still for 0.5 s after dropping is a sweep that stopped.
+	if (sl_delall_show)
+	{
+		if (sl_pl_cnt != sl_delall_cnt)
+		{
+			sl_delall_cnt = sl_pl_cnt;
+			sl_delall_cntat = cltime;
+			sl_delall_moved = TRUE;
+		}
+		if (ack >= sl_delallsent && !sl_delall_moved)
+			sl_delall_show = 0;
+		if (sl_delall_moved && cltime - sl_delall_cntat > 0.5)
+			sl_delall_show = 0;
+		if (sl_pl_cnt < 1 || cltime - sl_delall_at > 10 || cltime < sl_delall_at)
+			sl_delall_show = 0;
+	}
+	if (sl_delall_show)
+	{
+		sl_pl_idx = sl_pl_cnt = 0;
+		sl_pl_on = TRUE;
+		return;
+	}
 	if (WarpOp_PredList())
 	{
 		sl_pl_idx = wop_pl_idx;
 		sl_pl_cnt = wop_pl_cnt;
 		sl_pl_clk = wop_pl_clk;
-		sl_pl_on = TRUE;
-		return;
-	}
-	SaveLoc_Resync();
-	ack = getstatf(STAT_FS_SLACK);
-	if (sl_delall_show)
-	if (sl_pl_cnt < 1 || cltime - sl_delall_at > 10 || cltime < sl_delall_at)
-		sl_delall_show = 0;             // swept, or a save since (SaveLoc_Cmd)
-	if (sl_delall_show)
-	{
-		sl_pl_idx = sl_pl_cnt = 0;
 		sl_pl_on = TRUE;
 		return;
 	}
@@ -1367,7 +1387,11 @@ void(vector scr) SaveLoc_Draw =
 	SaveLoc_PanelList();                // P1754: on the press
 	count = sl_pl_cnt;
 	idx   = sl_pl_idx;
-	runat = (sl_pl_on && sl_pl_clk >= 0) ? sl_pl_clk : getstatf(STAT_FS_SAVETICKS);
+	runat = getstatf(STAT_FS_SAVETICKS);
+	if (sl_pl_on && sl_pl_clk >= 0)
+		runat = sl_pl_clk;
+	else if (sl_pl_on && (idx != getstatf(STAT_FS_SAVEINDEX) || count != getstatf(STAT_FS_SAVECOUNT)))
+		runat = 0;                      // round 2: unknown, and the stat's clock is another row's
 	if (count < 1)
 		runat = 0;
 
