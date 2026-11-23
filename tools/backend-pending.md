@@ -1,18 +1,33 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
-## P1745 WOS User-Agents -- READY for the NEXT generation (23 Nov, ftesurf-e4)
+## 23 Nov 2026 02:27Z: gen1745 LIVE -- the base for the NEXT generation (ftesurf-e4, Lex "can you please deploy the new UA we have please.")
+Primary 570cc70a (members-v1, 92) = gen1710's files + at REF c2cbe46f: ksfimport.py (P1734 + P1745), surfd.py (P1737's
+report_points), mapnew.py, momgrab.py, steam.py, momfetch.py (P1745), and mapwatch.py = its held live bytes + the one UA
+line (generation.json `held_patch`); fallback 71413555 = gen1710's 92 exactly; guard 4b6a9fb3 unchanged. Root
+/srv/nvme/agent-work/gen1745-20261123-e4; private kit FTESurf-private/worktrees/gen1745-20261123-e4 (OWNER.md has every
+step); genkit "built" recorded. Root install (Lex) 22 Nov 23:16:16Z; swap 02:24:15-02:27:19Z; POSTFLIGHT PASS and
+mapnew's functional PASS (mapwatch's waits for the 06:23Z run); live UA lines WOS only; the board follows 570cc70a
+since 02:30Z. The first window (23:44Z) refused CANNOT-MEASURE on a desktop file-manager SFTP mount of the Pi, whose
+sftp-server processes the gate cannot read: `pgrep -c -x sftp-server` on the Pi must print 0 before a window. KSF stays
+stopped (crontab 9ce3cfe9 keeps the commented row). A supervised probe as `WOS/0.1 mapnew` after the swap still got
+403 `proof_required`, and mapnew asks KSF only within 7 h of a mapwatch reading of both lists (mapwatch.py
+`len(read) == 2`; catalogue.json `at` is 11 Nov 06:23Z). Next kit: CURRENT 570cc70a (members-v1, 92), crontab 9ce3cfe9,
+native b94f7365 (the 0.1.61 lobby ENGINE entry below; gen1745 pinned 049f7062); reader pins still pending (READERS
+empty); retention keeps gen1710 + gen1745 (gen1702's root goes by the 14-day rule).
+
+## P1745 WOS User-Agents -- LIVE in gen1745 23 Nov 02:27Z (ftesurf-e4)
 Every fetcher User-Agent is the WOS label with no URL (Lex 23 Nov). Ships as CHANGED: surfd/ksfimport.py (with P1734),
 mapnew.py (derives `WOS/0.1 mapnew` from mapwatch's UA), momgrab.py, steam.py and tools/momfetch.py (a live member).
 mapwatch.py stays held at its live bytes (the P1600 rule below) except its one UA line: the gen1745 kit's
 generation.json `held_patch` refuses unless REF's change to it is exactly that line, and applies the same line to the
 live bytes. tasupd.py's `WOS-tasupd` stays out (excluded). Check after: `grep -n '^UA =' <primary>/runtime/*.py`.
 
-## KSF STOPPED 23 Nov 2026 16:29Z (Lex, worldofsurf-2f) -- crontab changed outside a generation
+## KSF STOPPED 22 Nov 2026 16:29Z UTC (23 Nov local; Lex, worldofsurf-2f) -- crontab changed outside a generation
 proto's crontab: the `13,43` ksfimport row is commented out (crontab 628583d6 -> 414b8566; the next kit's freshness
 check must re-acquire it). /srv/nvme/surfd/data/ksf/.refused is an open-ended park (until 2036), so the mapwatch and
 mapnew routes skip KSF as well. Backups and resume steps: /srv/nvme/agent-work/ksfstop-20261123-2f (OWNER.md, RETAIN).
 
-## P1734 KSF demo budget -- READY for the NEXT generation (23 Nov, worldofsurf-2f)
+## P1734 KSF demo budget -- LIVE in gen1745 23 Nov 02:27Z, inert while KSF is stopped (worldofsurf-2f)
 surfd/ksfimport.py only (ships as CHANGED; nothing added, no schema, no cron/env change). The `13,43` row's `--max 8`
 then splits 4 board requests (walks 1, unblock 1, refresh 1, sweep >= 1) + 4 demo downloads a tick instead of 8 + 0.
 Inert while KSF is stopped (above) and while ksf.surf refuses us (403 since 11 Nov). Since gen1710's REF 8bbc3700 the
@@ -83,7 +98,7 @@ Engine and plugin unchanged. The next lobby build's base must include P1743 (mai
 LIVE: all 12 lobbies on the release's progs (tag v0.1.60 = 71155428; qw 033412f1 / cs 186e76bb, codes.txt appended) over
 v0.1.59's, with P1737's data/reportpoints/seed.txt (145 reports, 7 accounts; the lobbies append p<port>.txt there).
 Engine patch-1717 049f7062 + plugin 55778b14 unchanged. Backups *.pre0160-20261122T182356Z. Next lobby progs build: start
-from v0.1.60. Pending: surfd's report_points (P1737) rides the next generation.
+from v0.1.60. surfd's report_points (P1737) LIVE in gen1745 (23 Nov 02:27Z).
 
 ## 0.1.59 lobby half -- LIVE 22 Nov 12:50Z (worldofsurf-88; record tools/release-0.1.59.md)
 LIVE: all 12 lobbies on the release's progs (tag v0.1.59 = 125fd7f0; qw 45b97cc5 / cs e01610d8, codes.txt appended) over
