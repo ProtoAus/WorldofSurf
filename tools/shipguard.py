@@ -194,6 +194,8 @@ DENY_EXACT = {
     "maps/surf_666.bsp": "Harness literal (cl_board.qc test path), not content.",
     "maps/surf_kitsune.bsp": "Harness literal (cl_hud.qc test path), not content.",
     "data/chatsilence.txt": "Written at runtime by the client (cl_chat.qc).",
+    "data/vidrec_restore.txt": "P1747: the video recorder's saved settings while a recording runs (m_vidrec.qc "
+                               "MVR_RESTORE), written at runtime and read back after a quit or crash; per player, never shipped.",
     "data/favourites.txt": "P1740: the player's favourite maps (m_fav.qc FAV_FILE), written at runtime when a star is "
                            "toggled; per player, never shipped.",
     "data/tasproj/upload_offer.txt": "P1712: the host's TAS-upload offer choice (`cmd tas offer N`), written at "
