@@ -21,6 +21,8 @@
 
 ## next
 
+## 0.1.61 2026-11-23
+
 ### P1744 Boosters are your own
 - A booster that switches itself off for a moment after use now does so for you alone: another player using it just before you no longer takes your boost away, and two players can launch off the same pad together.
 - Speed pads also judge "you just arrived" for each player on their own, so someone standing in a pad no longer stops it boosting you.

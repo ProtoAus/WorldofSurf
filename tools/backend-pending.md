@@ -57,6 +57,12 @@ live e0fa1b80 / fb427ec1 exactly). All 12 were empty; one restart each; backups 
 175; engine patch-1717 untouched. Checked: 12 active, 12 answer status, 0 SIGSEGV/Host_Error/PR_ExecuteProgram/runaway
 since each lobby's last "Loaded progs". Next lobby progs build: start from deploy/p1727-lobby, or a release carrying P1727.
 
+## 0.1.61 lobby half -- LIVE 23 Nov 00:35Z (worldofsurf-08; record tools/release-0.1.61.md)
+LIVE: all 12 lobbies on the release's progs (tag v0.1.61 = 97d76ecc; qw bd9ec782 / cs 59b63f13 = P1743's, already in
+codes.txt) over P1743's (qw e6b34850). Backups *.pre0161-20261123T003429Z. Engine still patch-1717 049f7062: the swap to
+6e3a1d3f0 (arm64 build + gate on the Pi) waits for ftesurf-e4's gen1745 postflight, which pins that native as the
+verifier. Any later lobby build: base v0.1.61 or main.
+
 ## P1743 lobby half -- LIVE 22 Nov 19:08Z (worldofsurf-08, Lex's standing go-ahead; recipe worldofsurf-88's deploy0160.sh)
 LIVE: all 12 lobbies on v0.1.60 + P1743 (deploy/p1743-lobby 7e6ad049 = v0.1.60 71155428 + cherry-pick of 5f28f6c8),
 built with the release's own fteqcc (release0160-88/engine; 0 warnings, qcframes clean): qw e6b34850 / cs 59b63f13

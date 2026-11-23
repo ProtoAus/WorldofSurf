@@ -1,5 +1,11 @@
 # lextest.md — things waiting on a human
 
+## 0.1.61 release -- PUBLISHED 23 Nov 00:32Z (record: tools/release-0.1.61.md); lobbies on its progs 00:35Z; owner check PENDING
+- P1743 (start boosters predicted with ping) and P1744 (boosters are your own: per-player cooldowns), worldofsurf-08.
+  Engine unchanged from 0.1.60. Lobbies: the release's progs, one restart 00:35Z; lobby engine still patch-1717 (swap
+  pending ftesurf-e4's surfd generation).
+1. Start the game: it updates to 0.1.61. The P1743/P1744 checks below.
+
 ## 0.1.60 release -- PUBLISHED 22 Nov 18:21Z (record: tools/release-0.1.60.md); lobbies on its progs 18:24Z; owner check PENDING
 - P1736-P1741 (your 23 Nov list: canals goop, report points, story font, game icons, favourites, edge-to-edge pictures),
   P1742/P1733/P1731 (worldofsurf-08: prediction at ping, materials as Source). Lobbies: the release's progs + the report
