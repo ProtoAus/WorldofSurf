@@ -108,6 +108,7 @@ float  *rec_sl_seg;                    // segment, for the console list
 float  *rec_sl_cps;                    // checkpoints crossed, for the same
 float  *rec_sl_spine;                  // P1752: the slot's run is in spines (recseg), not a whole run.rec
 float  *rec_sl_placed;                 // P1643: 1 the spot was not walked to, 2 older than the key (SV_SaveReadLight)
+float  *rec_sl_fin;                    // P1754: the slot's run had finished (its clock is not resumed)
 
 float  rec_sl_nb[FS_SLCLIENTS + 1];        // rows in use per block
 float  rec_sl_ns[FS_SLCLIENTS + 1];        // next seq per block
@@ -147,6 +148,7 @@ void() SV_SaveLocAlloc =
 	rec_sl_cps  = memalloc(sizeof(float) * FS_SLROWS);
 	rec_sl_placed = memalloc(sizeof(float) * FS_SLROWS);
 	rec_sl_spine = memalloc(sizeof(float) * FS_SLROWS);
+	rec_sl_fin = memalloc(sizeof(float) * FS_SLROWS);
 };
 
 // Build 25.  A delete-all drives SV_SaveLocDelete once per row and must not
@@ -1694,6 +1696,7 @@ float(float id, float row) SV_SaveReadLight =
 	rec_sl_tick[row] = 0;
 	rec_sl_placed[row] = 0;
 	rec_sl_spine[row] = 0;
+	rec_sl_fin[row] = 0;
 	rec_sl_seg [row] = 0;
 	rec_sl_cps [row] = 0;
 
@@ -1776,6 +1779,7 @@ float(float id, float row) SV_SaveReadLight =
 			plc = 1;
 	}
 	rec_sl_placed[row] = plc;
+	rec_sl_fin[row] = fin;
 	if (rwd)
 		rec_sl_vel[row] = rwv;
 
@@ -3126,7 +3130,7 @@ void(float base, float cnt) SV_SaveSort =
 {
 	local float i, j, gap;
 	local vector vo, vv;
-	local float a, b, c, d, g, h, k, m, pz, sp;
+	local float a, b, c, d, g, h, k, m, pz, sp, fz;
 
 	gap = 1;
 	while (gap * 3 + 1 < cnt)
@@ -3140,7 +3144,7 @@ void(float base, float cnt) SV_SaveSort =
 		c  = rec_sl_duck[i];  d  = rec_sl_id  [i];
 		g  = rec_sl_seq [i];  h  = rec_sl_tick[i];
 		k  = rec_sl_seg [i];  m  = rec_sl_cps [i];
-		pz = rec_sl_placed[i];  sp = rec_sl_spine[i];
+		pz = rec_sl_placed[i];  sp = rec_sl_spine[i];  fz = rec_sl_fin[i];
 
 		j = i;
 		while (j >= base + gap)
@@ -3159,6 +3163,7 @@ void(float base, float cnt) SV_SaveSort =
 			rec_sl_cps [j] = rec_sl_cps [j - gap];
 			rec_sl_placed[j] = rec_sl_placed[j - gap];
 			rec_sl_spine[j] = rec_sl_spine[j - gap];
+			rec_sl_fin[j] = rec_sl_fin[j - gap];
 			j = j - gap;
 		}
 
@@ -3167,7 +3172,7 @@ void(float base, float cnt) SV_SaveSort =
 		rec_sl_duck[j] = c;   rec_sl_id  [j] = d;
 		rec_sl_seq [j] = g;   rec_sl_tick[j] = h;
 		rec_sl_seg [j] = k;   rec_sl_cps [j] = m;
-		rec_sl_placed[j] = pz;  rec_sl_spine[j] = sp;
+		rec_sl_placed[j] = pz;  rec_sl_spine[j] = sp;  rec_sl_fin[j] = fz;
 	}
 };
 
@@ -6607,6 +6612,7 @@ void(entity e, float n) SV_SaveLocDeleteRow =
 		rec_sl_seg [i - 1] = rec_sl_seg [i];
 		rec_sl_cps [i - 1] = rec_sl_cps [i];
 		rec_sl_placed[i - 1] = rec_sl_placed[i];
+		rec_sl_fin[i - 1] = rec_sl_fin[i];
 		rec_sl_spine[i - 1] = rec_sl_spine[i];
 	}
 

@@ -21,6 +21,14 @@
 
 ## next
 
+### P1755 Delete and goto answer on the press
+- Removing a save updates the save panel's count and "run at" the moment you press, instead of a round trip later.
+- `sl_goto` to the save you are on, the next, the previous, the first or the last is predicted like those keys, so it lands at once.
+
+### P1754 The timer and the save panel follow your key at once
+- Loading or stepping to a save shows that save's time on the timer the moment you press, held while you hold the key, instead of the old time running on for a round trip.
+- The save panel's "3 / 7" and "run at" change on the press for saves, loads and steps too.
+
 ## 0.1.63 2026-11-23
 
 ### P1753 Save keys right after a save are instant
