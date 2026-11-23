@@ -1,5 +1,32 @@
 # BACKLOG.md
 
+## P1746/P1747 map upload and replay video -- what they leave (23 Nov, ftesurf-cb; root FTESurf-worktrees/mapvid-20261123-cb)
+- mapupd heals its rows into mapwatch's mapdl.txt and the site's mapmeta.txt every minute; the durable fix is for
+  mapwatch (next generation) and tools/mapmeta.py to read the service's `uploads` table. Falsifier: rewrite either file
+  without the row and see it back within a minute (`mapupd.py list`).
+- Uploaded zones are not in zonepub's publications, so /api/zones/history and the zoning page do not list them.
+- Replacing an existing map's build is refused by design (new names only); a reviewed replace flow would need the
+  boards' build handling.
+- A local zone file (data/maps/zones/local) is CSQC-writable: an unknown server's code could plant one an upload then
+  attaches. The menu offers uploads only from the main menu, a hosted game or a listed lobby; a file written by an
+  earlier visit to an unknown server would still attach. Falsifier: a test csprogs writing that path, then F8.
+- dropped/ (the drop spool) is never cleaned; old drops stay until deleted by hand.
+- A fixed-step capture on a remote lobby keeps the server's clock (other players and movers at real time); the Record
+  window says to use a hosted game.
+- The ffmpeg driver is untested on Windows at runtime (CreateProcessW pipe, quoting, the GetOpenFileNameW picker).
+- The replay reads capture_held a frame after the engine decides: each console pause drops a frame and each resume
+  repeats one in the video. Falsifier: open the console mid-recording, count duplicate frames (ffmpeg mpdecimate).
+- The Wayland drop list cut off by its 1 s read timeout can pass a partial last name to Host_RunFile (a full buffer's
+  last line is dropped already).
+- A search pattern written with another case ("Dropped/*") is not matched by QC_TasprojDenied's wildcmp on Windows;
+  reading is still refused (case-insensitive), only the listing shows names.
+- mapupd's publish takes no lock shared with zonepub (its content lease is unset on the Pi): a zonepub publish of the
+  same new name at the same moment could cross the zone rollback.
+- `grant-zone-admins` copies the zone role once; a later zone revoke does not take the map role.
+- uri_progress can show sent=0 against the compressed total for one frame as the phase turns from 1 to 2.
+- Streamed music during a fixed-step capture runs on the real card's clock beside the fake one (the real cards stay
+  up so static sounds survive); music in a recording may stutter.
+
 ## P1745 WOS User-Agents -- what it leaves (23 Nov, ftesurf-e4; root FTESurf-worktrees/ua-wos-20261123-e4)
 - surfd/test_momgrab.py case_park_and_lock fails on main a370e094 without P1745 too: "a refusal stops the tick at
   once" asks 0 downloads, then KeyError 'n' reading state["park"] (offline: fake download). P1745 changes only

@@ -1,5 +1,20 @@
 # AGENT_NOTES.md
 
+## P1746/P1747 map upload and replay video: driving them from a test (23 Nov 2026, ftesurf-cb)
+- Console verbs (local console only; MP_ConsoleCommand refuses stuffed text): `ui_mapupload pick|shot|zone <path>`,
+  `ui_mapupload send` (signs as the button does: off a lobby friends_sign needs no press), `ui_mapupload status`;
+  `ui_vidrec set <size> <fps> <ss> <blur> <hud> <water> <encoder>` (chip indices), `ui_vidrec start|status`.
+- A test menu pointed at a local service: fteqcc `-DMUP_BASE="http://127.0.0.1:18096/mapup/api/"`; a local
+  mapupd from `create_app` with a fake surfd.db (accounts + keylinks) whose key is the test home's fskey.
+- `-homedir <owned dir>` keeps a test's writes (menu.dat, fskey, screenshots, videos, dropped/) out of the install;
+  the engine still reads the install as basedir. A worktree exe loads plugins from ITS directory: build the hl2
+  plugin there (a copy from another engine build mismatches after a model_t change such as P1748's).
+- `capture` from CSQC is refused (insecure); the menu runs it. The Record window's settings ride the menu VM, so a
+  test must wait for `capture_ffmpeg_last` "saved <file>" (written by the finishing thread) before reading the video.
+- ffprobe counts frames: `ffprobe -v error -count_frames -show_entries stream=nb_read_frames`. A 3.69 s replay at
+  60 fps is 282 frames (with the 1 s hold); fewer means time was skipped.
+- A cleanup `pkill -f <path>` whose pattern is in the command itself kills that shell (exit 144, nothing after it ran).
+
 ## P1706 high-ping ops: what they do to test arms (21 Nov 2026, worldofsurf-88)
 
 - New warp ops below WOP_SAVE: WOP_NOCLIPON/OFF 199/198, WOP_RWGO 197, WOP_LOADNOW 196, WOP_GHOSTON/OFF 195/194,

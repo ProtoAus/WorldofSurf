@@ -1,5 +1,14 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## P1746 map upload service -- NOT INSTALLED (ftesurf-cb, 23 Nov): one root install, then the role grant
+New isolated service (tools/mapupd.md): surfd/mapupd.py on 127.0.0.1:8096, nginx /mapup/api/ + /ftesurf/media/uploads/,
+store /srv/nvme/ftesurf-ops/mapupd-state, release /opt/ftesurf-mapupd/<commit>. No surfd generation, no lobby restart.
+Source checkout for the install: <pi root>/qc at <commit>. Steps (Lex, sudo): the dry run, then --apply, as in
+tools/mapupd.md; then as proto `mapupd.py --store /srv/nvme/ftesurf-ops/mapupd-state grant-zone-admins` (Proto and
+Markbeaton54 hold the zone role). Rollback: `systemctl disable --now ftesurf-mapupd`, put
+/etc/nginx/play.proto.bar.conf.pre-mapupd-<commit12> back over the site file, remove the snippet and conf.d zones file,
+`nginx -t && systemctl reload nginx`.
+
 ## 23 Nov 2026 05:39Z: lobby engine patch-1748 (mover 16) + 0.1.62 progs LIVE (worldofsurf-08)
 All 12 lobbies: fteqw-svarm64 be372f27 + fteplug_hl2_arm64.so b96bb483 (3e7ad92da, git-9039-patch-1748-0-g3e7ad92da) and
 0.1.62's progs (qw d2bd004d / cs 65de9276); backups *.pre0162-20261123T053830Z; gate in

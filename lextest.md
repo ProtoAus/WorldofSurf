@@ -1,5 +1,16 @@
 # lextest.md — things waiting on a human
 
+## P1746 map upload / P1747 replay video (ftesurf-cb, 23 Nov) -- dev build now; players with the next release
+Before 1-3: the Pi service install (one sudo command: tools/backend-pending.md "P1746") and the role grant.
+1. F8 in the main menu: "Upload a map" opens. Drag a .bsp from your file manager onto the game window: it is picked
+   (native Wayland took no drops before). Browse... opens a file picker. Drag a screenshot and a zone .json too.
+2. Upload a small test map under a new surf_ name: the bar shows compressing then uploading, then "is live". Within a
+   minute it is in the map list with its picture, and a lobby can load it. Take it back afterwards (tools/mapupd.md).
+3. MarkBeaton54 (Windows, after the release): F8, drag from Explorer, Browse opens the Windows dialog, an upload.
+4. A replay (TAB, a run), "record video" on its bar, Record with the defaults: the game runs slow while it records, then
+   says "Saved videos/<map>_<time>.mp4". Play it: smooth, no HUD, nothing from the bar. Once with Motion blur Film and
+   HUD Shown: the blur looks like a camera's, the HUD the size it is on screen.
+
 ## 0.1.62 release -- PUBLISHED 23 Nov 05:36Z (record: tools/release-0.1.62.md); lobbies on its engine + progs 05:39Z; owner check PENDING
 - P1748-P1751 (your 23 Nov list, worldofsurf-08). Lobbies: engine patch-1748 (mover 16) and the release's progs.
 1. Start the game: it updates to 0.1.62. The checks below. (Your dev install still reports 0.1.59-dev.)
