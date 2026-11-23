@@ -20,7 +20,9 @@ Every fetcher User-Agent is the WOS label with no URL (Lex 23 Nov). Ships as CHA
 mapnew.py (derives `WOS/0.1 mapnew` from mapwatch's UA), momgrab.py, steam.py and tools/momfetch.py (a live member).
 mapwatch.py stays held at its live bytes (the P1600 rule below) except its one UA line: the gen1745 kit's
 generation.json `held_patch` refuses unless REF's change to it is exactly that line, and applies the same line to the
-live bytes. tasupd.py's `WOS-tasupd` stays out (excluded). Check after: `grep -n '^UA =' <primary>/runtime/*.py`.
+live bytes. tasupd.py's `WOS-tasupd` stays out of generations: the TAS upload service took it and steam.py's
+label in its own upgrade to 45aab35b, 23 Nov (tools/tas-uploads.md). Check after: `grep -n '^UA ='
+<primary>/runtime/*.py`.
 
 ## KSF STOPPED 22 Nov 2026 16:29Z UTC (23 Nov local; Lex, worldofsurf-2f) -- crontab changed outside a generation
 proto's crontab: the `13,43` ksfimport row is commented out (crontab 628583d6 -> 414b8566; the next kit's freshness

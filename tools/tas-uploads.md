@@ -230,6 +230,14 @@ INSTALLED 22 Nov 2026 (Lex's root run, `--upgrade-from 91a26c9f`, source /srv/nv
 release /opt/ftesurf-tasupd/b61c53ef (91a26c9f kept as unit.prev's; e5ecca2b removed). Checked live: X-Tasupd-Source
 b61c53ef, the page's publish-mode text, store user_version 3 with runs.unchecked, unit active without TASUPD_REVIEW.
 
+## P1745: WOS User-Agents (Lex 23 Nov)
+steam.py sends `WOS/0.1 surfd` and tasupd.py's code fetch `WOS-tasupd`, no URL (were `FTESurf/0.1 surfd
+(+https://proto.bar/ftesurf)` and `tasupd`); nothing else in the service changed since b61c53ef.
+INSTALLED 23 Nov 2026 03:10:52Z (Lex's root run, `--upgrade-from b61c53ef`, source /srv/nvme/ftesurf-ops/tasupd-src-45aab35b,
+the installer copied to /root/install_tasupd-45aab35b.py first: as root it refuses a file proto can change): release
+/opt/ftesurf-tasupd/45aab35b (b61c53ef kept as unit.prev's; 91a26c9f removed). Checked live: X-Tasupd-Source 45aab35b,
+unit active, public /tasup/api/health 200, both labels WOS in the release.
+
 ## P1700: on the website
 
 tasupd's pages carry the site's menu (SITE_NAV, `TAS uploads` current) and every site page links here (the release
