@@ -18,6 +18,14 @@ since, re-take its sha256 and re-run the dry run first. Rollback: `systemctl dis
 /etc/nginx/play.proto.bar.conf.pre-mapupd-99171e807f56 back over the site file, remove
 /etc/nginx/snippets/ftesurf-mapupd.conf and /etc/nginx/conf.d/ftesurf-mapupd-zones.conf, `nginx -t && systemctl reload
 nginx`. Pi task root /srv/nvme/agent-work/mapupd-20261123-cb (OWNER.md).
+## 23 Nov 2026 08:22Z: lobby progs = v0.1.62 + P1750 fix + P1752 + P1753 LIVE (worldofsurf-08)
+All 12 lobbies: qwprogs 2f45684a / csprogs 6d6c5bb6 (deploy/p1752-lobby; the four touched files byte-identical to
+main's P1753 tip), over fd61f951 / 65de9276; backups *.pre1752-20261123T082144Z; codes.txt 181; engine be372f27
+unchanged; script coastperf-20261122-08/deploy1752.sh. Lobby saves now append to spines (data/saves/<map>/@<guid>/
+spines/) and every timed lobby save keeps its run (999); a step right after a save is predicted. After: 12 active,
+patch-1748 / pm 16, no errors in server<N>.log; released 0.1.62 client on lobby 12: 0 prederr, noclip ON/OFF.
+ROLLBACK LOSES SAVED RUNS: older progs cannot load a spine save (it loads as "run lost").
+
 ## 23 Nov 2026 06:58Z: lobby qwprogs = v0.1.62 + P1750 review fix LIVE (worldofsurf-08)
 All 12 lobbies: qwprogs fd61f951 (deploy/p1752-lobby cd5c6cde = v0.1.62 + main b8d696da; the "position only" line no
 longer follows rewind resumes, replay points, synced saves or gifts), over 0.1.62's d2bd004d; csprogs 65de9276, engine
