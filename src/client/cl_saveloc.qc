@@ -1314,11 +1314,12 @@ void() SaveLoc_PanelList =
 		{
 			sl_delall_cnt = sl_pl_cnt;
 			sl_delall_cntat = cltime;
-			sl_delall_moved = TRUE;
+			if (ack >= sl_delallsent)
+				sl_delall_moved = TRUE;     // round 3: an earlier sl_del's drop lands before this ack
 		}
 		if (ack >= sl_delallsent && !sl_delall_moved)
 			sl_delall_show = 0;
-		if (sl_delall_moved && cltime - sl_delall_cntat > 0.5)
+		if (ack >= sl_delallsent && sl_delall_moved && cltime - sl_delall_cntat > 0.5)
 			sl_delall_show = 0;
 		if (sl_pl_cnt < 1 || cltime - sl_delall_at > 10 || cltime < sl_delall_at)
 			sl_delall_show = 0;
