@@ -21,6 +21,16 @@
 
 ## next
 
+### P1760 Prop shadows on Strata maps, and faster shadows on Source maps
+- With shadows on (r_shadows 2), props cast the sun's shadow on maps with Strata's cascaded sun, as they do in Momentum: on bhop_canals the pipes, planks and blocks shadow the ground.
+- On Source maps the shadow system no longer runs a lamp-shadow pass those maps cannot show: with shadows on, bhop_canals runs about twice as fast.
+
+### P1759 Tinted props keep their tint
+- A prop the mapper tinted is drawn in that colour: bhop_canals' barn light shafts are dim beams instead of white glare.
+
+### P1758 Smooth HDR skies
+- HDR skies (bhop_canals and other maps using Half-Life 2 skies) draw smooth and in their real colours, without the banded, dark green look.
+
 ### P1757 Going back to a save stays smooth
 - The camera record of a save made on your run stays in memory across loads, so going back to it after trying a later save no longer reads it from disk (48 to 12 ms on a 6-minute run).
 

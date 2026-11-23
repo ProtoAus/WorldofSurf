@@ -1,5 +1,30 @@
 # BACKLOG.md
 
+## P1758-P1761 bhop_canals graphics vs Momentum -- what they leave (24 Nov, worldofsurf-67; root FTESurf-worktrees/canalsgfx-20261124-67)
+- Source receivers read one sun map: plugins/hl2 vmt/lightmapped, transition and vertexlit.glsl sample l_cubematrix only,
+  so r_shadows_cascades and r_shadows_propshadows are off on Source maps (P1760). Momentum/Strata's cascades reach
+  env_cascade_light maxshadowdistance (canals 4000) with sharp near cells; ours r_shadows_distance 1024 at r_shadows_res
+  2048 (4096 visibly crisper, a little GPU). Porting the atlas read (FAKESHADOWS_COUNT/CASCADE, l_fakeshadowmatrix) into
+  the three receivers is the real fix. Falsifier: canals save 8 at r_shadows_cascades 3 shows the rail's shadow on the mound.
+- Bumped models are lit by the sun per vertex: a VertexLitGeneric $bumpmap gets per-pixel relief only from the ambient cube
+  (P268 C); Source lights the sun per pixel through the normal map, so canals' metal_panel01a ramp (Lex save 5) reads flat
+  and sunless. Same for world displacements on cascade maps, where Strata adds the sun per pixel (save 8's ground relief).
+- HDR exposure: canals is HDR-only (LDR lighting lump empty) with an env_tonemap_controller at defaults, so Momentum runs
+  Source's auto-exposure in the 0.5-2.0 band: the barn (save 6) brightens, bright outdoor views darken a little, the sky
+  is scaled too. We draw at exposure 1 (vbsp_exposure 0 here; 1 would also hold 1, inside the band). Eye adaptation from
+  the frame's luminance is unbuilt; FTE's r_hdr_irisadaptation is a possible base.
+- P1759 tint precision: colormod crosses the wire in 1/32 steps, so a dark tint is approximate (21 18 13 -> 24 16 16,
+  pinkish); exact needs a protocol or CSQC path. Out-of-range rendercolor clamps (Source wraps bytes), as P1250.
+- P1760: casting Source models do not receive shadows (P1732), now including a cascade map's static props; under r_shadows
+  1 a cascade map's disableshadows props draw a blob (EF_NOSHADOW is both switches); a disabled or killed
+  env_cascade_light still counts (QC, cl_sun.qc and the plugin read the lump); a v10 static-prop lump never casts.
+- P1761 (engine branch p1761-mover17, Lex's dev install only -- keep it off main until it ships): the lobby engine (arm64)
+  and surfd's verifier must carry mover 17 before ranked runs on its maps verify, and before a release: 19 of 53
+  local VBSP maps pin 17 by entity props (canals 821, ahop_coast 195, surf_bikini_bottom 129, the bhop_uncanny set 86 each,
+  surf_olivia, surf_medley, surf_dragonfall, surf_happyhands, surf_classics, ...). Static props traced through a rotated
+  model (no convex pieces) still use the box's real extent only from 17 too; triangle-to-box SAT still lacks the
+  tri-edge x box-axis bevels, so a box can stand a few units proud of a turned prop's edge (save 5's ramp: 4 at its top).
+
 ## P1746/P1747 map upload and replay video -- what they leave (23 Nov, ftesurf-cb; root FTESurf-worktrees/mapvid-20261123-cb)
 - mapupd heals its rows into mapwatch's mapdl.txt and the site's mapmeta.txt every minute; the durable fix is for
   mapwatch (next generation) and tools/mapmeta.py to read the service's `uploads` table. Falsifier: rewrite either file

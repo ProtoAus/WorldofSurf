@@ -1,5 +1,17 @@
 # lextest.md — things waiting on a human
 
+## P1758-P1761 bhop_canals graphics (worldofsurf-67, 24 Nov) -- your dev install; lobbies run P1759/P1760's server half
+1. bhop_canals save 7: the sky is a smooth grey overcast with the sun breaking through, like Momentum's (no contour
+   bands, no green).
+2. Save 6 (the barn): the two light shafts are dim beams, not a white blast (a little pink: the tint crosses the wire in
+   coarse steps).
+3. Save 8 with r_shadows 2: the pipe on the left throws a shadow on the ground, and the frame rate there is higher than
+   before (the old lamp-shadow pass cost ~3 ms a frame on this map). r_shadows_res 4096 makes shadow edges crisper.
+4. Save 5 (P1761, mover 17 -- dev install only, engine branch p1761-mover17, NOT on main): walk up the metal ramp -- you
+   climb it and stand on it; you no longer pass through its low half. Shipping it needs your go: the lobby engine and
+   surfd's verifier take mover 17 together (19 of 53 local maps pin it), then a release. Local runs you make on those
+   maps meanwhile pin 17, which today's verifier refuses.
+
 ## P1746 map upload / P1747 replay video (ftesurf-cb, 23 Nov) -- dev build now; players with the next release
 The Pi service is LIVE (23 Nov 07:24Z) and Proto and Markbeaton54 hold the map role; your install has the build.
 1. F8 in the main menu: "Upload a map" opens. Drag a .bsp from your file manager onto the game window: it is picked
