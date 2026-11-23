@@ -6067,7 +6067,9 @@ void(entity t, entity o, entity act) SV_ApplyInputRaw =
 
 	// Patch 1250: engines from P1250 draw a Source brush's tint, so a map that flashes brushes from
 	// black (surf_orbion's 84, bhop_miku_v2's beat) needs the input or they stay at the spawn colour.
-	if (in == "color" && substring(t.model, 0, 1) == "*")
+	// P1759: and a prop's, as its rendercolor at spawn.
+	if (in == "color")
+	if (substring(t.model, 0, 1) == "*" || substring(t.classname, 0, 5) == "prop_")
 	{
 		SV_BrushColour(t, pm);
 		if (cvar("developer"))
@@ -7803,6 +7805,9 @@ void() env_smokestack                   = { remove(self); };
 */
 float vbsp_prop_n, vbsp_prop_solid_n, vbsp_prop_scaled_n, vbsp_prop_dropped_n;
 float vbsp_prop_anim_n;	// P1273: props playing their DefaultAnim
+float vbsp_prop_tint_n;	// P1759: props a rendercolor tints
+float vbsp_csm;		// P1760: the map has a Strata env_cascade_light
+float vbsp_prop_csmcast_n;	// P1760: disableshadows props that cast the cascades anyway
 // Props whose modelscale was not on the 1/16 grid the wire carries, so the spawn
 // floored it.  Same map-change trap as every counter here -- reset below.
 float vbsp_prop_requant_n;
@@ -7914,6 +7919,8 @@ void() SV_EntityReset =
 	vbsp_ml_head = world;                           // Patch 882: it would hold the last map's edicts
 	vbsp_prop_n = vbsp_prop_solid_n = vbsp_prop_scaled_n = vbsp_prop_dropped_n = 0;
 	vbsp_prop_anim_n = 0;
+	vbsp_prop_tint_n = 0;
+	vbsp_csm = vbsp_prop_csmcast_n = 0;
 	vbsp_prop_requant_n = 0;
 	vbsp_prop_nophy_n = 0;
 	vbsp_prop_bbox_n = 0;
@@ -8072,6 +8079,10 @@ void() SV_EntityReport =
 		print(sprintf(", %g dropped (no model)", vbsp_prop_dropped_n));
 	if (vbsp_prop_anim_n)
 		print(sprintf(", %g animated", vbsp_prop_anim_n));
+	if (vbsp_prop_tint_n)
+		print(sprintf(", %g tinted", vbsp_prop_tint_n));
+	if (vbsp_prop_csmcast_n)
+		print(sprintf(", %g cast cascades despite disableshadows", vbsp_prop_csmcast_n));
 	// Build 34.  Printed ONLY when non-zero, because zero is the expected state
 	// and a line that always says "0 with no bounds" would be read past.  A
 	// non-zero here means props are ghosts -- see worldspawn's setmodelsize_qw.
@@ -8369,7 +8380,8 @@ float(string mdl) SV_PropHasPhy =
 	return TRUE;
 };
 
-.float disableshadows;	// P1724: a prop that casts no dynamic shadow (Source's shadow_control/RTT, Strata's CSM)
+.float disableshadows;	// P1724: a prop that casts no RTT shadow (Source's shadow_control)
+.float disableshadowdepth;	// P1760: a prop kept out of shadow-depth maps (Strata's cascades, projected textures)
 void(float defsolid) SV_SpawnProp =
 {
 	local float srcsolid, sc, raw;
@@ -8662,6 +8674,14 @@ void(float defsolid) SV_SpawnProp =
 
 	// "Don't Render" and, Patch 1041, the translucent modes: see SV_PropRenderState.
 	SV_PropRenderState(self);
+	// P1759: rendercolor tints a prop as it tints a brush entity (P1250): Source modulates every model by it
+	// (bhop_canals' vol_light shafts are 21 18 13 and drew white). White, the default, stays off the wire.
+	if (self.rendercolor != "")
+	if (stov(self.rendercolor) != '255 255 255')
+	{
+		SV_BrushColour(self, self.rendercolor);
+		vbsp_prop_tint_n = vbsp_prop_tint_n + 1;
+	}
 	// P1273 (Lex, 3 Nov): a prop_dynamic nothing collides with plays its DefaultAnim, as Source's does
 	// (surf_santorini's gulls); other classes never read the key, though SV_SkyRoomAll animates any it
 	// marks. A solid one stays still: an animated mesh never moves its collision (P1202).
@@ -8674,6 +8694,28 @@ void(float defsolid) SV_SpawnProp =
 		vbsp_prop_solid_n = vbsp_prop_solid_n + 1;
 	if (sc != 1)
 		vbsp_prop_scaled_n = vbsp_prop_scaled_n + 1;
+};
+
+// P1760: Strata's cascades skip a prop only for disableshadowdepth (disableshadows is the RTT blob's): bhop_canals'
+// dock planks write disableshadows 1 and shadow the ground in Momentum.  The lump order is not fixed, so after it.
+void() env_cascade_light = { vbsp_csm = TRUE; remove(self); };
+void() SV_PropCascadeCasters =
+{
+	local entity e;
+
+	if (!vbsp_csm)
+		return;
+	for (e = nextent(world); e; e = nextent(e))
+		if (substring(e.classname, 0, 5) == "prop_")
+		{
+			if (e.disableshadowdepth)
+				e.effects = e.effects | EF_NOSHADOW;
+			else if (e.effects & EF_NOSHADOW)
+			{
+				e.effects = e.effects - EF_NOSHADOW;
+				vbsp_prop_csmcast_n = vbsp_prop_csmcast_n + 1;
+			}
+		}
 };
 
 // prop_dynamic is an animated prop in Source.  Here it simulates nothing: a non-solid one loops its
