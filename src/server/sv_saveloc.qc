@@ -1976,6 +1976,7 @@ float(float id) SL_StateSnapshot =
 };
 
 // Commit only prepared, view-valid rows. Callers retain ownership of the buffer.
+float sl_aprwd;                  // P1750 review: the row SV_SaveApplyStateRows last applied was a rewound one
 void(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
 {
 	local string k;
@@ -2020,6 +2021,7 @@ void(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
 	plt = PLAT_VERIFIED;
 	pdk = 0;
 	cht = 0;                        // a pre-44 save file knows nothing about it
+	sl_aprwd = FALSE;
 	hcy = 0;
 	plc = plcseen = dmt = 0;        // P1643: a file without the key is read below the loop
 	// Patch 445.  A pre-445 file reads 0, which is the pre-445 BEHAVIOUR rather
@@ -2128,7 +2130,7 @@ void(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
 		                         ckncr = stof(argv(3)); ckcr = stof(argv(4)); ckd = stof(argv(5));
 		                         cktr = stof(argv(6)); ckpk = stof(argv(7)); ckup = stof(argv(8));
 		                         cku = stof(argv(9)); ckcb = stof(argv(10)); } continue; }
-		if (k == "rewound")    { rwd = stof(argv(1)); continue; }
+		if (k == "rewound")    { rwd = stof(argv(1)); sl_aprwd = (rwd != 0); continue; }
 		// Patch 450, and ROUND 8 corrected what this said.  It claimed argv(1) is ""
 		// when the writer emitted an empty crc.  THIS LINE IS NEVER REACHED IN THAT
 		// CASE: the loop's own `if (n < 2) continue` above bails first, because
@@ -5257,7 +5259,7 @@ void(entity e, float n) SV_SaveLocLoad =
 		sprint(e, PRINT_HIGH,
 		       sprintf("^5save %g^7 -- run resumed at ^5%s^7, %g checkpoint(s), segmented run\n",
 		               n, SV_TimerString(e.run_t_ticks), rec_sl_cps[r]));
-	else if (dem)   // P1750: Akatosh read the window as a bug ("old save locks don't preserve speed")
+	else if (dem && !sl_aprwd)   // P1750 (+review: not a rewind/replay/sync/gift row, which keeps its speed)
 		sprint(e, PRINT_HIGH, sprintf("^5save %g^7 -- ^3position only^7: a lobby keeps the run and speed on your newest %g "
 		                              "timed saves, and this one is older\n", n, SL_RECKEEP));
 	else
