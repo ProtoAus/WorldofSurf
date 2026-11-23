@@ -24,14 +24,14 @@
 ### P1751 Replays from the Local tab no longer wobble
 - A replay of your lobby run opened from the Local tab drew your camera a ping early, so at speed the view turned before the body and looked wobbly. It is lined up with the movement again, as online replays already were.
 
-### P1748 Solid ground on far-out maps
-- On very large maps such as bhop_canals, some sloped walls and banks far from the map's centre let players fall through. They are solid now. Older recordings still replay exactly as they were made.
-
 ### P1750 Old lobby saves say they are position only
 - In a lobby, a save older than your newest 24 timed saves keeps where you were but not your run time or speed. Loading one now says so, instead of quietly dropping the run.
 
 ### P1749 No repeated downloads on ahop_coast
 - Joining ahop_coast no longer tries to download the same five missing sounds on every connect. They were names from Source's sound scripts, not sound files, and are now skipped like other sound-script names.
+
+### P1748 Solid ground on far-out maps
+- On very large maps such as bhop_canals, some sloped walls and banks far from the map's centre let players fall through. They are solid now. Older recordings still replay exactly as they were made.
 
 ## 0.1.61 2026-11-23
 
