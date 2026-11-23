@@ -21,6 +21,8 @@
 
 ## next
 
+## 0.1.63 2026-11-23
+
 ### P1753 Save keys right after a save are instant
 - Pressing previous, first, last or next right after saving no longer teleports you a moment later at ping: the step is predicted like a load, so it lands at once with no correction.
 

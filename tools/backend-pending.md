@@ -18,6 +18,11 @@ since, re-take its sha256 and re-run the dry run first. Rollback: `systemctl dis
 /etc/nginx/play.proto.bar.conf.pre-mapupd-99171e807f56 back over the site file, remove
 /etc/nginx/snippets/ftesurf-mapupd.conf and /etc/nginx/conf.d/ftesurf-mapupd-zones.conf, `nginx -t && systemctl reload
 nginx`. Pi task root /srv/nvme/agent-work/mapupd-20261123-cb (OWNER.md).
+## 23 Nov 2026 10:01Z: lobbies on 0.1.63 (engine e000687bf + its progs) LIVE (worldofsurf-08)
+All 12 lobbies: fteqw-svarm64 54421115 / fteplug_hl2_arm64.so f642ceec (patch-1747 records, mover 16 unchanged) and
+qwprogs 1e85d160 / csprogs d3f29f23 (= release 0.1.63), over be372f27 / b96bb483 / 2f45684a / 6d6c5bb6; backups
+*.pre0163-20261123T100006Z; codes.txt 182. See tools/release-0.1.63.md. The next surfd kit should pin this engine.
+
 ## 23 Nov 2026 08:22Z: lobby progs = v0.1.62 + P1750 fix + P1752 + P1753 LIVE (worldofsurf-08)
 All 12 lobbies: qwprogs 2f45684a / csprogs 6d6c5bb6 (deploy/p1752-lobby; the four touched files byte-identical to
 main's P1753 tip), over fd61f951 / 65de9276; backups *.pre1752-20261123T082144Z; codes.txt 181; engine be372f27
