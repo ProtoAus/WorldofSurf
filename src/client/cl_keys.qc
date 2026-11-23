@@ -139,6 +139,7 @@ float  rec_wt_rc;                // run_rampcontact -- flags bit 16
 vector rec_wt_wish;              // horizontal wishdir, rebuilt from the usercmd
 float  rec_wt_rate;              // playback speed, so the turn rate is per RUN
                                 // second rather than per wall second at 4x
+float  vrec_state, vrec_clean;   // P1747: a replay being recorded as video (cl_vidrec.qc), and without the HUD
 float  rec_wt_time;              // the playback position in the .rec's own `t`
                                 // domain -- the HUD's frame clock while a replay
                                 // is up; see board_now in HUD_Draw

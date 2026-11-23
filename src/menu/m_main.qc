@@ -148,6 +148,20 @@ void() MT_ChatSend;
 float() MT_TabVisible;
 string mt_chatdraft;
 #define SCREEN_STATS   12       // P1084: hud_player's Stats page (m_stats.qc)
+#define SCREEN_MAPUPLOAD 14     // P1746: F8, an admin's map upload (m_mapupload.qc)
+float mup_open;
+void(vector screensize) MUp_Draw;
+void() MUp_Open;
+void() MUp_Close;
+void() MUp_Hide;
+float(float evtype, float scanx) MUp_Input;
+float(string verb, string arg) MUp_Command;
+#define SCREEN_VIDREC 15        // P1747: record the open replay as a video (m_vidrec.qc)
+void(vector screensize) MVR_Draw;
+void() MVR_Frame;
+void() MVR_Open;
+float(float evtype, float scanx) MVR_Input;
+float() MVR_Command;
 void() MC_Init;
 void() MC_Open;
 void() MC_Send;
@@ -1751,6 +1765,8 @@ void() ui_meta_load =
 		if (pg == "-")
 		{
 			vp = Mmm_UrlPage(argv(8));
+			if (vp < 0 && n >= 11 && argv(10) == "upload")
+				vp = Mmm_UrlUploadPage(argv(1));     // P1746
 			if (vp >= 0)
 			{
 				pg = ftos(vp);
@@ -2564,6 +2580,13 @@ void(float row) ui_load_card =
 			ls_cardpicown = TRUE;
 			precache_pic(ls_cardpic, 0);
 		}
+	}
+	else if (LS_Tok(meta, MT_TSRC) == "upload" && ms_consent >= FS_TERMS_ONLINE)	// P1746: an uploaded map's own picture
+	if (checkbuiltin(drawgetimagesize_async))
+	{
+		ls_cardpic = strzone(Mmm_UploadPic(bufstr_get(ms_name, row)));
+		ls_cardpicown = TRUE;
+		precache_pic(ls_cardpic, 0);
 	}
 	if (LS_Tok(meta, MT_UUID) != "")
 	{
@@ -6021,6 +6044,8 @@ void(vector screensize) ui_map_backdrop =
 		{
 			if (ui_bguuid(uuid))
 				want = strcat("https://dl.proto.bar/ftesurf/mapshots/", uuid, "-bg.jpg");
+			else if (tokenize(bufstr_get(ms_meta, ms_selected)) > MT_TSRC && argv(MT_TSRC) == "upload")
+				want = Mmm_UploadPic(bufstr_get(ms_name, ms_selected));     // P1746
 			else if (Mgs_Row(ms_selected))
 				want = "";              // P1658: no picture exists for a GoldSrc map: nothing to ask for
 			else if (Mdl_Made(bufstr_get(ms_name, ms_selected), MDL_NAMECH, 64))
@@ -8676,6 +8701,8 @@ void() m_init =
 	if (checkbuiltin(localcmd_local))
 	if (getkeybind(K_F2) == "" || getkeybind(K_F2) == "menu_save" || getkeybind(K_F2) == "ui_updates")
 		localcmd_local("bind F2 ui_journal\n");
+	if (getkeybind(K_F8) == "")         // P1746: the map upload window (the service decides who may upload)
+		localcmd_local("bind F8 ui_mapupload\n");
 	if (ms_consent < FS_TERMS_VERSION)
 		menu_screen = SCREEN_TERMS;
 	else if (ms_consent >= FS_TERMS_ONLINE && ms_consent < FS_TERMS_JOURNAL && !cvar("ui_bootcheck"))
@@ -8732,6 +8759,8 @@ void() m_init =
 
 	registercommand("ui_updates");
 	registercommand("ui_journal");
+	registercommand("ui_mapupload");    // P1746: F8
+	registercommand("ui_vidrec");       // P1747: the Record window (the replay bar's "record video")
 	registercommand("ui_story");
 	registercommand("ui_update_probe");
 	registercommand("ui_notes");
@@ -8928,6 +8957,7 @@ void(vector screensize) m_draw =
 	// A joined main-menu waiting room must receive the host's Start even
 	// while another menu page is open. MT_Frame keeps its own consent/state gate.
 	MT_Frame();
+	MVR_Frame();                    // P1747: a recording's steps run with the menu closed
 	// m_draw is called EVERY frame whether or not the menu has focus
 	// (menu.c:168-176), so the gate is ours to enforce.
 	if (!menu_active)
@@ -9023,6 +9053,13 @@ void(vector screensize) m_draw =
 	}
 	else if (menu_screen == SCREEN_JOURNAL)
 		screen_journal(screensize);
+	else if (menu_screen == SCREEN_MAPUPLOAD)
+	{
+		if (mup_open) MUp_Draw(screensize);
+		else menu_screen = SCREEN_MAIN;
+	}
+	else if (menu_screen == SCREEN_VIDREC)
+		MVR_Draw(screensize);
 	else if (menu_screen == SCREEN_NAME)
 		screen_name(screensize);
 	else if (menu_screen == SCREEN_CREATE)
@@ -9125,6 +9162,7 @@ void() m_close =
 	ui_join_cancel();
 	Mlb_Close("menu closed");
 	MStats_InvClose();
+	MUp_Hide();
 	MM_Close();
 
 	setkeydest(0);
@@ -9167,6 +9205,12 @@ float(float evtype, float scanx, float chary, float devid) Menu_InputEvent =
 		ui_f2_open("");
 		return TRUE;
 	}
+	if (menu_screen == SCREEN_MAPUPLOAD)
+	if (MUp_Input(evtype, scanx))
+		return TRUE;
+	if (menu_screen == SCREEN_VIDREC)
+	if (MVR_Input(evtype, scanx))
+		return TRUE;
 	// P1186: the sidebar draws the chat on every ui_browser_screen, not only MAIN (MC_Active's test).
 	if (evtype == IE_KEYDOWN && (scanx == K_ENTER || scanx == K_KP_ENTER))
 	if (menu_screen == SCREEN_CHAT || ui_browser_screen())
@@ -9390,6 +9434,28 @@ float(string cmd) m_consolecommand =
 		return TRUE;
 	}
 
+	if (strcmp(argv(0), "ui_vidrec") == 0)
+	{
+		if (argv(1) != "")
+			return MVR_Command();
+		MVR_Open();
+		m_open();
+		return TRUE;
+	}
+	// P1746: F8 opens the map upload window, and closes it again
+	if (strcmp(argv(0), "ui_mapupload") == 0)
+	{
+		if (argv(1) != "")
+			return MUp_Command(argv(1), argv(2));
+		if (mup_open && menu_active && menu_screen == SCREEN_MAPUPLOAD)
+			MUp_Close();
+		else if (ms_consent >= FS_TERMS_VERSION)
+		{
+			MUp_Open();
+			m_open();
+		}
+		return TRUE;
+	}
 	// P902: ui_journal [notes|updates|journal|terms]; ui_updates is the Updates page.
 	if (strcmp(argv(0), "ui_journal") == 0 || strcmp(argv(0), "ui_updates") == 0)
 	{

@@ -185,6 +185,21 @@ float(string uuid) Mmm_UrlPage =
 	return MMM_VPAGE + bufstr_add(mmm_urls, strcat(MMM_BASE, "thumbs/", uuid, ".jpg"), TRUE);
 };
 
+// P1746: an uploaded map's thumbnail (mapupd.make_pictures), for a row whose tier source is "upload"
+float(string name) Mmm_UrlUploadPage =
+{
+	if (!Mdl_Made(name, MDL_NAMECH, 64) || ms_consent < FS_TERMS_ONLINE)
+		return -1;
+	if (!mmm_urlsok)
+	{
+		mmm_urls = buf_create();
+		mmm_urlsok = TRUE;
+	}
+	return MMM_VPAGE + bufstr_add(mmm_urls, strcat(MMM_BASE, "uploads/", strtolower(name), "-thumb.jpg"), TRUE);
+};
+// and its full picture, the card and backdrop
+string(string name) Mmm_UploadPic = { return strcat(MMM_BASE, "uploads/", strtolower(name), ".jpg"); };
+
 string(float page) Mmm_UrlFor =
 {
 	if (!mmm_urlsok || page < MMM_VPAGE)

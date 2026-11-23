@@ -61,3 +61,5 @@ menu/m_maprows.qc          // the finder as a compact list
 menu/m_statshim.qc
 client/cl_profile.qc
 menu/m_stats.qc
+menu/m_mapupload.qc         // P1746: F8 map upload (after m_main, m_tournament, m_friends, m_mapmedia helpers)
+menu/m_vidrec.qc            // P1747: the Record window

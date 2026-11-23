@@ -168,6 +168,7 @@ client/cl_lines.qc
 client/cl_mapports.qc
 client/cl_ksf.qc
 client/cl_watch.qc
+client/cl_vidrec.qc         // P1747: the replay's half of a video recording (Watch_Seek); before cl_main.qc
 // Patch 475: the live run line, slots 9 and 10.  AFTER cl_lines.qc (it feeds
 // Line_Point) and AFTER cl_watch.qc, whose Watch_WishOf it uses to build the
 // same aux vector the replay's own scan builds -- one speller for the wish

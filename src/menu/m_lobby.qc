@@ -1227,6 +1227,7 @@ float(float reqid, float code, string body) Mmm_Reply;        // m_mapmedia.qc, 
 float(float reqid, float code, string body) Mgs_Reply;        // m_goldsrc.qc, P1658
 
 float(float reqid, float code, string body) MT_Reply;
+float(float reqid, float code, string body) MUp_Reply;         // m_mapupload.qc, P1746
 
 void(float reqid, float responsecode, string resourcebody) URI_Get_Callback =
 {
@@ -1274,6 +1275,8 @@ void(float reqid, float responsecode, string resourcebody) URI_Get_Callback =
 	if (Mmm_Reply(reqid, responsecode, resourcebody))
 		return;
 	if (Mgs_Reply(reqid, responsecode, resourcebody))
+		return;
+	if (MUp_Reply(reqid, responsecode, resourcebody))
 		return;
 
 	if (reqid != lb_req)

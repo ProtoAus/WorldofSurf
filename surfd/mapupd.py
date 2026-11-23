@@ -1,0 +1,663 @@
+#!/usr/bin/env python3
+"""P1746: an admin uploads a new map from the game (src/menu/m_mapupload.qc). Deny by default, like zonepub.
+
+challenge  a code for one manifest's SHA-256 (stateless: time, salt, MAC)
+begin      the manifest, signed by the menu's linked key (friends_sign op "mapupload", who = its SHA-256); the key's
+           Steam account must be linked, unbanned and hold this service's map role. Answers a session token.
+part       one file, streamed to the spool (gzip allowed); its size and SHA-256 must be the manifest's
+finish     checks the BSP (VBSP 17-21 or 25, lumps inside the file), the picture and the zones, then publishes: the
+           library, the zone directories, the site's pictures, a row in the map list and in the map table.
+
+The two tables are other writers' files (mapwatch's list, mapmedia's table). A row they drop on a rewrite is put
+back by the minute tick (heal); every write is checked with the readers' own rules before it replaces the file.
+Refusals answer 200 with ok=0: the game's HTTP client keeps no body for any other status.
+"""
+import argparse
+from contextlib import contextmanager
+import hashlib
+import hmac
+import io
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import sqlite3
+import sys
+import threading
+import time
+import zlib
+from flask import Flask, jsonify, request
+import accounts
+import mapmanifest
+import zonepub
+import zonepub_publish
+
+SITE = 'play.proto.bar:443'
+STATEMENT = 'FTESURF-FRIENDS 1\nserver %s\nnonce %s\nop mapupload\nwho %s\n'     # cl_receipt.c CL_FriendsSign
+NAME = re.compile(r'(surf|bhop)_[a-z0-9_-]{1,59}')     # the list and the pool key a map's mode on its prefix
+HEX64 = re.compile(r'[0-9a-f]{64}')
+AUTHOR = re.compile(r'[A-Za-z0-9 _.\'-]{1,40}')
+MAX_BSP = 1 << 30                   # the engine's uri_postfile cap
+MAX_SHOT = 16 << 20
+MAX_ZONE = zonepub.MAX_ZONE_BYTES
+SHOT_EXT = ('png', 'jpg', 'jpeg', 'tga')
+CODE_TTL = 600                      # s a challenge code is good for
+SESSION_TTL = 3 * 3600              # s an accepted manifest may take to upload
+PEER_RATE = 30                      # requests a minute per address, before any other work
+PART_HEAD = re.compile(rb'FTESURF-MAPUP-PART 1\nsession ([0-9a-f]{32})\npart (bsp|shot|zone)\nenc (raw|gzip)\n\n')
+PART_HEAD_MAX = 96
+VBSP_VERSIONS = (17, 18, 19, 20, 21, 25)    # what plugins/hl2/mod_vbsp.c loads (25: Strata, SourceBroom)
+SQL = '''
+CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS roles(steamid TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS nonces(nonce TEXT PRIMARY KEY, seen INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, steamid TEXT NOT NULL, map TEXT NOT NULL,
+ manifest TEXT NOT NULL, created INTEGER NOT NULL, got TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS uploads(map TEXT PRIMARY KEY, steamid TEXT NOT NULL, at INTEGER NOT NULL,
+ bsp_sha TEXT NOT NULL, kb INTEGER NOT NULL, mode TEXT NOT NULL, tier INTEGER NOT NULL, stages INTEGER NOT NULL,
+ bonuses INTEGER NOT NULL, author TEXT NOT NULL, shot INTEGER NOT NULL, zone INTEGER NOT NULL);
+'''
+
+
+class Refused(Exception):
+    """A reason the uploader is shown."""
+
+
+@contextmanager
+def connect(path, readonly=False):
+    uri = Path(path).resolve().as_uri() + ('?mode=ro' if readonly else '?mode=rw')
+    db = sqlite3.connect(uri, uri=True, timeout=5, isolation_level=None)
+    db.row_factory = sqlite3.Row
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@contextmanager
+def writing(db):
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        yield db
+        db.execute('COMMIT')
+    except BaseException:
+        db.execute('ROLLBACK')
+        raise
+
+
+def initialize(store):
+    store = Path(store)
+    store.mkdir(mode=0o700, parents=True, exist_ok=True)
+    (store / 'spool').mkdir(mode=0o700, exist_ok=True)
+    db = sqlite3.connect(store / 'mapupd.db')
+    try:
+        db.execute('PRAGMA journal_mode=WAL')
+        with db:
+            db.executescript(SQL)
+            db.execute("INSERT OR IGNORE INTO meta(k, v) VALUES ('secret', ?)", (secrets.token_hex(32),))
+    finally:
+        db.close()
+    os.chmod(store / 'mapupd.db', 0o600)
+
+
+def parse_manifest(text):
+    """The manifest's fields, or Refused. Exactly the menu's lines, in its order (m_mapupload.qc MUp_Manifest)."""
+    lines = text.split('\n')
+    if len(lines) != 12 or lines[0] != 'FTESURF-MAPUP 1' or lines[11] != '':
+        raise Refused('That upload is not one this service reads: update your game.')
+    want = ('map', 'bsp', 'shot', 'zone', 'mode', 'tier', 'stages', 'bonuses', 'linear', 'author')
+    got = {}
+    for key, line in zip(want, lines[1:11]):
+        k, _, v = line.partition(' ')
+        if k != key or not v:
+            raise Refused('That upload is not one this service reads: update your game.')
+        got[key] = v
+    m = {}
+    if not NAME.fullmatch(got['map']):
+        raise Refused('Map names here are surf_ or bhop_ then lowercase letters, digits, _ or -.')
+    m['map'] = got['map']
+
+    def file_field(key, cap, ext=False):
+        if got[key] == '-':
+            return None
+        parts = got[key].split(' ')
+        if len(parts) != (3 if ext else 2) or not HEX64.fullmatch(parts[0]) or not re.fullmatch('[0-9]{1,10}', parts[1]):
+            raise Refused('That upload is not one this service reads: update your game.')
+        size = int(parts[1])
+        if not 0 < size <= cap:
+            raise Refused('The %s is over %d MB.' % ({'bsp': 'map', 'shot': 'picture', 'zone': 'zone file'}[key], cap >> 20)
+                          if size else 'The %s file is empty.' % key)
+        if ext and parts[2] not in SHOT_EXT:
+            raise Refused('Pictures are .png, .jpg or .tga.')
+        return (parts[0], size, parts[2]) if ext else (parts[0], size)
+    m['bsp'] = file_field('bsp', MAX_BSP)
+    if m['bsp'] is None:
+        raise Refused('Choose a map.')
+    m['shot'] = file_field('shot', MAX_SHOT, ext=True)
+    m['zone'] = file_field('zone', MAX_ZONE)
+    if got['mode'] not in ('surf', 'bhop') or not m['map'].startswith(got['mode'] + '_'):
+        raise Refused('The mode must be the name\'s own (surf_ or bhop_).')
+    m['mode'] = got['mode']
+    for key, top in (('tier', 10), ('stages', 64), ('bonuses', 16), ('linear', 1)):
+        if not re.fullmatch('[0-9]{1,2}', got[key]) or int(got[key]) > top:
+            raise Refused('The %s is out of range.' % key)
+        m[key] = int(got[key])
+    if m['linear'] != (1 if m['stages'] == 0 else 0):
+        raise Refused('A map is linear or has stages, not both.')
+    if m['mode'] == 'bhop' and m['zone'] is None:
+        raise Refused('A bhop map needs its zone file (the lobbies only offer zoned bhop maps).')
+    m['author'] = '' if got['author'] == '-' else got['author']
+    if m['author'] and not AUTHOR.fullmatch(m['author']):
+        raise Refused('The author name has characters it cannot carry.')
+    return m
+
+
+def check_bsp(path, size):
+    """A Source BSP whose 64 lumps lie inside the file: the game's loader reads them from the header."""
+    with open(path, 'rb') as f:
+        head = f.read(8 + 64 * 16)
+    if len(head) < 8 + 64 * 16 or head[:4] != b'VBSP':
+        raise Refused('That is not a Source map (.bsp starting VBSP).')
+    version = int.from_bytes(head[4:8], 'little')
+    if version not in VBSP_VERSIONS:
+        raise Refused('BSP version %d is not one the game loads (17-21 or 25).' % version)
+    for i in range(64):
+        ofs = int.from_bytes(head[8 + i * 16:12 + i * 16], 'little', signed=True)
+        ln = int.from_bytes(head[12 + i * 16:16 + i * 16], 'little', signed=True)
+        if ofs < 0 or ln < 0 or ofs + ln > size:
+            raise Refused('That map file is cut short or damaged (lump %d lies past its end).' % i)
+
+
+def make_pictures(src, out_dir, name):
+    """<name>.jpg (the card and backdrop, at most 1920x1080) and <name>-thumb.jpg (320x180), from the upload."""
+    from PIL import Image
+    try:
+        with Image.open(src) as im:
+            im.load()
+            if im.width < 160 or im.height < 90 or im.width > 16384 or im.height > 16384:
+                raise Refused('The picture must be between 160x90 and 16384x16384.')
+            im = im.convert('RGB')
+            big = im.copy()
+            big.thumbnail((1920, 1080), Image.LANCZOS)
+            thumb = im.copy()
+            # the list's cells are 16:9: centre-cropped, then scaled
+            w, h = thumb.size
+            cw, ch = (w, w * 9 // 16) if w * 9 <= h * 16 else (h * 16 // 9, h)
+            thumb = thumb.crop(((w - cw) // 2, (h - ch) // 2, (w - cw) // 2 + cw, (h - ch) // 2 + ch)).resize((320, 180), Image.LANCZOS)
+    except Refused:
+        raise
+    except Exception:
+        raise Refused('That picture could not be read.')
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for img, fn in ((big, name + '.jpg'), (thumb, name + '-thumb.jpg')):
+        buf = io.BytesIO()
+        img.save(buf, 'JPEG', quality=88)
+        atomic_write(out_dir / fn, buf.getvalue())
+
+
+def atomic_write(path, body, mode=0o644):
+    tmp = path.with_name('.%s.mapupd.tmp' % path.name)
+    with open(tmp, 'wb') as f:
+        f.write(body)
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def list_row(u, today):
+    return 'dl %s %s - %d %d %s 1 %d 0' % (u['map'], u['mode'], u['tier'], u['kb'], today, u['tier'])
+
+
+def meta_row(u):
+    author = re.sub(r'[^A-Za-z0-9_.-]', lambda c: '_' if c.group() == ' ' else '.%02x' % ord(c.group()), u['author']) or '-'
+    return 'meta %s %s %d %d %d - - - %d upload - %s - -' % (
+        u['map'], u['tier'] or '-', 1 if u['stages'] == 0 else 0, u['stages'], u['bonuses'],
+        1 if u['mode'] == 'surf' else 2, author[:64])
+
+
+def heal_list(path, uploads, today, log=print):
+    """Each upload's row in the map list (mapwatch rewrites it every few hours). Read with mapmanifest's own rules
+    before and after: a list it would refuse is never written."""
+    if not path or not uploads:
+        return 0
+    path = Path(path)
+    try:
+        before = os.stat(path)
+        text = path.read_text(encoding='utf-8')
+        have = {r['map'] for r in mapmanifest.read_list(path)}
+    except (OSError, ValueError) as e:
+        log('map list unreadable, not healed:', e)
+        return 0
+    add = [list_row(u, today) for u in uploads if u['map'] not in have]
+    if not add:
+        return 0
+    new = text if text.endswith('\n') else text + '\n'
+    new += ''.join(r + '\n' for r in add)
+    tmp = path.with_name('.mapdl.mapupd.tmp')
+    tmp.write_text(new, encoding='utf-8')
+    try:
+        mapmanifest.read_list(tmp)
+        st = os.stat(path)
+        if (st.st_ino, st.st_mtime_ns, st.st_size) != (before.st_ino, before.st_mtime_ns, before.st_size):
+            raise ValueError('rewritten while read; next tick')
+        os.chmod(tmp, before.st_mode & 0o777)
+        os.replace(tmp, path)
+    except (OSError, ValueError) as e:
+        tmp.unlink(missing_ok=True)
+        log('map list not healed:', e)
+        return 0
+    return len(add)
+
+
+def heal_meta(path, uploads, log=print):
+    """Each upload's row in the site's map table, before its "# end N" (the menu takes the table only when N is its
+    count of meta rows), and a new "# stamp" so a menu takes this copy."""
+    if not path or not uploads:
+        return 0
+    path = Path(path)
+    try:
+        before = os.stat(path)
+        lines = path.read_text(encoding='utf-8').split('\n')
+    except OSError as e:
+        log('map table unreadable, not healed:', e)
+        return 0
+    if not lines or lines[0] != 'FTESURF-MAPMETA 1':
+        log('map table not one the menu reads; not healed')
+        return 0
+    have = {ln.split()[1] for ln in lines if ln.startswith('meta ') and len(ln.split()) > 1}
+    add = [meta_row(u) for u in uploads if u['map'] not in have]
+    if not add:
+        return 0
+    ends = [i for i, ln in enumerate(lines) if re.fullmatch(r'# end [0-9]{1,6}', ln)]
+    if len(ends) != 1:
+        log('map table has no single end line; not healed')
+        return 0
+    rows = sum(1 for ln in lines if ln.startswith('meta ')) + len(add)
+    lines[ends[0]] = '# end %d' % rows
+    last_meta = max((i for i, ln in enumerate(lines) if ln.startswith('meta ')), default=ends[0] - 1)
+    lines[last_meta + 1:last_meta + 1] = add
+    stamp = time.strftime('%Y%m%d%H%M%S', time.gmtime())
+    lines = [('# stamp ' + stamp) if re.fullmatch(r'# stamp [0-9]{14}', ln) else ln for ln in lines]
+    tmp = path.with_name('.mapmeta.mapupd.tmp')
+    tmp.write_text('\n'.join(lines), encoding='utf-8')
+    try:
+        st = os.stat(path)
+        if (st.st_ino, st.st_mtime_ns, st.st_size) != (before.st_ino, before.st_mtime_ns, before.st_size):
+            raise ValueError('rewritten while read; next tick')
+        os.chmod(tmp, before.st_mode & 0o777)
+        os.replace(tmp, path)
+    except (OSError, ValueError) as e:
+        tmp.unlink(missing_ok=True)
+        log('map table not healed:', e)
+        return 0
+    return len(add)
+
+
+def library_has(maps_dir, name):
+    try:
+        return any(p.suffix.lower() == '.bsp' and p.stem.lower() == name for p in Path(maps_dir).iterdir())
+    except OSError:
+        raise Refused('The map library cannot be read right now; try again later.')
+
+
+def ed25519_verifier():
+    """tasupd's: the cryptography library's when it is there, tools/ed25519.py's small-order refusal kept beside it."""
+    tools = os.environ.get('SURFD_TOOLS', str(Path(__file__).resolve().parent.parent / 'tools'))
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import ed25519 as ed
+    try:
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    except ImportError:
+        return ed.verify
+
+    def fast(pub, msg, sig):
+        if len(pub) != 32 or len(sig) != 64 or ed._point_decompress(pub) is None or ed.small_order(pub):
+            return False
+        try:
+            Ed25519PublicKey.from_public_bytes(pub).verify(sig, msg)
+            return True
+        except (InvalidSignature, ValueError):
+            return False
+    return fast
+
+
+def log(*words):
+    print('mapupd:', *words, file=sys.stderr, flush=True)
+
+
+def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_path=None, clock=time.time,
+               verify=None):
+    app = Flask(__name__)
+    store, account_db = Path(store), Path(account_db)
+    db_path, spool = store / 'mapupd.db', store / 'spool'
+    zone_dirs = tuple(Path(p) for p in zone_dirs)
+    media_dir = Path(media_dir) if media_dir else None
+    verifier = []
+    seen, seen_lock = {}, threading.Lock()
+    state_lock = threading.Lock()       # one finish at a time: two can never publish one name
+    with connect(db_path) as db:
+        secret = db.execute("SELECT v FROM meta WHERE k='secret'").fetchone()['v']
+
+    def answer(**kw):
+        return jsonify(ok=1, **kw)
+
+    def fail(message, status=400):
+        return jsonify(ok=0, error=message, status=status), 200
+
+    def mac(*words):
+        return hmac.new(secret.encode(), '\n'.join(words).encode(), hashlib.sha256).hexdigest()
+
+    def code_for(stamp, salt, msha):
+        return '%08x%s%s' % (stamp, salt, mac('code', '%08x' % stamp, salt, msha)[:16])
+
+    @app.before_request
+    def rate():
+        now, peer = time.monotonic(), request.remote_addr or ''
+        with seen_lock:
+            if len(seen) > 4096:
+                for k in [k for k, v in seen.items() if not v or now - v[-1] >= 60]:
+                    del seen[k]
+            hits = [t for t in seen.get(peer, ()) if now - t < 60]
+            if len(hits) >= PEER_RATE:
+                return fail('Too many requests; wait a minute.', 429)
+            seen[peer] = hits + [now]
+
+    @app.after_request
+    def private(response):
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
+
+    def drain():
+        # what nginx buffered is read away, so the refusal is not lost to a reset connection
+        try:
+            while request.stream.read(1 << 20):
+                pass
+        except Exception:
+            pass
+
+    @app.post('/mapup/api/challenge')
+    def challenge():
+        data = request.get_json(silent=True)
+        msha = data.get('manifest') if isinstance(data, dict) else None
+        if not isinstance(msha, str) or not HEX64.fullmatch(msha):
+            return fail('Invalid request.')
+        return answer(nonce=code_for(int(clock()), secrets.token_hex(4), msha))
+
+    def account(pub):
+        try:
+            with connect(account_db, readonly=True) as main:
+                return accounts.ranked_as(main, pub)
+        except sqlite3.Error:
+            raise Refused('Accounts cannot be read right now; try again later.')
+
+    @app.post('/mapup/api/begin')
+    def begin():
+        raw = request.get_data(cache=False)
+        if len(raw) > 4096:
+            return fail('Invalid request.')
+        try:
+            text = raw.decode('ascii')
+            cut = text.index('nonce ')
+            manifest, proof = text[:cut], text[cut:]
+            pm = re.fullmatch(r'nonce ([0-9a-f]{32})\npub ([0-9a-f]{64})\nsig ([0-9a-f]{128})\n', proof)
+            if not pm:
+                raise Refused('That upload carries no account proof: update your game.')
+            nonce, pub, sig = pm.groups()
+            msha = hashlib.sha256(manifest.encode()).hexdigest()
+            m = parse_manifest(manifest)
+            now, stamp = int(clock()), int(nonce[:8], 16)
+            if not (0 <= now - stamp <= CODE_TTL and hmac.compare_digest(nonce, code_for(stamp, nonce[8:16], msha))):
+                raise Refused('That confirmation expired or is not for these files: press Upload again.')
+            state, sid = account(pub)
+            if state == accounts.RANK_UNLINKED or state == accounts.RANK_UNPROVEN:
+                raise Refused('Link your Steam account in Settings first.')
+            if not verifier:
+                verifier.append(verify or ed25519_verifier())
+            if not verifier[0](bytes.fromhex(pub), (STATEMENT % (SITE, nonce, msha)).encode(), bytes.fromhex(sig)):
+                raise Refused('The account proof did not check out.')
+            if state != accounts.RANK_LINKED:
+                raise Refused('This Steam account cannot upload.')
+            if library_has(maps_dir, m['map']):
+                raise Refused('%s is already in the library. Uploads add new maps; give it a new name.' % m['map'])
+            with connect(db_path) as db, writing(db):
+                if db.execute('SELECT 1 FROM roles WHERE steamid=?', (sid,)).fetchone() is None:
+                    raise Refused('This Steam account is not a map uploader. Ask Proto for the role.')
+                db.execute('DELETE FROM nonces WHERE seen<?', (now - CODE_TTL - 60,))
+                try:
+                    db.execute('INSERT INTO nonces VALUES(?,?)', (nonce, now))
+                except sqlite3.IntegrityError:
+                    raise Refused('That confirmation was used: press Upload again.')
+                for old in db.execute('SELECT token FROM sessions WHERE created<?', (now - SESSION_TTL,)).fetchall():
+                    for p in spool.glob(old['token'] + '.*'):
+                        p.unlink(missing_ok=True)
+                db.execute('DELETE FROM sessions WHERE created<?', (now - SESSION_TTL,))
+                other = db.execute('SELECT steamid FROM sessions WHERE map=?', (m['map'],)).fetchone()
+                if other and other['steamid'] != sid:
+                    raise Refused('Someone else is uploading %s right now.' % m['map'])
+                if db.execute('SELECT COUNT(*) FROM sessions WHERE steamid=?', (sid,)).fetchone()[0] >= 3:
+                    raise Refused('You have three uploads open; finish or wait for them (three hours).')
+                token = secrets.token_hex(16)
+                db.execute('INSERT INTO sessions(token, steamid, map, manifest, created) VALUES(?,?,?,?,?)',
+                           (token, sid, m['map'], manifest, now))
+            log('begin', m['map'], 'by', sid[-4:], msha[:12])
+            need = [k for k in ('bsp', 'shot', 'zone') if m[k]]
+            return answer(session=token, need=' '.join(need))
+        except Refused as e:
+            return fail(str(e))
+        except (UnicodeDecodeError, ValueError):
+            return fail('Invalid request.')
+
+    def session(token, now):
+        with connect(db_path) as db:
+            row = db.execute('SELECT * FROM sessions WHERE token=? AND created>=?', (token, now - SESSION_TTL)).fetchone()
+        if row is None:
+            raise Refused('That upload expired: press Upload again.')
+        return row, parse_manifest(row['manifest'])
+
+    @app.post('/mapup/api/part')
+    def part():
+        now = int(clock())
+        size = request.content_length
+        if size is None or size <= 0 or size > MAX_BSP + (64 << 20):
+            drain()
+            return fail('Upload too large.', 413)
+        head = request.stream.read(PART_HEAD_MAX)
+        cut = head.find(b'\n\n')
+        hm = PART_HEAD.fullmatch(head[:cut + 2]) if cut >= 0 else None
+        if not hm:
+            drain()
+            return fail('That upload is not one this service reads: update your game.')
+        token, which, enc = (x.decode() for x in hm.groups())
+        rest = head[cut + 2:]
+        try:
+            row, m = session(token, now)
+            if m[which] is None or which in row['got'].split():
+                raise Refused('That file was not asked for.')
+            want_sha, want_size = m[which][0], m[which][1]
+            tmp = spool / ('%s.%s.part' % (token, which))
+            h, got = hashlib.sha256(), 0
+            inflate = zlib.decompressobj(31) if enc == 'gzip' else None
+            with open(tmp, 'wb') as out:
+                def put(data):
+                    nonlocal got
+                    got += len(data)
+                    if got > want_size:
+                        raise Refused('That file is larger than the one confirmed: press Upload again.')
+                    h.update(data)
+                    out.write(data)
+                chunk = rest
+                while True:
+                    if chunk:
+                        if inflate:
+                            # bounded: never more than the confirmed size comes out, whatever went in
+                            data = inflate.decompress(chunk, want_size - got + 1)
+                            put(data)
+                            while inflate.unconsumed_tail:
+                                put(inflate.decompress(inflate.unconsumed_tail, want_size - got + 1))
+                        else:
+                            put(chunk)
+                    chunk = request.stream.read(1 << 20)
+                    if not chunk:
+                        break
+                if inflate:
+                    put(inflate.flush())
+                    if not inflate.eof:
+                        raise Refused('That file arrived cut short: press Upload again.')
+            if got != want_size or not hmac.compare_digest(h.hexdigest(), want_sha):
+                tmp.unlink(missing_ok=True)
+                raise Refused('That file is not the one confirmed (it changed or arrived damaged): press Upload again.')
+            os.replace(tmp, spool / ('%s.%s' % (token, which)))
+            with connect(db_path) as db, writing(db):
+                cur = db.execute('SELECT got FROM sessions WHERE token=?', (token,)).fetchone()
+                if cur is None:
+                    raise Refused('That upload expired: press Upload again.')
+                done = sorted(set(cur['got'].split()) | {which})
+                db.execute('UPDATE sessions SET got=? WHERE token=?', (' '.join(done), token))
+            left = [k for k in ('bsp', 'shot', 'zone') if m[k] and k not in done]
+            return answer(received=which, left=' '.join(left))
+        except Refused as e:
+            drain()
+            (spool / ('%s.%s.part' % (token, which))).unlink(missing_ok=True)
+            return fail(str(e))
+        except zlib.error:
+            drain()
+            (spool / ('%s.%s.part' % (token, which))).unlink(missing_ok=True)
+            return fail('That file arrived damaged (gzip): press Upload again.')
+
+    def publish(row, m, now):
+        name, token = m['map'], row['token']
+        bsp = spool / (token + '.bsp')
+        check_bsp(bsp, m['bsp'][1])
+        zone_body = None
+        if m['zone']:
+            zone_body = (spool / (token + '.zone')).read_bytes()
+            try:
+                zonepub.validate(zone_body)
+            except (ValueError, TypeError, KeyError, RecursionError, UnicodeDecodeError):
+                raise Refused('The zone file is not one the game reads (check it in the zone editor).')
+        shot = spool / (token + '.shot') if m['shot'] else None
+        if shot and media_dir:
+            make_pictures(shot, media_dir / 'uploads', name)
+        final = Path(maps_dir) / (name + '.bsp')
+        part = Path(maps_dir) / ('.mapupd.%s.bsp.part' % name)
+        with zonepub_publish.content_publication():
+            if library_has(maps_dir, name):
+                raise Refused('%s is already in the library.' % name)
+            with open(bsp, 'rb') as src, open(part, 'wb') as dst:
+                while True:
+                    block = src.read(1 << 20)
+                    if not block:
+                        break
+                    dst.write(block)
+                dst.flush()
+                os.fsync(dst.fileno())
+            os.chmod(part, 0o644)       # nginx (www-data) serves the library
+            try:
+                os.link(part, final)    # never over a file that arrived meanwhile
+            finally:
+                part.unlink(missing_ok=True)
+            if zone_body is not None and zone_dirs:
+                zonepub_publish.put([d / (name + '.json') for d in zone_dirs], [zone_body] * len(zone_dirs), MAX_ZONE)
+        u = dict(map=name, steamid=row['steamid'], at=now, bsp_sha=m['bsp'][0], kb=(m['bsp'][1] + 1023) // 1024,
+                 mode=m['mode'], tier=m['tier'], stages=m['stages'], bonuses=m['bonuses'], author=m['author'],
+                 shot=1 if shot else 0, zone=1 if zone_body else 0)
+        with connect(db_path) as db, writing(db):
+            db.execute('INSERT OR REPLACE INTO uploads VALUES(:map,:steamid,:at,:bsp_sha,:kb,:mode,:tier,:stages,'
+                       ':bonuses,:author,:shot,:zone)', u)
+            db.execute('DELETE FROM sessions WHERE token=?', (token,))
+        for p in spool.glob(token + '.*'):
+            p.unlink(missing_ok=True)
+        heal(now)
+        log('published', name, m['bsp'][0][:12], 'by', row['steamid'][-4:])
+        return u
+
+    def uploads():
+        with connect(db_path, readonly=True) as db:
+            return [dict(r) for r in db.execute('SELECT * FROM uploads ORDER BY at')]
+
+    def heal(now=None):
+        us = uploads()
+        today = time.strftime('%Y-%m-%d', time.gmtime(now or clock()))
+        a = heal_list(list_path, us, today, log)
+        b = heal_meta(media_dir / 'mapmeta.txt', us, log) if media_dir else 0
+        if a or b:
+            log('healed', a, 'list rows and', b, 'table rows')
+        return a, b
+    app.config['MAPUPD_HEAL'] = heal
+
+    @app.post('/mapup/api/finish')
+    def finish():
+        now = int(clock())
+        raw = request.get_data(cache=False)
+        tm = re.fullmatch(rb'session ([0-9a-f]{32})\n', raw)
+        if not tm:
+            return fail('Invalid request.')
+        try:
+            row, m = session(tm.group(1).decode(), now)
+            need = [k for k in ('bsp', 'shot', 'zone') if m[k]]
+            if sorted(need) != sorted(row['got'].split()):
+                raise Refused('Not every file has arrived yet.')
+            if not state_lock.acquire(timeout=30):
+                raise Refused('Another map is being published; try again in a minute.')
+            try:
+                u = publish(row, m, now)
+            finally:
+                state_lock.release()
+            return answer(published=1, map=u['map'], note='%s is live: lobbies can load it now, and everyone sees it in '
+                          'their map list within a minute (they download it on first play).' % u['map'])
+        except Refused as e:
+            return fail(str(e))
+        except zonepub_publish.PartialPublish as e:
+            log('partial zone publish:', e)
+            return fail('The map was added but its zones could not all be written; an operator must look.', 500)
+        except OSError as e:
+            log('publish failed:', e)
+            return fail('The map could not be written on the server; nothing was published.', 500)
+
+    return app
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--store', type=Path, required=True)
+    sub = ap.add_subparsers(dest='command', required=True)
+    sub.add_parser('init')
+    for word in ('grant', 'revoke'):
+        sub.add_parser(word).add_argument('--identity-file', type=Path, required=True,
+                                         help='private file holding the approved SteamID64')
+    sub.add_parser('roles', help='how many accounts hold the role (never the ids)')
+    sub.add_parser('list', help='published uploads')
+    args = ap.parse_args()
+    if args.command == 'init':
+        initialize(args.store)
+        print('Initialized', args.store)
+        return
+    db_path = args.store / 'mapupd.db'
+    if args.command in ('grant', 'revoke'):
+        sid = args.identity_file.read_text().strip()
+        if not re.fullmatch(r'7656119[0-9]{10}', sid):
+            ap.error('Expected a SteamID64 in the private identity file')
+        with connect(db_path) as db, writing(db):
+            if args.command == 'grant':
+                db.execute('INSERT OR IGNORE INTO roles VALUES(?)', (sid,))
+            else:
+                db.execute('DELETE FROM roles WHERE steamid=?', (sid,))
+        print('Map role updated')
+    elif args.command == 'roles':
+        with connect(db_path, readonly=True) as db:
+            print(db.execute('SELECT COUNT(*) FROM roles').fetchone()[0], 'accounts hold the map role')
+    elif args.command == 'list':
+        with connect(db_path, readonly=True) as db:
+            for r in db.execute('SELECT map, at, kb, mode, tier, stages, bonuses, shot, zone FROM uploads ORDER BY at'):
+                print('%s %s %d KB %s tier %d stages %d bonuses %d shot %d zone %d' % (
+                    r['map'], time.strftime('%Y-%m-%d %H:%MZ', time.gmtime(r['at'])), r['kb'], r['mode'], r['tier'],
+                    r['stages'], r['bonuses'], r['shot'], r['zone']))
+
+
+if __name__ == '__main__':
+    main()

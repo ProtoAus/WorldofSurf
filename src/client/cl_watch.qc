@@ -5710,6 +5710,21 @@ void(vector scr) Watch_Chrome =
 		              : "hud_watch_skipfail 1; hud_watch_path_fails 0\n");
 	}
 
+	// P1747: the Record window (menu/m_vidrec.qc), which renders this replay to a video file
+	s = "record video";
+	xb = stringwidth(s, TRUE, [tiny, tiny]) + pad;
+	if (skx - gap - xb >= p_x + pad)
+	{
+		skx = skx - gap - xb;
+		skw = skw + gap + xb;
+		sui_action_element([skx, y - 2], [xb, tiny + 4], "wt_vidrec", sui_noop);
+		sui_roundbox([skx, y - 2], [xb, tiny + 4], (tiny + 4) * 0.5,
+		             sui_is_hovered("wt_vidrec") ? SUI_THEME_HOVER : SUI_THEME_CHIP, 1);
+		sui_text([skx + pad * 0.5, y], [tiny, tiny], s, SUI_THEME_BAD, 1, 0);
+		if (sui_is_released("wt_vidrec"))
+			cvar_set("ui_vidrec_open", "1");    // the menu polls it (a menu command is not CSQC's to run)
+	}
+
 	// Patch 431: a stage window's cut, and the way back to the whole run.
 	if (rec_wt_winseg >= 0)
 	{
@@ -6022,6 +6037,8 @@ void(vector scr) Watch_Draw =
 	// SUI has one click queue/hit list. A front modal must consume it, not
 	// the playback chrome behind it. The camera, HUD and clock keep running.
 	if (ui_cursor_claims & ~UIC_WATCH)
+		return;
+	if (vrec_state)                 // P1747: never in a video
 		return;
 
 	sui_begin(scr_x, scr_y);

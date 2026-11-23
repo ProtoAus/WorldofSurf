@@ -401,6 +401,7 @@ void(float apilevel, string enginename, float engineversion) CSQC_Init =
 	GameMode_RegisterCvars();     // P1598: hud_gamemode
 	Vote_RegisterCvars();           // Patch 372: the vote box
 	Watch_RegisterCvars();
+	VRec_Init();                    // P1747
 	Scores_RegisterCvars();
 	LineGraph_Register();
 	// Patch 340: the chatbox, the avatar customizer and the room list.  The
@@ -2011,6 +2012,7 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
 	Online_MigrateFrame();
 	Online_Prefetch();              // Patch 781: the sections, ahead of the board
 	Watch_Frame((notmenu && !chat_typing && UI_CursorHeld() == UIC_WATCH));
+	VRec_Frame(notmenu);            // P1747: after the replay's clock
 	// Patch 475: the live line's sampler.  Before clearscene with the other
 	// readers, and it takes at most one sample per command frame.
 	Trail_SaveAnswerFrame();
@@ -2249,7 +2251,7 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
 	Vote_Sync();                        // Patch 372: outside notmenu, so a vote opened under the console still raises the box
 	Ov_Think();                         // P1439: env_screenoverlay's run does not pause for a menu
 
-	if (notmenu)
+	if (notmenu && !VRec_Clean())       // P1747: a video recorded without the HUD has no 2D at all
 	{
 		// Patch 606: the UI style for every 2D panel this frame, including the
 		// HUD-stack menus that draw outside a sui bracket.
@@ -2519,6 +2521,7 @@ float(string cmd) CSQC_ConsoleCommand =
 	// next thing to run is very likely a command.  Nothing real is nested here.
 	cl_input_real = FALSE;
 	cmdargc = tokenize(cmd);
+	if (VRec_ConsoleCommand()) return TRUE;     // P1747
 	if (Tour_Command(cmdargc, cmd)) return TRUE;
 	if (RampWear_Command(cmdargc)) return TRUE;
 	if (GA_Command()) return TRUE;
