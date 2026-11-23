@@ -8219,7 +8219,7 @@ float(entity e, int b, float segs) SV_RecSpineAdopt =
 		tokenize(bufstr_get(segs, i));
 		if (argv(0) == e.rec_sp_bad)
 			return FALSE;
-		sz = stof(argv(2)) - stof(argv(1));
+		sz = (float)(stoi(argv(2)) - stoi(argv(1)));   // round 3: int difference (floats are exact to 16 MB)
 		mine = FALSE;                   // already this stream's: its appends were checked as they went
 		if (e.rec_sp_segs >= 1 && e.rec_sp_serial == e.rec_rec_serial)
 			for (k = 0; k < buf_getsize(e.rec_sp_segs) && !mine; k = k + 1)
