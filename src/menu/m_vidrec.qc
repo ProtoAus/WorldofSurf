@@ -17,6 +17,8 @@ float mvr_inited, mvr_back, mvr_wasopen;
 float mvr_res, mvr_fps, mvr_ss, mvr_blur, mvr_hud, mvr_maxq, mvr_codec;
 float mvr_state, mvr_t0;            // 0 idle, 1 settings applied, 2 rewinding, 3 recording, 4 finishing, 5 done
 float mvr_ff;                       // this recording went to ffmpeg (not PNG frames)
+float mvr_seenenc;                  // capture_ffmpeg_last has said "encoding <this recording>"
+#define MVR_RESTORE "data/vidrec_restore.txt"   // the saved settings while a recording runs: a quit or crash leaves them
 vector mvr_screen;                  // the menu's size, which vid_conautoscale 1 makes the window's pixels
 string mvr_out, mvr_note;
 
@@ -59,11 +61,25 @@ float() MVR_Blend = { return mvr_blur ? MVR_Sub() / ((mvr_blur == 1) ? 4 : 2) : 
 string() MVR_Codec = { return (mvr_codec == 1) ? "h264_nvenc" : (mvr_codec == 2) ? "hevc" : (mvr_codec == 3) ? "av1" : "h264"; };
 float() MVR_Busy = { return mvr_state >= 1 && mvr_state <= 4; };
 
+// The settings a recording changes, kept in memory and in MVR_RESTORE: the engine saves config.cfg on a quit before the
+// menu shuts down, so only the next start (MVR_Recover) can put back what a quit or a crash left.
 void() MVR_Save =
 {
-	local float i;
+	local float i, fh;
 	for (i = 0; i < MVR_NSAVE; i = i + 1)
 		mvr_saved[i] = MVR_Keep(mvr_saved[i], cvar_type(mvr_names[i]) ? cvar_string(mvr_names[i]) : "\x01");
+	fh = fopen(MVR_RESTORE, FILE_WRITE);
+	if (fh < 0) return;
+	for (i = 0; i < MVR_NSAVE; i = i + 1)
+		if (mvr_saved[i] != "\x01" && strstrofs(mvr_saved[i], "\n") < 0 && strstrofs(mvr_saved[i], "\t") < 0)
+			fputs(fh, strcat(mvr_names[i], "\t", mvr_saved[i], "\n"));
+	fclose(fh);
+};
+void() MVR_Forget =
+{
+	local float fh;
+	fh = fopen(MVR_RESTORE, FILE_WRITE);
+	if (fh >= 0) fclose(fh);
 };
 void() MVR_Restore =
 {
@@ -73,6 +89,29 @@ void() MVR_Restore =
 			cvar_set(mvr_names[i], mvr_saved[i]);
 		else if (mvr_saved[i] == "" && cvar_type(mvr_names[i]))
 			cvar_set(mvr_names[i], "");
+	MVR_Forget();
+};
+// m_init: a recording that did not finish (a quit, a crash) left its settings in config.cfg; the file has the old ones
+void() MVR_Recover =
+{
+	local float fh, n, i, ok, put;
+	local string ln, name;
+	fh = fopen(MVR_RESTORE, FILE_READ);
+	if (fh < 0) return;
+	put = 0;
+	while ((ln = fgets(fh)) != "")
+	{
+		i = strstrofs(ln, "\t");
+		if (i <= 0) continue;
+		name = substring(ln, 0, i);
+		ok = FALSE;
+		for (n = 0; n < MVR_NSAVE; n = n + 1)
+			if (name == mvr_names[n]) ok = TRUE;     // only the names a recording sets, whatever the file says
+		if (ok) { cvar_set(name, substring(ln, i + 1, -1)); put = put + 1; }
+	}
+	fclose(fh);
+	if (put > 0) print(sprintf("vidrec: put back %g settings an unfinished recording had changed\n", put));
+	MVR_Forget();
 };
 
 void(string s) MVR_Fail =
@@ -84,6 +123,7 @@ void(string s) MVR_Fail =
 		MVR_Restore();
 	}
 	mvr_state = 5;
+	mvr_seenenc = FALSE;
 	mvr_note = MVR_Keep(mvr_note, s);
 	print(sprintf("vidrec: %s\n", s));
 };
@@ -157,13 +197,20 @@ void() MVR_Frame =
 	if (cvar("ui_vidrec_open"))
 	{
 		cvar_set("ui_vidrec_open", "0");
-		if (!MVR_Busy() && clientstate() == 2)
+		if (clientstate() == 2)
 		{
 			MVR_Open();
 			m_open();
 		}
 	}
 	if (!MVR_Busy()) return;
+	// the menu opened over a recording (ESC, a disconnect prompt...): its window, with Stop, rather than the main menu
+	if (menu_active && clientstate() == 2 && menu_screen == SCREEN_MAIN)
+	{
+		mvr_back = SCREEN_MAIN;
+		mvr_wasopen = FALSE;
+		menu_screen = SCREEN_VIDREC;
+	}
 	if (clientstate() != 2 && mvr_state <= 3) { MVR_Fail("The game left the map; the video stopped."); return; }
 	if (mvr_state == 1 && gettime(0) - mvr_t0 > 0.75)
 	{	// the settings had their shader reloads; now the replay goes back to its start
@@ -180,12 +227,16 @@ void() MVR_Frame =
 			localcmd("vidrec_cs go\n");
 			mvr_state = 3;
 			mvr_t0 = gettime(0);
+			mvr_seenenc = FALSE;
 		}
 		else if (cvar("vidrec_ready") < 0 || gettime(0) - mvr_t0 > 5)
 			MVR_Fail("No replay is open.");
 	}
-	else if (mvr_state == 3 && mvr_ff && gettime(0) - mvr_t0 > 3
-	         && cvar_string("capture_ffmpeg_last") != strcat("encoding ", mvr_out))
+	else if (mvr_state == 3 && mvr_ff && !mvr_seenenc && cvar_string("capture_ffmpeg_last") == strcat("encoding ", mvr_out))
+		mvr_seenenc = TRUE;         // latched: another recording's late "saved" later must not stop this one
+	else if (mvr_state == 3 && mvr_ff && cvar_string("capture_ffmpeg_last") == sprintf("failed %s (ffmpeg would not start)", substring(mvr_out, 7, -1)))
+		MVR_Fail("ffmpeg would not start (see the console).");
+	else if (mvr_state == 3 && mvr_ff && !mvr_seenenc && gettime(0) - mvr_t0 > 3)
 		MVR_Fail("The capture did not start (see the console).");
 	else if (mvr_state == 3 && (cvar("vidrec_end") == 1 || cvar_string("vidrec_replay") == ""))
 	{

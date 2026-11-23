@@ -9,7 +9,8 @@ from mapupd import create_app, log
 
 app = create_app(os.environ['MAPUPD_STORE'], os.environ['MAPUPD_ACCOUNTS'], os.environ['MAPUPD_MAPS'],
                  zone_dirs=json.loads(os.environ.get('MAPUPD_ZONES', '[]')),
-                 media_dir=os.environ.get('MAPUPD_MEDIA') or None, list_path=os.environ.get('MAPUPD_LIST') or None)
+                 media_dir=os.environ.get('MAPUPD_MEDIA') or None, list_path=os.environ.get('MAPUPD_LIST') or None,
+                 zone_check=json.loads(os.environ['MAPUPD_ZONECHECK']) if os.environ.get('MAPUPD_ZONECHECK') else None)
 # Loopback only: the nginx location replaces X-Forwarded-For with its connection's address.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 source = os.environ['MAPUPD_SOURCE']

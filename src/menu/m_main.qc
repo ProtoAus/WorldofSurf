@@ -156,11 +156,13 @@ void() MUp_Close;
 void() MUp_Hide;
 float(float evtype, float scanx) MUp_Input;
 float(string verb, string arg) MUp_Command;
+float() MUp_Busy;
 #define SCREEN_VIDREC 15        // P1747: record the open replay as a video (m_vidrec.qc)
 void(vector screensize) MVR_Draw;
 void() MVR_Frame;
 void() MVR_Open;
 void() MVR_Shutdown;
+void() MVR_Recover;
 float(float evtype, float scanx) MVR_Input;
 float() MVR_Command;
 void() MC_Init;
@@ -8702,6 +8704,7 @@ void() m_init =
 	if (checkbuiltin(localcmd_local))
 	if (getkeybind(K_F2) == "" || getkeybind(K_F2) == "menu_save" || getkeybind(K_F2) == "ui_updates")
 		localcmd_local("bind F2 ui_journal\n");
+	MVR_Recover();                      // P1747: settings a recording that never finished left behind
 	if (getkeybind(K_F8) == "")         // P1746: the map upload window (the service decides who may upload)
 		localcmd_local("bind F8 ui_mapupload\n");
 	if (ms_consent < FS_TERMS_VERSION)
@@ -9449,7 +9452,9 @@ float(string cmd) m_consolecommand =
 		if (argv(1) != "")
 			return MUp_Command(argv(1), argv(2));
 		if (mup_open && menu_active && menu_screen == SCREEN_MAPUPLOAD)
-			MUp_Close();
+		{
+			if (!MUp_Busy()) MUp_Close();       // an upload under way keeps its window (Close shows when it ends)
+		}
 		else if (ms_consent >= FS_TERMS_VERSION)
 		{
 			MUp_Open();

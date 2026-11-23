@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """P1746: owner/root installation of the isolated map upload service (surfd/mapupd.py); default dry run.
 
-tools/install_mapupd.py's installer with the names, files, unit and nginx routes changed: a clean inspected
+The TAS service's installer (tools/install_tasupd.py) with the names, files, unit and nginx routes changed: a clean inspected
 source commit, an exact nginx predecessor hash and --apply; the files are the commit's git objects; run it as
 `sudo python3 -I` and it refuses to be anything but that commit's own tools/install_mapupd.py; releases go under
 RELEASES (/opt, root's alone); the state directory is chowned through its fd; git and the import check run as
@@ -45,13 +45,17 @@ PORT = 8096                 # free on the Pi (8087 zonepub, 8093 tasupd, 8095 ta
 PUBLIC_URL = 'https://play.proto.bar/mapup'
 MAPS = '/srv/nvme/ftesurf-server/game/momentum/maps'
 ZONE_DIRS = ['/srv/nvme/ftesurf-server/game/ftesurf/maps/zones/local', '/srv/nvme/ftesurf-site/zones']   # zonepub's
+# every zone directory a lobby reads (the TAS installer's list): a name with zones in any of them is not new
+ZONE_CHECK = ['/srv/nvme/ftesurf-server/game/%s/maps/zones/%s' % d for d in (
+    ('ftesurf', 'local'), ('ftesurf', 'curated'), ('momentum', 'curated'), ('momentum', 'local'),
+    ('ftesurf', 'online'), ('momentum', 'online'))] + ['/srv/nvme/ftesurf-site/zones']
 MEDIA = '/srv/nvme/ftesurf-site/media'
 LIST = '/srv/nvme/surfd/data/mapwatch/mapdl.txt'
 NGINX = """location = /mapup/api/part {
     limit_except POST { deny all; }
     client_max_body_size 1100m;   # mapupd.MAX_BSP and a gzip's slack
     proxy_request_buffering off;  # straight to the service's spool on the NVMe, not nginx's temp on the root fs
-    client_body_timeout 60s;      # between reads
+    client_body_timeout 20s;      # between reads
     proxy_pass http://127.0.0.1:%d;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $remote_addr;
@@ -60,7 +64,7 @@ NGINX = """location = /mapup/api/part {
     proxy_read_timeout 600s;
     proxy_send_timeout 600s;
     limit_conn mapupd_addr 2;
-    limit_conn mapupd_all 4;      # the service's four threads
+    limit_conn mapupd_all 4;      # of the service's eight threads: challenge, begin, finish and health keep four
     access_log off;
 }
 location ^~ /mapup/api/ {
@@ -211,6 +215,7 @@ def old_units(old, account_db, commit):
 def service_env(release, account_db, commit):
     return dict(MAPUPD_STORE=str(STATE), MAPUPD_ACCOUNTS=str(account_db), MAPUPD_MAPS=MAPS,
                 MAPUPD_ZONES=json.dumps(ZONE_DIRS, separators=(',', ':')), MAPUPD_MEDIA=MEDIA, MAPUPD_LIST=LIST,
+                MAPUPD_ZONECHECK=json.dumps(ZONE_CHECK, separators=(',', ':')),
                 SURFD_TOOLS=str(release / 'tools'), MAPUPD_SOURCE=commit)
 
 
@@ -321,7 +326,7 @@ def prune_releases(keep):
 
 def upgrade(a, blobs):
     """The installed release `a.upgrade_from` -> `a.commit`; see the module doc."""
-    old = RELEASES / a.upgrade_from if (RELEASES / a.upgrade_from).is_dir() else ROOT / a.upgrade_from
+    old = RELEASES / a.upgrade_from
     new = RELEASES / a.commit
     if a.upgrade_from == a.commit: raise RuntimeError('Upgrade to the installed commit')
     if any(p.exists() or p.is_symlink() for p in (new, ROOT / a.commit)): raise RuntimeError('The new release directory already exists')
@@ -392,9 +397,9 @@ User=proto
 Group=proto
 UMask=0022
 WorkingDirectory=%s
-ExecStart=/usr/bin/python3 -m gunicorn --bind 127.0.0.1:%d --workers 1 --threads 4 --timeout 120 --access-logfile /dev/null mapupd_wsgi:app
+ExecStart=/usr/bin/python3 -m gunicorn --bind 127.0.0.1:%d --workers 1 --threads 8 --timeout 120 --access-logfile /dev/null mapupd_wsgi:app
 %sRestart=on-failure
-MemoryMax=512M
+MemoryMax=768M
 MemorySwapMax=0
 CPUQuota=50%%
 Nice=10

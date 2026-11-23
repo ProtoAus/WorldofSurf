@@ -95,8 +95,7 @@ class Flow(unittest.TestCase):
 
     def part(self, token, which, body, enc='raw'):
         data = gzip.compress(body) if enc == 'gzip' else body
-        head = ('FTESURF-MAPUP-PART 1\nsession %s\npart %s\nenc %s\n\n' % (token, which, enc)).encode()
-        return self.post('part', data=head + data)
+        return self.post('part?s=%s&p=%s&e=%s' % (token, which, enc), data=data)
 
     def finish(self, token):
         return self.post('finish', data=('session %s\n' % token).encode())
@@ -310,6 +309,27 @@ class Flow(unittest.TestCase):
 
     def test_health(self):
         self.assertEqual(self.post('health', json={}), {'ok': 1, 'accounts': 1})
+
+    def test_data_after_the_gzip_stream(self):
+        bsp = vbsp()
+        tok = self.begin(manifest('surf_trail', bsp))[0]['session']
+        r = self.post('part?s=%s&p=bsp&e=gzip' % tok, data=gzip.compress(bsp) + b'junk' * 1000)
+        self.assertIn('data after its end', r['error'])
+        self.assertEqual(self.part(tok, 'bsp', bsp, 'gzip')['left'], '')
+
+    def test_zone_names_in_other_lobby_dirs(self):
+        other = Path(self.tmp.name) / 'online'
+        other.mkdir()
+        (other / 'surf_elsewhere.json').write_bytes(zone())
+        app = M.create_app(self.store, self.main, self.maps, self.zones, self.media, self.list, clock=lambda: self.now,
+                           verify=ed25519.verify, free_bytes=lambda: 1 << 40, zone_check=self.zones + [other])
+        self.c = app.test_client()
+        self.assertIn('already has zones', self.begin(manifest('surf_elsewhere', vbsp()))[0]['error'])
+
+    def test_a_refused_part_is_not_read(self):
+        r = self.post('part?s=%s&p=bsp&e=raw' % ('0' * 32), data=b'x' * 100000)
+        self.assertIn('expired', r['error'])
+        self.assertIn('not one this service reads', self.post('part?s=zz&p=bsp&e=raw', data=b'x')['error'])
 
     def test_other_session_cannot_send_parts(self):
         bsp = vbsp()

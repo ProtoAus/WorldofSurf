@@ -19,6 +19,7 @@ void() VRec_Init =
 	registercvar("vidrec_end", "0");
 	registercvar("vidrec_replay", "");
 	cvar_set("vidrec_replay", "");      // a VM after a map change has no replay, whatever the last one said
+	cvar_set("vidrec_ready", "0");
 	registercommand("vidrec_cs");
 };
 // a map change or a disconnect ends the video: this VM goes and the next starts idle (the menu stops the capture)
@@ -26,6 +27,7 @@ void() VRec_Shutdown =
 {
 	if (vrec_state >= 1) cvar_set("vidrec_end", "1");
 	cvar_set("vidrec_replay", "");
+	cvar_set("vidrec_ready", "0");
 };
 
 float() VRec_Clean = { return (vrec_state >= 1 && vrec_clean); };
@@ -99,6 +101,8 @@ float() VRec_ConsoleCommand =
 	else if (argv(1) == "done")
 	{
 		if (vrec_state && vrec_rate > 0) rec_wt_rate = vrec_rate;
+		if (vrec_menupaused) rec_wt_paused = FALSE;     // Stop from the menu: the replay plays on as before
+		vrec_menupaused = FALSE;
 		vrec_state = 0;
 		vrec_clean = FALSE;
 		cvar_set("vidrec_ready", "0");

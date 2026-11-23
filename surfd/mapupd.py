@@ -46,10 +46,8 @@ SHOT_EXT = ('png', 'jpg', 'jpeg', 'tga')
 CODE_TTL = 600                      # s a challenge code is good for
 SESSION_TTL = 3 * 3600              # s an accepted manifest may take to upload
 PEER_RATE = 30                      # requests a minute per address, before any other work
-PART_HEAD = re.compile(rb'FTESURF-MAPUP-PART 1\nsession ([0-9a-f]{32})\npart (bsp|shot|zone)\nenc (raw|gzip)\n\n')
-PART_HEAD_MAX = 96
+PART_DEADLINE = 3600                # s one file may take in all (a slow uplink and a 1 GB map)
 SMALL_BODY = 8192                   # challenge, begin and finish (nginx caps them too)
-DRAIN_MAX = 8 << 20                 # a refused body read away only up to this
 INFLATE_STEP = 4 << 20              # bytes out of one inflate call
 FREE_FLOOR = 20 << 30               # disk left beside the library after an upload
 DAY_UPLOADS, DAY_KB = 10, 8 << 20   # one account's maps and KB in a day
@@ -178,12 +176,12 @@ def check_bsp(path, size):
 def make_pictures(src, out_dir, name):
     """<name>.jpg (the card and backdrop, at most 1920x1080) and <name>-thumb.jpg (320x180), from the upload."""
     from PIL import Image
-    Image.MAX_IMAGE_PIXELS = 40_000_000     # 8K is 33 MP; decoded RGB stays well under the unit's memory
+    Image.MAX_IMAGE_PIXELS = 20_000_000     # 5K; an 8K RGBA PNG peaked at 638 MiB decoding (review 2)
     try:
         # the decoder is chosen from the bytes: only these three, whatever the name says (never EPS, which is Ghostscript)
         with Image.open(src, formats=('PNG', 'JPEG', 'TGA')) as im:
             if im.width < 160 or im.height < 90 or im.width * im.height > Image.MAX_IMAGE_PIXELS:
-                raise Refused('The picture must be at least 160x90 and at most 40 megapixels.')
+                raise Refused('The picture must be at least 160x90 and at most 20 megapixels.')
             im.load()
             im = im.convert('RGB')
             big = im.copy()
@@ -353,7 +351,8 @@ def log(*words):
 
 
 def taken(name, maps_dir, zone_dirs, list_path, media_dir):
-    """Why `name` cannot be a new map ("" when it can): a BSP, a zone file, or a row any table already has."""
+    """Why `name` cannot be a new map ("" when it can): a BSP, a zone file in any directory a lobby reads, or a row
+    either table already has."""
     if library_has(maps_dir, name):
         return '%s is already in the library. Uploads add new maps; give it a new name.' % name
     for d in zone_dirs:
@@ -381,11 +380,13 @@ def peer_key(addr):
 
 
 def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_path=None, clock=time.time,
-               verify=None, free_bytes=None):
+               verify=None, free_bytes=None, zone_check=None):
     app = Flask(__name__)
     store, account_db = Path(store), Path(account_db)
     db_path, spool = store / 'mapupd.db', store / 'spool'
     zone_dirs = tuple(Path(p) for p in zone_dirs)
+    # where a name is looked for (every zone directory a lobby reads); written are only zone_dirs (zonepub's two)
+    zone_check = tuple(Path(p) for p in (zone_check if zone_check is not None else zone_dirs))
     media_dir = Path(media_dir) if media_dir else None
     if free_bytes is None:
         free_bytes = lambda: min(shutil.disk_usage(maps_dir).free, shutil.disk_usage(store).free)
@@ -432,18 +433,6 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         return response
-
-    def drain():
-        # a refusal's body is read away (so the game gets the reason, not a reset), but only a small one: a big
-        # unproven body closes the connection instead of tying up a thread
-        size = request.content_length or 0
-        if size > DRAIN_MAX:
-            return
-        try:
-            while request.stream.read(1 << 20):
-                pass
-        except Exception:
-            pass
 
     @app.post('/mapup/api/health')
     def health():
@@ -512,7 +501,7 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                 raise Refused('Link your Steam account in Settings first.')
             if state != accounts.RANK_LINKED:
                 raise Refused('This Steam account cannot upload.')
-            why = taken(m['map'], maps_dir, zone_dirs, list_path, media_dir)
+            why = taken(m['map'], maps_dir, zone_check, list_path, media_dir)
             if why:
                 raise Refused(why)
             if free_bytes() < 2 * m['bsp'][1] + FREE_FLOOR:
@@ -532,8 +521,10 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                     if old['steamid'] != sid:
                         raise Refused('Someone else is uploading %s right now.' % m['map'])
                     drop_session(db, old['token'])
-                if db.execute('SELECT COUNT(*) FROM sessions WHERE steamid=?', (sid,)).fetchone()[0] >= 3:
-                    raise Refused('You have three other uploads open; they close after three hours.')
+                # at three open, the oldest goes (attempts at other names must not lock anyone out either)
+                for old in db.execute('SELECT token FROM sessions WHERE steamid=? ORDER BY created DESC LIMIT -1 OFFSET 2',
+                                      (sid,)).fetchall():
+                    drop_session(db, old['token'])
                 n, kb = db.execute('SELECT COUNT(*), COALESCE(SUM(kb), 0) FROM uploads WHERE steamid=? AND at>?',
                                    (sid, now - 86400)).fetchone()
                 if n >= DAY_UPLOADS or (kb + m['bsp'][1] // 1024) > DAY_KB:
@@ -559,32 +550,31 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
 
     @app.post('/mapup/api/part')
     def part():
-        now = int(clock())
+        # the session, part and encoding come in the URL and are checked before a byte of the body is read; a refused
+        # body is never read (the connection closes), so nobody without a session can hold a thread with a slow one
+        now, start = int(clock()), time.monotonic()
         size = request.content_length
+        token, which, enc = request.args.get('s', ''), request.args.get('p', ''), request.args.get('e', '')
+        if not (re.fullmatch('[0-9a-f]{32}', token) and which in ('bsp', 'shot', 'zone') and enc in ('raw', 'gzip')):
+            return fail('That upload is not one this service reads: update your game.')
         if size is None or size <= 0 or size > MAX_BSP + (64 << 20):
             return fail('Upload too large.', 413)
-        head = request.stream.read(PART_HEAD_MAX)
-        cut = head.find(b'\n\n')
-        hm = PART_HEAD.fullmatch(head[:cut + 2]) if cut >= 0 else None
-        if not hm:
-            drain()
-            return fail('That upload is not one this service reads: update your game.')
-        token, which, enc = (x.decode() for x in hm.groups())
-        rest = head[cut + 2:]
         key = (token, which)
         tmp = spool / ('%s.%s.part' % (token, which))
+        try:
+            row, m = session(token, now)
+        except Refused as e:
+            return fail(str(e))
+        if m[which] is None or which in row['got'].split():
+            return fail('That file was not asked for.')
+        want_sha, want_size = m[which][0], m[which][1]
+        if size > want_size + (64 << 20):     # gzip can grow a little, never by this much
+            return fail('That file is larger than the one confirmed: press Upload again.')
         with inflight_lock:
             if key in inflight:
-                drain()
                 return fail('That file is already arriving.', 409)
             inflight.add(key)
         try:
-            row, m = session(token, now)
-            if m[which] is None or which in row['got'].split():
-                raise Refused('That file was not asked for.')
-            want_sha, want_size = m[which][0], m[which][1]
-            if size > want_size + (64 << 20) + PART_HEAD_MAX:     # gzip can grow a little, never by this much
-                raise Refused('That file is larger than the one confirmed: press Upload again.')
             h, got = hashlib.sha256(), 0
             inflate = zlib.decompressobj(31) if enc == 'gzip' else None
             with open(tmp, 'wb') as out:
@@ -596,20 +586,24 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                     h.update(data)
                     out.write(data)
                 def inflated(data):
+                    if inflate.eof:     # nothing may follow the gzip stream (it would pile up in unused_data)
+                        raise Refused('That file arrived damaged (data after its end): press Upload again.')
                     # a few MB a call, never past the confirmed size: a small gzip bomb stays small
                     put(inflate.decompress(data, min(want_size - got + 1, INFLATE_STEP)))
                     while inflate.unconsumed_tail:
                         put(inflate.decompress(inflate.unconsumed_tail, min(want_size - got + 1, INFLATE_STEP)))
-                chunk = rest
+                    if inflate.unused_data:
+                        raise Refused('That file arrived damaged (data after its end): press Upload again.')
                 while True:
-                    if chunk:
-                        if inflate:
-                            inflated(chunk)
-                        else:
-                            put(chunk)
                     chunk = request.stream.read(1 << 20)
                     if not chunk:
                         break
+                    if time.monotonic() - start > PART_DEADLINE:
+                        raise Refused('That file took over an hour; press Upload again on a faster connection.')
+                    if inflate:
+                        inflated(chunk)
+                    else:
+                        put(chunk)
                 if inflate:
                     put(inflate.flush())
                     if not inflate.eof:
@@ -626,10 +620,8 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             left = [k for k in ('bsp', 'shot', 'zone') if m[k] and k not in done]
             return answer(received=which, left=' '.join(left))
         except Refused as e:
-            drain()
             return fail(str(e))
         except zlib.error:
-            drain()
             return fail('That file arrived damaged (gzip): press Upload again.')
         finally:
             tmp.unlink(missing_ok=True)
@@ -659,19 +651,20 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             except (ValueError, TypeError, KeyError, RecursionError, UnicodeDecodeError):
                 raise Refused('The zone file is not one the game reads (check it in the zone editor).')
         shot = spool / (token + '.shot') if m['shot'] else None
-        if shot and media_dir:
-            make_pictures(shot, media_dir / 'uploads', name)
         final = Path(maps_dir) / (name + '.bsp')
         part = Path(maps_dir) / ('.mapupd.%s.bsp.part' % name)
         zone_paths = [d / (name + '.json') for d in zone_dirs] if zone_body is not None else []
+        pictures = [media_dir / 'uploads' / f for f in (name + '.jpg', name + '-thumb.jpg')] if shot and media_dir else []
         with zonepub_publish.content_publication():
-            why = taken(name, maps_dir, zone_dirs, list_path, media_dir)
+            why = taken(name, maps_dir, zone_check, list_path, media_dir)
             if why:
                 raise Refused(why)
             # zones first: a map is never live without the zones it was sent with
             if zone_paths:
                 zonepub_publish.put(zone_paths, [zone_body] * len(zone_paths), MAX_ZONE)
             try:
+                if pictures:
+                    make_pictures(shot, media_dir / 'uploads', name)
                 with open(bsp, 'rb') as src, open(part, 'wb') as dst:
                     for block in iter(lambda: src.read(1 << 20), b''):
                         dst.write(block)
@@ -680,7 +673,7 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                 os.chmod(part, 0o644)       # nginx (www-data) serves the library
                 os.link(part, final)        # never over a file that arrived meanwhile
             except BaseException:
-                for z in zone_paths:        # taken() saw none of these: they are this upload's
+                for z in zone_paths + pictures:     # taken() saw no zones of this name: they are this upload's
                     z.unlink(missing_ok=True)
                 raise
             finally:
@@ -696,7 +689,10 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
         except sqlite3.Error as e:
             log('PUBLISHED BUT NOT RECORDED', name, e)
             raise Refused('%s is live, but the server could not record it (no list row yet); tell Proto.' % name)
-        heal(now)
+        try:
+            heal(now)
+        except Exception as e:      # the map is live and recorded: the minute tick heals the rows instead
+            log('heal after publish failed:', e)
         log('published', name, m['bsp'][0][:12], 'by', row['steamid'][-4:])
         return u
 
@@ -717,8 +713,11 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             live = {r['token'] for r in db.execute('SELECT token FROM sessions')}
         cutoff = time.time() - 3600
         for p in spool.iterdir():
-            if p.name.split('.')[0] not in live and p.stat().st_mtime < cutoff:
-                p.unlink(missing_ok=True)
+            try:
+                if p.name.split('.')[0] not in live and p.stat().st_mtime < cutoff:
+                    p.unlink(missing_ok=True)
+            except FileNotFoundError:
+                pass
         return a, b
     app.config['MAPUPD_HEAL'] = heal
 

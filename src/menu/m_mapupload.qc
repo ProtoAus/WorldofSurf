@@ -189,11 +189,17 @@ void() MUp_ZoneFind =
 	z = strcat("data/maps/zones/local/", mup_name, ".json");
 	if (mup_name != "" && ui_file_exists(z))
 	{
-		if (mup_zone == "" || substring(mup_zone, 0, 8) != "dropped/") mup_zone = MUp_Keep(mup_zone, z);
+		if (mup_zone == "" || substring(mup_zone, 0, 8) != "dropped/")
+		{
+			if (strcmp(mup_zone, z)) mup_usezone = FALSE;   // found, not attached: the admin's click attaches it
+			mup_zone = MUp_Keep(mup_zone, z);
+		}
 	}
 	else if (mup_zone != "" && substring(mup_zone, 0, 8) != "dropped/")
+	{
 		mup_zone = MUp_Keep(mup_zone, "");
-	mup_usezone = (mup_zone != "");
+		mup_usezone = FALSE;
+	}
 };
 
 void(float kind, string path, string sha, int size) MUp_SetHash;
@@ -241,7 +247,7 @@ void() MUp_Open =
 	MUp_Init();
 	if (!mup_open) { mup_back = menu_screen; mup_wasopen = menu_active; }
 	mup_open = TRUE;
-	MUp_Rehash();
+	if (!MUp_Busy()) MUp_Rehash();
 	menu_screen = SCREEN_MAPUPLOAD;
 	cvar_set("ui_dropfiles", "1");
 	if (time - mup_listed_at > 5 || !buf_getsize(mup_maps)) MUp_ListMaps();
@@ -256,7 +262,7 @@ void() MUp_Hide =
 	cvar_set("ui_dropfiles", "0");
 	MUp_PicsFree();
 	if (mup_hfh) { fclose(mup_hfh - 1); mup_hfh = 0; }
-	MUp_Rehash();
+	if (!MUp_Busy()) MUp_Rehash();
 	if (menu_screen == SCREEN_MAPUPLOAD) menu_screen = (mup_back == SCREEN_MAPUPLOAD) ? SCREEN_MAIN : mup_back;
 	sui_text_unfocus();
 };
@@ -266,7 +272,6 @@ void() MUp_Close =
 	MUp_Hide();
 	if (clientstate() == 2 && !mup_wasopen) m_close();   // F8 over a game goes back to it
 };
-float() MUp_Busy;
 
 // the engine copied a dropped or picked file to dropped/<name> (pr_menu.c MP_FileDropped)
 void(string path, string name) Menu_FileDropped =
@@ -374,12 +379,16 @@ float(string a) MUp_AuthorOK =
 // can write the zone files an upload attaches (data/maps/zones/local), so an unknown server's is not trusted with one.
 float() MUp_Official =
 {
-	local string ip;
+	local string sv, ip, host;
 	local float i;
 	if (clientstate() != 2 || isserver()) return TRUE;
+	// the directory hands out play.proto.bar:<port> (surfd's public host), and a join connects by that name
+	sv = strtolower(serverkey("servername"));
 	ip = serverkey("ip");
+	host = substring(sv, 0, strstrofs(sv, ":"));
+	if (host == "play.proto.bar") return TRUE;
 	for (i = 0; i < Lob_Count(); i = i + 1)
-		if (!strcmp(Lob_Addr(i), ip)) return TRUE;
+		if (!strcmp(strtolower(Lob_Addr(i)), sv) || !strcmp(Lob_Addr(i), ip)) return TRUE;
 	return FALSE;
 };
 
@@ -495,10 +504,10 @@ void() MUp_NextPart =
 	path = (which == "bsp") ? mup_up1 : (which == "shot") ? mup_up2 : mup_up3;
 	mup_sentat = time;
 	mup_part = MUp_Keep(mup_part, which);
-	head = sprintf("FTESURF-MAPUP-PART 1\nsession %s\npart %s\nenc %s\n\n", mup_session, which, (which == "bsp") ? "gzip" : "raw");
+	head = sprintf("part?s=%s&p=%s&e=%s", mup_session, which, (which == "bsp") ? "gzip" : "raw");    // checked before the body
 	mup_partreq = Lob_NextReq();
 	mup_state = 2;
-	if (!uri_postfile(strcat(MUP_BASE, "part"), mup_partreq, "application/octet-stream", head, path, (which == "bsp") ? 1 : 0))
+	if (!uri_postfile(strcat(MUP_BASE, head), mup_partreq, "application/octet-stream", "", path, (which == "bsp") ? 1 : 0))
 		MUp_Fail(sprintf("%s could not be sent.", MUp_Base(path)));
 };
 
@@ -659,8 +668,8 @@ void(vector p, float w) MUp_DrawExtras =
 	sui_text(p, SZ_LABEL, "Zones", COL_DIM, 1, 0);
 	if (mup_zone != "")
 	{
-		ui_chip([p_x + 70, p_y - 5], "mup_zonechip", mup_usezone ? sprintf("Attach %s", MUp_Base(mup_zone)) : "Not attached",
-			mup_usezone);
+		ui_chip([p_x + 70, p_y - 5], "mup_zonechip", mup_usezone ? sprintf("Attached: %s", MUp_Base(mup_zone))
+			: sprintf("Click to attach %s", MUp_Base(mup_zone)), mup_usezone);
 		if (sui_is_released("mup_zonechip")) mup_usezone = !mup_usezone;
 	}
 	else
@@ -723,12 +732,12 @@ void(vector screensize) MUp_Draw =
 	MUp_CodeFrame();
 	// an answer that never comes: a request out 90 s, or a file sent and its reply a minute late
 	pr = (mup_state == 2) ? uri_progress(mup_partreq) : '0 0 -1';
-	if ((mup_state == 1 || mup_state == 3) && time - mup_sentat > 90)
+	if (time - mup_sentat > ((mup_state == 3) ? 330 : 90) && (mup_state == 1 || mup_state == 3))
 		MUp_Fail("play.proto.bar did not answer; press Upload to try again.");
-	else if (mup_state == 2 && pr_z < 0 && time - mup_sentat > 60)
+	else if (mup_state == 2 && (pr_z < 0 || pr_z >= 3) && time - mup_sentat > 600)
 		MUp_Fail("play.proto.bar did not answer the file; press Upload to try again.");
-	else if (mup_state == 2 && pr_z >= 0)
-		mup_sentat = time;           // still sending: a big map takes as long as it takes
+	else if (mup_state == 2 && pr_z >= 0 && pr_z < 3)
+		mup_sentat = time;           // still compressing or sending: a big map takes as long as it takes
 	w = min(1040, screensize_x - 24);
 	h = min(690, screensize_y - 24);
 	p = [floor((screensize_x - w) * 0.5), floor((screensize_y - h) * 0.5)];
