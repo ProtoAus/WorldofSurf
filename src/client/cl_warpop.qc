@@ -436,6 +436,7 @@ float(float op) WarpOp_Row =
 		i0 = WarpOp_Idx();
 		if (cnt >= FS_MAXSAVES)
 			return FALSE;                   // the save may be refused: the list is full
+		if (op != WOP_LOAD && op != WOP_LOADNOW)    // round 2: a load behind the map's first save stays predicted (P1547)
 		if (cnt < 1 || (sl_delall_at > 0 && cltime - sl_delall_at < 10 && cltime >= sl_delall_at))
 			return FALSE;                   // review: saves off (count 0), or a delete-all may still be sweeping
 		n = cnt + 1;
