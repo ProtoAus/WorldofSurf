@@ -18,12 +18,17 @@
 - P1760: casting Source models do not receive shadows (P1732), now including a cascade map's static props; under r_shadows
   1 a cascade map's disableshadows props draw a blob (EF_NOSHADOW is both switches); a disabled or killed
   env_cascade_light still counts (QC, cl_sun.qc and the plugin read the lump); a v10 static-prop lump never casts.
-- P1761 (engine branch p1761-mover17, Lex's dev install only -- keep it off main until it ships): the lobby engine (arm64)
-  and surfd's verifier must carry mover 17 before ranked runs on its maps verify, and before a release: 19 of 53
-  local VBSP maps pin 17 by entity props (canals 821, ahop_coast 195, surf_bikini_bottom 129, the bhop_uncanny set 86 each,
-  surf_olivia, surf_medley, surf_dragonfall, surf_happyhands, surf_classics, ...). Static props traced through a rotated
-  model (no convex pieces) still use the box's real extent only from 17 too; triangle-to-box SAT still lacks the
-  tri-edge x box-axis bevels, so a box can stand a few units proud of a turned prop's edge (save 5's ramp: 4 at its top).
+- The walk-through ramp (Lex save 5, NOT FIXED): bhop_canals' metal_panel01a pair (prop_dynamic_override solid 6, angles
+  -70 90 -180). Cause found: BIH_ClipToTriangle/TestToTriangle bevel a turned box along MODEL axes with the UNTURNED
+  half-size (Patch 320 missed them), so the box sinks 7.5 units at the high edge and passes under the low half (drops and
+  a walk in the rig stop at Lex's save point; r_showhull draws the hull right). P1761 (engine branch p1761-mover17-wip,
+  d42e4fb0f, never installed or merged): mover 17 with the box's own faces and edge bevels; its review found static-prop
+  detection dead, yaw-90 recovery boxes differing, corner bulge and a lump-parse desync (all fixed there), but then the
+  box rests on the 4-unit back slabs of the panel's underside triangles (the hull is 3 units thick) and slides off.
+  Trisoup prisms are the wrong shape for thin .phy hulls: the fix is to sweep a dynamic prop's .phy convex pieces as
+  brushes, as static props do (Patch 764, BIH_PropBrushes), as a mover-17 gate with a map-data pin (19 of 53 local maps
+  have solid turned props; lobby engine + surfd verifier must carry it before a release). Gate recipe and the offline
+  clip simulator: canalsgfx root artifacts/gate1761.sh, clipsim.py.
 
 ## P1746/P1747 map upload and replay video -- what they leave (23 Nov, ftesurf-cb; root FTESurf-worktrees/mapvid-20261123-cb)
 - mapupd heals its rows into mapwatch's mapdl.txt and the site's mapmeta.txt every minute; the durable fix is for

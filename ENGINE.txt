@@ -4,8 +4,8 @@
 # the screen sRGB-encoded (no bands, no green); a prop's rendercolor tints it (canals' light shafts); r_shadows 2 on a
 # Source map keeps the single sun map its surfaces read (the lamp atlas drew nothing there and cost ~3 ms a frame on
 # canals), static props cast on env_cascade_light maps, and cascade casters follow disableshadowdepth. Lobby progs carry
-# P1759/P1760; the rest reaches players with the next release. P1761 (mover 17, turned props) is on engine branch
-# p1761-mover17, not main: see BACKLOG. Record: ENGINE_PATCHES P1758, P1759, P1760.
+# P1759/P1760; the rest reaches players with the next release. The walk-through ramp (turned props) is diagnosed, not
+# fixed: WIP engine branch p1761-mover17-wip, see BACKLOG. Record: ENGINE_PATCHES P1758, P1759, P1760.
 # P1746 + P1747 (engine http/httpclient.c iweb.h, common/pr_bgcmd.c fs_zip.c sys_linux_threads.c, client/pr_menu.c
 # cl_receipt.c cl_main.c m_mp3.c sys_sdl.c, gl/gl_vidwayland.c, server/sv_main.c; QC m_mapupload.qc m_vidrec.qc
 # cl_vidrec.qc m_main.qc m_lobby.qc m_mapmedia.qc cl_main.qc cl_watch.qc cl_keys.qc; surfd/mapupd.py, tools/install_mapupd.py;
