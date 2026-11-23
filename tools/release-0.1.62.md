@@ -50,5 +50,7 @@ downloads and local mode, old save locks, wobbly replays; then every patch on th
   hashes differ as on x86 (identical hashes across the two architectures), mover hashes identical; skew run unchanged.
 - After: all 12 active and answering `git-9039-patch-1748-0-g3e7ad92da` / pm_sourceversion 16; each lobby's own log
   (server<N>.log; the journal is not readable to proto) has no Host_Error/program error/crash since its patch-1748 start.
+- The released 0.1.62 Linux client (git-9039-patch-1748-0-g3e7ad92da) on lobby 12 (ping350 arm, p1706arm.py rel --bin
+  bin_rel0162 --sections live): 0 prederr, noclip ON/OFF.
 - This native is surfd's verifier now (sweep.py ENGINE = game/fteqw-svarm64): new runs on maps with far brushes (e.g.
   bhop_canals) pin 16 and verify at once; the next surfd generation's kit must pin be372f27.
