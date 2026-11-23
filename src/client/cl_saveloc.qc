@@ -86,6 +86,7 @@ float rec_sl_cv;
   Disarmed by ANY other save-lock key, not just by a timeout, so 8-then-7 cannot
   leave a live arm behind that a later 8 walks into.
 */
+float sl_delall_at;              // P1753: cltime a delete-all went
 float rec_sl_armdel;             // cltime of the first press; 0 = not armed
 
 #define FS_SL_ARMTIME 3
@@ -1022,6 +1023,7 @@ float(float scan, float down) SaveLoc_Key =
 		if (rec_sl_armdel > 0 && cltime - rec_sl_armdel <= FS_SL_ARMTIME)
 		{
 			rec_sl_armdel = 0;
+			sl_delall_at = cltime;      // P1753: WarpOp_Row (its sweep can outlast the ack)
 			SaveLoc_Cmd("sl_delall");
 		}
 		else
@@ -1192,6 +1194,7 @@ float() SaveLoc_Console =
 		if (rec_sl_armdel > 0 && cltime - rec_sl_armdel <= FS_SL_ARMTIME)
 		{
 			rec_sl_armdel = 0;
+			sl_delall_at = cltime;      // P1753: WarpOp_Row (its sweep can outlast the ack)
 			SaveLoc_Cmd("sl_delall");
 		}
 		else

@@ -436,6 +436,8 @@ float(float op) WarpOp_Row =
 		i0 = WarpOp_Idx();
 		if (cnt >= FS_MAXSAVES)
 			return FALSE;                   // the save may be refused: the list is full
+		if (cnt < 1 || (sl_delall_at > 0 && cltime - sl_delall_at < 10 && cltime >= sl_delall_at))
+			return FALSE;                   // review: saves off (count 0), or a delete-all may still be sweeping
 		n = cnt + 1;
 		idx = WarpOp_Walk(n, n, wop_q[j]);
 		if (idx < 0)
@@ -453,6 +455,10 @@ float(float op) WarpOp_Row =
 			return FALSE;
 		return WarpOp_RowAt(idx, i0, cnt);
 	}
+	// P1753 review: a save past WarpOp_Unanswered's 1 s and still not acked -- the window predates it.
+	for (i = 0; i < WOP_RING; i = i + 1)
+		if (wop_op[i] == WOP_SAVE && wop_seq[i] > 0 && wop_seq[i] > WarpOp_Ack())
+			return FALSE;
 	// P1238: string stats follow the numeric ones, so a fresh sl_save's ack (STAT_FS_SLACK) can land a
 	// packet before the cursor string that answers it: predict nothing until they agree.
 	if (wop_c_ok && wop_c_slack != getstatf(STAT_FS_SLACK))
