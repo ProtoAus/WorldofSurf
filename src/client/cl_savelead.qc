@@ -81,12 +81,11 @@ void() SaveLead_NoPath =
 
 // The last `duration` of src's rows, to its last row, into sl_lead_buf; FALSE when none fit.
 // Shorten a very dense window; NEVER decimate away a break/stitch marker.
-float(float src, float duration) SaveLead_Copy =
+float(float src, float n, float duration) SaveLead_Copy =     // P1756: n rows of src are in use
 {
-	local float n, first, hi, mid, i, t, last;
+	local float first, hi, mid, i, t, last;
 	local string row;
 
-	n = buf_getsize(src);
 	if (n < 2) return FALSE;
 	row = bufstr_get(src, n - 1);
 	if (!SaveLead_Row(row)) return FALSE;
@@ -171,9 +170,9 @@ void(float seq, float id, float pic) SaveLead_Begin =
 	if (!SaveLead_Ready()) return;
 	if (cltime - (mine ? rec_sl_leadt0 : rec_sl_stept0) > SL_LEAD_LATE) return;
 	if (WarpOp_StepPending()) return;      // the body is going on to another save
-	if (tr_raw < 1 || buf_getsize(tr_raw) < 2) { SaveLead_NoPath(); return; }
+	if (Trail_RawN() < 2) { SaveLead_NoPath(); return; }
 	// Copy NOW: later HOLD/endpoint stats must never retry against mutable tr_raw.
-	if (!SaveLead_Copy(tr_raw, bound(0, cvar("cl_sl_leadin"), 2))) { SaveLead_Clear(); return; }
+	if (!SaveLead_Copy(tr_raw, Trail_RawN(), bound(0, cvar("cl_sl_leadin"), 2))) { SaveLead_Clear(); return; }
 	sl_lead_seq = seq;
 	sl_lead_id = id;
 	sl_lead_pending = cltime + 1; // bounded wait for independently delivered stats
@@ -275,7 +274,7 @@ void(vector org, vector ang) SaveLead_Press =
 	if (vlen(org - [getstatf(STAT_FS_SLORG), getstatf(STAT_FS_SLORG + 1), getstatf(STAT_FS_SLORG + 2)]) > 1)
 		return;
 	if (!SaveLead_Cache(id, getstatf(STAT_FS_SAVETICKS))) return;     // no picture: the plain hold
-	if (!SaveLead_Copy(sl_pic_buf, bound(0, cvar("cl_sl_leadin"), 2))) { SaveLead_Clear(); return; }
+	if (!SaveLead_Copy(sl_pic_buf, buf_getsize(sl_pic_buf), bound(0, cvar("cl_sl_leadin"), 2))) { SaveLead_Clear(); return; }
 	if (vlen(sl_lead_tail - org) > 128)
 	{
 		SaveLead_Clear();

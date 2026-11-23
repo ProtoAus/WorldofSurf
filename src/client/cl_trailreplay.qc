@@ -4,7 +4,7 @@ void() Trail_ReplayClear =
 {
 	if (tr_rep_raw >= 1)
 		buf_del(tr_rep_raw);
-	tr_rep_raw = 0;
+	tr_rep_raw = tr_rep_n = 0;
 };
 
 // Opaque correlation, not a command count: raw cmd and localcmd can be
@@ -34,22 +34,18 @@ string(string c) Trail_Command =
 
 void() Trail_RewindPrefix =
 {
-	local float i, n;
-	local string s;
+	local float i;
 	Trail_ReplayClear();
 	tr_rep_raw = buf_create_ex("string", 0);
 	if (tr_rep_raw < 1 || tr_raw < 1)
 		return;
 	tr_rep_tick = tr_tick;
 	tr_rep_end = tr_cur_t;
-	n = buf_getsize(tr_raw);
-	for (i = 0; i < n; i = i + 1)
-	{
-		s = bufstr_get(tr_raw, i);
-		if (stof(s) > tr_rep_end)
-			break;
-		bufstr_set(tr_rep_raw, i, s);
-	}
+	// P1756: the engine copies the rows (a row at a time here was ~20 ms a save at 35k rows); tr_rep_n ends the
+	// copy at the last row at/before tr_rep_end -- rows past tr_rawn are a cut branch's.
+	buf_copy(tr_raw, tr_rep_raw);
+	i = Trail_RawIndex(tr_rep_end);
+	tr_rep_n = (i >= 0 && stof(bufstr_get(tr_raw, i)) <= tr_rep_end) ? i + 1 : 0;
 };
 
 void() Trail_ReplayPrefix =
@@ -96,4 +92,5 @@ void() Trail_ReplayPrefix =
 		                                       [yaw, nrm_z, wsh * nrm], pitch));
 		brk = stitch = 0;
 	}
+	tr_rep_n = buf_getsize(tr_rep_raw);
 };
