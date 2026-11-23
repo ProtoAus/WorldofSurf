@@ -169,7 +169,7 @@ float  rec_sl_quiet;
 .float rec_sl_genchk;            // Patch 751: set at ClientConnect; SV_SaveGenCheck compares gen.txt once
 
 #define SL_DEMOTED  -1           // rec_sl_tick of a demoted save: never "clock stopped" to `!r`
-#define SL_RECKEEP  24           // lobby saves that keep their recording copy (SV_SaveLocCreate)
+#define SL_RECKEEP  FS_MAXSAVES  // lobby saves that keep their run: all of them since P1752's spines (Patch 428: 24)
 /*
   Patch 435: the horizontal speed under which a start-box load still arms.
   state.txt writes `velocity %.4f`, so a body at rest reads back at most 0.00005
@@ -1285,7 +1285,10 @@ float(entity e, float id, float seq) SV_SaveWriteState =
 	  while a cold load refuses an explicitly unconfirmed buffered prefix.
 	  Older saves have no such key and keep their historical behavior.
 	*/
+	if (SL_Blk(e) > 0 && id >= 1 && id <= FS_MAXSAVES)
+		rec_snap_spinedir = strcat(sl_root, "/spines/");    // P1752: a lobby slot's stream bytes go to spines
 	mark = SV_RecWritePrefix(e, SL_RecPath(id));
+	rec_snap_spinedir = "";
 	prefixok = rec_prefix_ok;       // SV_RecSaveKeys consumes/resets the global.
 	fputs(f, sprintf("FTESURF-SAVE %d\n", SL_STATE_VERSION));
 	if (strlen(agwater)) fputs(f, strcat(agwater, "\n"));
@@ -1623,6 +1626,46 @@ float(entity e, float id, float seq) SV_SaveWriteState =
 
   Returns the seq, or -1 if the file is not a save state we understand.
 */
+// P1752: a lobby block's rescan collects every save's spines, then sweeps the unreferenced ones.
+hashtable sl_spref;                    // spine path -> 1 while a rescan runs
+float     sl_sprefon;                  // sl_spref exists
+float     sl_sptorn;                   // a listed save that would not read: sweep nothing
+
+void() SV_SpineSweep =
+{
+	local searchhandle h;
+	local float i, n, gone, k, hit;
+	local string fn;
+	local entity p;
+
+	// A live stream's spine before its save's state is written, or in a player's warm branch.
+	p = world;
+	while ((p = find(p, classname, "player")))
+		if (p.rec_sp_segs >= 1)
+			for (k = 0; k < buf_getsize(p.rec_sp_segs); k = k + 1)
+			{
+				tokenize(bufstr_get(p.rec_sp_segs, k));
+				hash_add(sl_spref, strtolower(argv(0)), 1, HASH_REPLACE | EV_FLOAT);
+			}
+	h = search_begin(strcat(sl_root, "/spines/*.rec"), 0, TRUE);
+	if (h < 0)
+		return;
+	gone = 0;
+	n = search_getsize(h);
+	for (i = 0; i < n; i = i + 1)
+	{
+		fn = search_getfilename(h, i);
+		hit = hash_get(sl_spref, strtolower(fn), 0, EV_FLOAT);   // keys are lower-cased on both sides
+		if (hit)
+			continue;
+		fremove(fn);
+		gone = gone + 1;
+	}
+	search_end(h);
+	if (gone > 0)
+		dprint(sprintf("saveloc: %g unreferenced spine(s) removed under %s\n", gone, sl_root));
+};
+
 float(float id, float row) SV_SaveReadLight =
 {
 	local filestream f;
@@ -1657,6 +1700,12 @@ float(float id, float row) SV_SaveReadLight =
 		if (n < 2)
 			continue;
 		k = argv(0);
+		if (k == "recseg")
+		{
+			if (sl_sprefon)
+				hash_add(sl_spref, strtolower(argv(1)), 1, HASH_REPLACE | EV_FLOAT);
+			continue;
+		}
 
 		// The two VECTORS below need a real local on the way into the array --
 		// an array element is not an lvalue fteqcc will swizzle, which is the
@@ -3172,9 +3221,22 @@ void(float blk) SV_SaveLocScanBlk =
 	if (blk > 0)
 		SL_GenKeep(blk, SV_SaveGenRead());
 
+	if (sl_sprefon)
+		hash_destroytab(sl_spref);
+	sl_sprefon = FALSE;
+	sl_sptorn = FALSE;
+	if (blk > 0)
+	{
+		sl_spref = hash_createtab(1024, EV_FLOAT);
+		sl_sprefon = TRUE;
+	}
 	h = search_begin(sprintf("%s/*/state.txt", sl_root), SL_NAMESORT, TRUE);
 	if (h < 0)
+	{
+		if (sl_sprefon) hash_destroytab(sl_spref);
+		sl_sprefon = FALSE;
 		return;
+	}
 
 	cnt = search_getsize(h);
 	for (i = 0; i < cnt; i = i + 1)
@@ -3201,7 +3263,10 @@ void(float blk) SV_SaveLocScanBlk =
 			seq = SV_SaveReadLight(id, base + n);
 		}
 		if (seq < 0)
+		{
+			sl_sptorn = TRUE;       // P1752: its spines are unknown
 			continue;               // not a save state, or torn
+		}
 
 		rec_sl_seq[base + n] = seq;
 		n = n + 1;
@@ -3215,6 +3280,13 @@ void(float blk) SV_SaveLocScanBlk =
 
 	rec_sl_nb[blk] = n;
 	rec_sl_scanlob[blk] = Lobby_Active() + 1;
+	if (sl_sprefon)
+	{
+		if (!sl_sptorn && i >= cnt)    // every listed save read, none cut off at the cap
+			SV_SpineSweep();
+		hash_destroytab(sl_spref);
+		sl_sprefon = FALSE;
+	}
 
 	if (n > 0)
 		dprint(sprintf("saveloc: %g save state(s) under %s\n", n, sl_root));
@@ -4593,7 +4665,7 @@ string(string rid, float slot) SV_GiftRunId =
 */
 float(entity t, entity e, float sid, float sseq) SV_SaveLocGift =
 {
-	local float id, seq, row, blk, base, cnt, srow, i, n, rows, ticks, rbuf, okp, ok;
+	local float id, seq, row, blk, base, cnt, srow, i, n, rows, ticks, rbuf, okp, ok, segs;
 	local int bytes, got;
 	local filestream f;
 	local string srec, line, tmp, rid;
@@ -4639,6 +4711,7 @@ float(entity t, entity e, float sid, float sseq) SV_SaveLocGift =
 		return -1;
 	bytes = -1i;
 	okp = TRUE;
+	segs = 0;
 	n = buf_getsize(rows);
 	for (i = 0; i < n; i = i + 1)
 	{
@@ -4647,13 +4720,23 @@ float(entity t, entity e, float sid, float sseq) SV_SaveLocGift =
 			bytes = stoi(substring(line, 9, -1));
 		if (line == "recprefixok 0")
 			okp = FALSE;
+		if (!strncmp(line, "recseg ", 7))      // P1752
+		{
+			if (segs < 1)
+				segs = buf_create_ex("string", 0);
+			if (segs >= 1)
+				bufstr_set(segs, buf_getsize(segs), substring(line, 7, -1));
+		}
 	}
 	sl_giftwhy = "that save's recording was never confirmed";
 	if (!okp)
 	{
+		if (segs >= 1) buf_del(segs);
 		buf_del(rows);
 		return -1;
 	}
+	if (segs >= 1)
+		SV_RecCopyFlush(e);             // P1752: the spines' newest bytes may still be queued
 
 	/*
 	  Read it whole, through a file this VM wrote: a streamed save's run.rec was written by fcopyrange,
@@ -4664,7 +4747,7 @@ float(entity t, entity e, float sid, float sseq) SV_SaveLocGift =
 	tmp = sprintf("data/parts/g%s-%g.tmp", cvar_string("sv_port"), t.run_t_slot);
 	rbuf = buf_create_ex("string", 0);
 	ok = FALSE;
-	sl_giftwhy = "that save's recording is gone (a lobby keeps the newest 24)";
+	sl_giftwhy = "that save's recording is gone";
 	if (rbuf >= 1)
 	{
 		if (bytes >= 0i)
@@ -4677,7 +4760,10 @@ float(entity t, entity e, float sid, float sseq) SV_SaveLocGift =
 				f = fopen(tmp, FS_FILE_WRITESTREAM);   // fappendrange writes only to a stream handle
 				if (f >= 0)
 				{
-					got = fappendrange(f, srec, 0i, bytes + 1i);   // one over, as SV_RecRewindStream: it ends at bytes
+					if (segs >= 1)
+						got = SV_RecSpineCopy(f, segs, 0i, bytes);  // P1752: spines run past this save; exact
+					else
+						got = fappendrange(f, srec, 0i, bytes + 1i);   // one over, as SV_RecRewindStream: it ends at bytes
 					fclose(f);
 				}
 				if (got == bytes)
@@ -4692,6 +4778,8 @@ float(entity t, entity e, float sid, float sseq) SV_SaveLocGift =
 		else if (buf_loadfile(srec, rbuf))
 			ok = TRUE;
 	}
+	if (segs >= 1)
+		buf_del(segs);
 	if (ok && buf_getsize(rbuf) < 1)
 		ok = FALSE;
 	if (!ok)

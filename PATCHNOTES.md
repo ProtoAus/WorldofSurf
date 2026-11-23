@@ -21,6 +21,9 @@
 
 ## next
 
+### P1752 Every lobby save keeps your run
+- In a lobby, every save now keeps your run time and speed, up to 999 per map, so loading an old save carries on the run. Saving no longer copies your whole run each time, so a save is cheap however long the run is.
+
 ### P1751 Replays from the Local tab no longer wobble
 - A replay of your lobby run opened from the Local tab drew your camera a ping early, so at speed the view turned before the body and looked wobbly. It is lined up with the movement again, as online replays already were.
 
