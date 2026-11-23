@@ -767,6 +767,17 @@ float() Trail_Console =
 		print(sprintf("trail: %g rows (buffer %g) to %s\n", Trail_RawN(), (tr_raw >= 1) ? buf_getsize(tr_raw) : 0, argv(2)));
 		return TRUE;
 	}
+	// P1757: `trail viewdump <file>` -- the .view sidecar's lines in use, as a save's run.view holds its prefix.
+	if (argv(1) == "viewdump" && argv(2) != "")
+	{
+		fh = fopen(argv(2), FILE_WRITE);
+		if (fh >= 0 && rec_rp_view >= 1)
+			buf_writefile(fh, rec_rp_view, 0, rec_rp_lines);
+		if (fh >= 0)
+			fclose(fh);
+		print(sprintf("trail: view %g lines to %s\n", rec_rp_lines, argv(2)));
+		return TRUE;
+	}
 
 	// THREE PRINTS AND NOT ONE, because fteqcc caps a varargs call at eight
 	// parameters -- the format string among them -- and SILENTLY DROPS the

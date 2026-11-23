@@ -1918,8 +1918,8 @@ void(float id) Rec_ViewSaved =
 /*
   A save was loaded: put the sidecar back where that save left it.
 
-  WARM -- we still hold the buffer this session's mark was taken in, and it is
-  at least that long: assign.  Lines past the mark are stale but unreachable,
+  WARM -- the line the mark ends on is still at the mark among the lines in use
+  (P1757, Rec_ViewMarkOK): assign.  Lines past the mark are stale but unreachable,
   because every write goes through Rec_ViewPut by index and Rec_ViewEnd passes an
   explicit count.
 

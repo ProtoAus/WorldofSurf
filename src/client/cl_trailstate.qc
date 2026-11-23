@@ -25,8 +25,10 @@ float tr_eref, tr_erefok;
   Trail_Settle finishes it first wherever the whole line is read (rewind, a run's end).
 */
 #define TR_CATCH 400            // ~2.6 ms of QC a frame at the measured 6.6 us a row
-#define TR_CATCHMS 0.003        // P1756: and at most this long a frame -- a row costs 15-30 us now (rig long3, 36k rows)
+#define TR_CATCHMS 0.004        // P1756: and about this long a frame -- a row costs 15-30 us now (rig long3, 36k rows)...
+#define TR_CATCHMIN 128         // ...but at least this many rows, so a rewind's Settle soon after finds little left
 float  tr_catching, tr_catchi;  // the line is behind tr_raw; the next row it has not taken
+float  tr_catchcl, tr_catchspent;       // P1756 review: this frame's cltime and the catch time spent in it
 vector tr_catchv;               // the last recorded sample's velocity: Trail_Take's break test
 
 // A catch dropped before it finished: the slot's points are unbuilt, so it is cleared, not drawn.
@@ -69,25 +71,34 @@ float(string s) Trail_CatchFeed =
 // rows was a 46-52 ms frame. A bad middle row is passed over (Trail_Load stops at a cut last one).
 void(float rows) Trail_Catch =
 {
-	local float n, end, t0, g;
+	local float n, end, t0, g, fed;
 	if (!tr_catching)
 		return;
 	n = Trail_RawN();
 	end = min(n, tr_catchi + rows);
-	t0 = gettime(1);
-	for (g = 0; tr_catchi < end; tr_catchi = tr_catchi + 1)
+	// Review: gettime(2), the per-frame clock (gettime(1) is whole ms, coarser past hours); one budget a frame
+	// across the frame's calls (Trail_Frame, a load's and a trim's CatchStart).
+	if (cltime != tr_catchcl)
+	{
+		tr_catchcl = cltime;
+		tr_catchspent = 0;
+	}
+	t0 = gettime(2);
+	for (g = fed = 0; tr_catchi < end; tr_catchi = tr_catchi + 1)
 	{
 		Trail_CatchFeed(bufstr_get(tr_raw, tr_catchi));
+		fed = fed + 1;
 		if (rows == TR_CATCH && (g = g + 1) >= 32)
 		{
 			g = 0;
-			if (gettime(1) - t0 > TR_CATCHMS)
+			if (fed >= TR_CATCHMIN && tr_catchspent + gettime(2) - t0 > TR_CATCHMS)
 			{
 				tr_catchi = tr_catchi + 1;
 				break;
 			}
 		}
 	}
+	tr_catchspent = tr_catchspent + max(0, gettime(2) - t0);
 	Line_End(tr_live);
 	if (tr_catchi < n)
 		return;

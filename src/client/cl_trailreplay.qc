@@ -43,9 +43,15 @@ void() Trail_RewindPrefix =
 	tr_rep_end = tr_cur_t;
 	// P1756: the engine copies the rows (a row at a time here was ~20 ms a save at 35k rows); tr_rep_n ends the
 	// copy at the last row at/before tr_rep_end -- rows past tr_rawn are a cut branch's.
-	buf_copy(tr_raw, tr_rep_raw);
 	i = Trail_RawIndex(tr_rep_end);
 	tr_rep_n = (i >= 0 && stof(bufstr_get(tr_raw, i)) <= tr_rep_end) ? i + 1 : 0;
+	// Review: a cut leaves its old tail in the buffer (only a trim or a file load drops it): when the rows wanted are
+	// under a third of it, copy just those.
+	if (tr_rep_n * 3 >= buf_getsize(tr_raw))
+		buf_copy(tr_raw, tr_rep_raw);
+	else
+		for (i = 0; i < tr_rep_n; i = i + 1)
+			bufstr_set(tr_rep_raw, i, bufstr_get(tr_raw, i));
 };
 
 void() Trail_ReplayPrefix =
