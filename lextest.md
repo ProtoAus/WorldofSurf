@@ -1,7 +1,7 @@
 # lextest.md — things waiting on a human
 
 ## P1746 map upload / P1747 replay video (ftesurf-cb, 23 Nov) -- dev build now; players with the next release
-Before 1-3: the Pi service install (one sudo command: tools/backend-pending.md "P1746") and the role grant.
+The Pi service is LIVE (23 Nov 07:24Z) and Proto and Markbeaton54 hold the map role; your install has the build.
 1. F8 in the main menu: "Upload a map" opens. Drag a .bsp from your file manager onto the game window: it is picked
    (native Wayland took no drops before). Browse... opens a file picker. Drag a screenshot and a zone .json too.
 2. Upload a small test map under a new surf_ name: the bar shows compressing then uploading, then "is live". Within a

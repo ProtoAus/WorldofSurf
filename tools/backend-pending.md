@@ -1,6 +1,9 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
-## P1746 map upload service -- NOT INSTALLED (ftesurf-cb, 23 Nov): one root install, then the role grant
+## P1746 map upload service -- LIVE 23 Nov 07:24Z (ftesurf-cb; Lex's root install, release /opt/ftesurf-mapupd/99171e80)
+Checked live: unit active, public POST /mapup/api/health 200 with X-Mapupd-Source 99171e807f56 and accounts 1, a
+challenge answers, a 20 KB body to begin gets nginx's 413, GET is refused; `grant-zone-admins` gave the map role to the
+2 zone admins (Proto, Markbeaton54). No upload yet. The install record as it was staged:
 New isolated service (tools/mapupd.md): surfd/mapupd.py on 127.0.0.1:8096, nginx /mapup/api/ + /ftesurf/media/uploads/,
 store /srv/nvme/ftesurf-ops/mapupd-state, release /opt/ftesurf-mapupd/<commit>. No surfd generation, no lobby restart.
 Staged 23 Nov: source /srv/nvme/ftesurf-ops/mapupd-src-99171e80 (clean, HEAD 99171e807f5673000056a5665b7f7b7a181420ba),
