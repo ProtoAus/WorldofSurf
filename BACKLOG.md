@@ -684,6 +684,10 @@ once the reload clock is rebased -- scratchpad p1716_rebase.py), giving a "re-si
   AG recording can replay differently where it touched one. pm_dettest's trace hashes now run in the render winding
   (its "srctrace stays the triangles every older pin replays on" comment, sv_ccmds.c ~4500, is stale) and its mover
   passes stop at 12. The hl2 plugin and exe must ship together (an old plugin on a mover-13 exe collides like 12).
+- P1748 limits (reviews): a far brush without all six axial planes (none on bhop_canals) keeps mover 15's bevels;
+  r_showbrushes still draws far brushes' windings clipped (display only); pm_dettest has no pass over the old-brush
+  traces pin-15 runs replay on far maps; runs ranked before mover 16 on far maps verify on the old collision (pm_verify
+  prints a note for them -- a sweep over bhop_canals' board would find any that went through a brush).
 - ahop_coast: Lex 23 Nov chose the lobbies' bhop ("the correct bhop settings"); his local zone is back to the published
   one (gamemode 2) and his local settings cfg (gamemode 9, gravity 600, maxvel 3500) is set aside as
   data/maps/settings/local/ahop_coast.cfg.pre1749-20261123 (P1749). mapmeta still files it 9 (the 20 Nov tie rule); the
