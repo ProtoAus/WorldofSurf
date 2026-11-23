@@ -57,6 +57,12 @@ live e0fa1b80 / fb427ec1 exactly). All 12 were empty; one restart each; backups 
 175; engine patch-1717 untouched. Checked: 12 active, 12 answer status, 0 SIGSEGV/Host_Error/PR_ExecuteProgram/runaway
 since each lobby's last "Loaded progs". Next lobby progs build: start from deploy/p1727-lobby, or a release carrying P1727.
 
+## 0.1.61 lobby ENGINE -- LIVE 23 Nov 02:32Z (worldofsurf-08; record tools/release-0.1.61.md)
+LIVE: all 12 lobbies on arm64 fteqw-svarm64 b94f7365 + fteplug_hl2_arm64.so b9d76a46 (engine 6e3a1d3f0 = 0.1.61's,
+git-9033-patch-1739-0-g6e3a1d3f0) over patch-1717 (049f7062 / 55778b14); backups *.pre0161e-20261123T022906Z; gated
+old = new on the Pi. It is surfd's verifier (sweep.py ENGINE): the NEXT generation's kit must pin b94f7365 (gen1745,
+live since 02:27Z, pinned 049f7062 before this swap).
+
 ## 0.1.61 lobby half -- LIVE 23 Nov 00:35Z (worldofsurf-08; record tools/release-0.1.61.md)
 LIVE: all 12 lobbies on the release's progs (tag v0.1.61 = 97d76ecc; qw bd9ec782 / cs 59b63f13 = P1743's, already in
 codes.txt) over P1743's (qw e6b34850). Backups *.pre0161-20261123T003429Z. Engine still patch-1717 049f7062: the swap to

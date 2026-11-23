@@ -42,5 +42,12 @@ are made in a new release"). Page: <https://proto.bar/ftesurf>.
 
 - The release's progs over P1743's lobby progs (qw e6b34850 / cs 59b63f13). Backups `*.pre0161-20261123T003429Z`.
   After: all 12 active, patch-1717, pm_sourceversion 15; no program errors in the journal.
-- Lobby ENGINE swap (arm64 patch-1717 -> 6e3a1d3f0, also surfd's verifier) waits for ftesurf-e4's gen1745 postflight,
-  which pins the current native (049f7062); plan: build + gate on the Pi from the eng1713 recipe, then one swap.
+- Lobby ENGINE swap, 02:32:37Z (after ftesurf-e4's gen1745 postflight PASS 02:27Z; tools/deploy0161e.sh): arm64
+  `fteqw-svarm64` `b94f7365` + `fteplug_hl2_arm64.so` `b9d76a46` (6e3a1d3f0, stamp git-9033-patch-1739-0-g6e3a1d3f0) over
+  patch-1717's 049f7062 / 55778b14; backups `*.pre0161e-20261123T022906Z`. Built and gated in
+  nanopi:/srv/nvme/agent-work/eng1739-20261123-08 (from worldofsurf-88's eng1713): 1157 blobs verified, warnings as
+  0.1.57's (16 + 1), GATE old and new identical (pm_dettest 7 maps + 24 pm_verify runs, pm_sourceversion 15, skew run).
+  Waited ~3 min for empty lobbies, one restart each 02:32:38-02:32:59Z. After: all 12 answer patch-1739 /
+  pm_sourceversion 15; no program errors or crashes in the journal; released client on lobby 12: 0 prederr.
+  This native is surfd's verifier now: the next surfd generation's kit must pin b94f7365 (ftesurf-e4's gen1745 pinned
+  049f7062 and recorded it unchanged at its postflight, before this swap).
