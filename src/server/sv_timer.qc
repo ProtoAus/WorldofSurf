@@ -2357,6 +2357,8 @@ void(entity e) SV_TimerMapTeleport =
 .float  rec_sp_serial;           // the rec_rec_serial they describe
 .int    rec_sp_bytes;            // where they end: the last save's bytes, or a warm load's cut
 .float  rec_sp_live;             // the last segment's spine takes this stream's next bytes
+.string rec_sp_bad;              // a spine whose append failed: never adopted again (review)
+#define SPINE_DEPTHMAX 64          // segments a save may list; past it a save keeps no run (review: rescan cost)
 // Patch 817: the attempt a re-arm ended (SV_RecFailKeep), kept for the rewind until the
 // next recording opens: a go or save over it cuts its prefix from here
 // (SV_RewindWriteState), and the load that follows is a timed save's cold load.
@@ -2557,6 +2559,7 @@ void(entity e, int budget) SV_RecCopyStep =
 {
 	local int b, d, n, r, o;
 	local float c;
+	local searchhandle h;
 	local string src, dst;
 
 	while (e.rec_cp_q >= 1 && budget > 0)
@@ -2581,7 +2584,19 @@ void(entity e, int budget) SV_RecCopyStep =
 			n = budget;
 		if (n > 0)
 		{
-			r = fcopyrange(src, d, n, dst, (o >= 0) ? (d > o) : (d > 0));
+			r = -1i;
+			if (o >= 0 && d > o)
+			{	// P1752 review: "ab" appends at the file's end -- only where the spine ends at d
+				h = search_begin(dst, 0, TRUE);
+				if (h >= 0)
+				{
+					if (search_getsize(h) == 1 && search_getfilesize(h, 0) == (float)(d - o))
+						r = fcopyrange(src, d, n, dst, TRUE);
+					search_end(h);
+				}
+			}
+			else
+				r = fcopyrange(src, d, n, dst, (o >= 0) ? FALSE : (d > 0));
 			if (r != n)
 			{
 				dprint(sprintf("timer: save copy %s failed at %s of %s bytes (got %s)\n", dst, itos(d), itos(b), itos(r)));
@@ -2591,6 +2606,8 @@ void(entity e, int budget) SV_RecCopyStep =
 				{	// other saves read this spine: keep it short (a load then refuses it), never append past a gap
 					SV_RecCopyDrop(dst);
 					e.rec_sp_serial = -1;   // the next save starts a root spine
+					if (e.rec_sp_bad != "") strunzone(e.rec_sp_bad);
+					e.rec_sp_bad = strzone(dst);
 				}
 				n = b - d;
 			}
@@ -2742,6 +2759,11 @@ float(entity e, int b) SV_RecSpineAppend =
 	n = buf_getsize(e.rec_sp_segs);
 	if (!e.rec_sp_live)
 	{
+		if (n >= SPINE_DEPTHMAX)
+		{
+			sprint(e, PRINT_HIGH, "^3save:^7 this branch of loads is too deep to keep the run -- load your newest save\n");
+			return FALSE;
+		}
 		own0 = (n > 0) ? e.rec_sp_bytes : 0i;
 		sp = strcat(rec_snap_spinedir, SV_RandHex(16), ".rec");
 		bufstr_set(e.rec_sp_segs, n, sprintf("%s %s", sp, itos(own0)));
@@ -8176,11 +8198,44 @@ void(entity e, float mark, float samples, float padn, float cps) SV_RecRestore =
 	e.run_t_flags = e.run_t_flags | TF_RECORDING;
 };
 
-// P1752: after a warm cut to b, a save with segments continues them (its next save opens a child spine at
-// b, unless it is the newest save on the live spine); anything else starts a root spine.
-void(entity e, int b, float segs) SV_RecSpineAfterWarm =
+// P1752: take a loaded save's segments (ending at b) as the stream's, the next save opening a child spine at
+// b. FALSE (nothing taken) when they do not end at b or list a spine whose append failed.
+float(entity e, int b, float segs) SV_RecSpineAdopt =
 {
 	local float n, i;
+
+	n = (segs >= 1) ? buf_getsize(segs) : 0;
+	if (n < 1)
+		return FALSE;
+	tokenize(bufstr_get(segs, n - 1));
+	if (stoi(argv(2)) != b)
+		return FALSE;
+	if (e.rec_sp_bad != "")
+		for (i = 0; i < n; i = i + 1)
+		{
+			tokenize(bufstr_get(segs, i));
+			if (argv(0) == e.rec_sp_bad)
+				return FALSE;
+		}
+	SV_RecSpineReset(e);
+	e.rec_sp_segs = buf_create_ex("string", 0);
+	if (e.rec_sp_segs < 1)
+		return FALSE;
+	for (i = 0; i < n; i = i + 1)
+	{
+		tokenize(bufstr_get(segs, i));
+		bufstr_set(e.rec_sp_segs, i, sprintf("%s %s", argv(0), argv(1)));
+	}
+	e.rec_sp_bytes = b;
+	return TRUE;
+};
+
+// P1752: after a warm cut to b. The newest save on the live spine keeps appending; a save with segments
+// continues them; otherwise the stream's own segments, still this stream's bytes below b, are cut there
+// (review: a segmentless save -- legacy or rewind -- no longer forces a root copy); else a root spine.
+void(entity e, int b, float segs) SV_RecSpineAfterWarm =
+{
+	local float n, i, k, nb;
 	local string last;
 
 	n = (segs >= 1) ? buf_getsize(segs) : 0;
@@ -8189,33 +8244,53 @@ void(entity e, int b, float segs) SV_RecSpineAfterWarm =
 		tokenize(bufstr_get(segs, n - 1));
 		last = argv(0);
 		if (stoi(argv(2)) == b)
+		if (e.rec_sp_live && e.rec_sp_segs >= 1 && e.rec_sp_serial == e.rec_rec_serial && e.rec_sp_bytes == b)
 		{
-			if (e.rec_sp_live && e.rec_sp_segs >= 1 && e.rec_sp_serial == e.rec_rec_serial && e.rec_sp_bytes == b)
+			tokenize(bufstr_get(e.rec_sp_segs, buf_getsize(e.rec_sp_segs) - 1));
+			if (argv(0) == last)
 			{
-				tokenize(bufstr_get(e.rec_sp_segs, buf_getsize(e.rec_sp_segs) - 1));
-				if (argv(0) == last)
-				{
-					buf_del(segs);
-					return;                 // the newest save on the live spine: keep appending
-				}
+				buf_del(segs);
+				return;                     // the newest save on the live spine: keep appending
 			}
-			SV_RecSpineReset(e);
-			e.rec_sp_segs = buf_create_ex("string", 0);
-			if (e.rec_sp_segs >= 1)
-			{
-				for (i = 0; i < n; i = i + 1)
-				{
-					tokenize(bufstr_get(segs, i));
-					bufstr_set(e.rec_sp_segs, i, sprintf("%s %s", argv(0), argv(1)));
-				}
-				e.rec_sp_bytes = b;
-			}
+		}
+		if (SV_RecSpineAdopt(e, b, segs))
+		{
 			buf_del(segs);
 			return;
 		}
 	}
 	if (segs >= 1)
 		buf_del(segs);
+	if (e.rec_sp_segs >= 1 && e.rec_sp_serial == e.rec_rec_serial && b <= e.rec_sp_bytes)
+	{
+		k = buf_getsize(e.rec_sp_segs);
+		while (k > 0)
+		{
+			tokenize(bufstr_get(e.rec_sp_segs, k - 1));
+			if (stoi(argv(1)) < b)
+				break;
+			k = k - 1;                      // starts at or past the cut
+		}
+		if (k > 0)
+		{
+			if (b < e.rec_sp_bytes)
+			{
+				nb = buf_create_ex("string", 0);
+				if (nb < 1)
+				{
+					SV_RecSpineReset(e);
+					return;
+				}
+				for (i = 0; i < k; i = i + 1)
+					bufstr_set(nb, i, bufstr_get(e.rec_sp_segs, i));
+				buf_del(e.rec_sp_segs);
+				e.rec_sp_segs = nb;
+				e.rec_sp_live = FALSE;
+				e.rec_sp_bytes = b;
+			}
+			return;
+		}
+	}
 	SV_RecSpineReset(e);
 };
 
@@ -8323,7 +8398,10 @@ float(entity e, string path, float mark, float serial,
 	SV_RecRestore(e, mark, samples, padn, cps);
 	SV_RecGenBegin(e);
 	e.rec_rec_serial = SV_RecNextSerial();
-	SV_RecSpineReset(e);                // P1752: its line 0 was rewritten; the next save copies afresh
+	// P1752: line 0 is rewritten byte-identical for v10+ (FTESURF-REC <ver>), so the new stream's bytes below b
+	// are the segments' own and its next save continues them (review); else a root spine.
+	if (!(ofs == 15 && SV_RecSpineAdopt(e, b, rs_rwsegs)))
+		SV_RecSpineReset(e);
 	SV_RecNoncePublish(e, TRUE);        // Patch 416: a streamed cold load keeps none
 	rec_rewind_cold = TRUE;
 	return TRUE;

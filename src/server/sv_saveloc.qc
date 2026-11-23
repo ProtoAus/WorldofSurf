@@ -106,6 +106,7 @@ float  *rec_sl_seq;                    // creation order; the sort key
 float  *rec_sl_tick;                   // the run clock stored in the slot
 float  *rec_sl_seg;                    // segment, for the console list
 float  *rec_sl_cps;                    // checkpoints crossed, for the same
+float  *rec_sl_spine;                  // P1752: the slot's run is in spines (recseg), not a whole run.rec
 float  *rec_sl_placed;                 // P1643: 1 the spot was not walked to, 2 older than the key (SV_SaveReadLight)
 
 float  rec_sl_nb[FS_SLCLIENTS + 1];        // rows in use per block
@@ -145,6 +146,7 @@ void() SV_SaveLocAlloc =
 	rec_sl_seg  = memalloc(sizeof(float) * FS_SLROWS);
 	rec_sl_cps  = memalloc(sizeof(float) * FS_SLROWS);
 	rec_sl_placed = memalloc(sizeof(float) * FS_SLROWS);
+	rec_sl_spine = memalloc(sizeof(float) * FS_SLROWS);
 };
 
 // Build 25.  A delete-all drives SV_SaveLocDelete once per row and must not
@@ -169,7 +171,7 @@ float  rec_sl_quiet;
 .float rec_sl_genchk;            // Patch 751: set at ClientConnect; SV_SaveGenCheck compares gen.txt once
 
 #define SL_DEMOTED  -1           // rec_sl_tick of a demoted save: never "clock stopped" to `!r`
-#define SL_RECKEEP  FS_MAXSAVES  // lobby saves that keep their run: all of them since P1752's spines (Patch 428: 24)
+#define SL_RECKEEP  24           // lobby saves with a WHOLE run.rec that keep it (P1752: spine saves are not counted)
 /*
   Patch 435: the horizontal speed under which a start-box load still arms.
   state.txt writes `velocity %.4f`, so a body at rest reads back at most 0.00005
@@ -1691,6 +1693,7 @@ float(float id, float row) SV_SaveReadLight =
 	rec_sl_id  [row] = id;
 	rec_sl_tick[row] = 0;
 	rec_sl_placed[row] = 0;
+	rec_sl_spine[row] = 0;
 	rec_sl_seg [row] = 0;
 	rec_sl_cps [row] = 0;
 
@@ -1702,6 +1705,7 @@ float(float id, float row) SV_SaveReadLight =
 		k = argv(0);
 		if (k == "recseg")
 		{
+			rec_sl_spine[row] = 1;
 			if (sl_sprefon)
 				hash_add(sl_spref, strtolower(argv(1)), 1, HASH_REPLACE | EV_FLOAT);
 			continue;
@@ -3122,7 +3126,7 @@ void(float base, float cnt) SV_SaveSort =
 {
 	local float i, j, gap;
 	local vector vo, vv;
-	local float a, b, c, d, g, h, k, m, pz;
+	local float a, b, c, d, g, h, k, m, pz, sp;
 
 	gap = 1;
 	while (gap * 3 + 1 < cnt)
@@ -3136,7 +3140,7 @@ void(float base, float cnt) SV_SaveSort =
 		c  = rec_sl_duck[i];  d  = rec_sl_id  [i];
 		g  = rec_sl_seq [i];  h  = rec_sl_tick[i];
 		k  = rec_sl_seg [i];  m  = rec_sl_cps [i];
-		pz = rec_sl_placed[i];
+		pz = rec_sl_placed[i];  sp = rec_sl_spine[i];
 
 		j = i;
 		while (j >= base + gap)
@@ -3154,6 +3158,7 @@ void(float base, float cnt) SV_SaveSort =
 			rec_sl_seg [j] = rec_sl_seg [j - gap];
 			rec_sl_cps [j] = rec_sl_cps [j - gap];
 			rec_sl_placed[j] = rec_sl_placed[j - gap];
+			rec_sl_spine[j] = rec_sl_spine[j - gap];
 			j = j - gap;
 		}
 
@@ -3162,7 +3167,7 @@ void(float base, float cnt) SV_SaveSort =
 		rec_sl_duck[j] = c;   rec_sl_id  [j] = d;
 		rec_sl_seq [j] = g;   rec_sl_tick[j] = h;
 		rec_sl_seg [j] = k;   rec_sl_cps [j] = m;
-		rec_sl_placed[j] = pz;
+		rec_sl_placed[j] = pz;  rec_sl_spine[j] = sp;
 	}
 };
 
@@ -3830,6 +3835,7 @@ void(float base, float cnt) SV_SaveKeepWindow =
 	kept = done = 0;
 	for (i = cnt - 1; i >= 0; i = i - 1)
 		if (rec_sl_tick[base + i] > 0)
+		if (!rec_sl_spine[base + i])    // P1752: a spine save holds only its own new bytes
 		{
 			kept = kept + 1;
 			if (kept > SL_RECKEEP)
@@ -4735,8 +4741,6 @@ float(entity t, entity e, float sid, float sseq) SV_SaveLocGift =
 		buf_del(rows);
 		return -1;
 	}
-	if (segs >= 1)
-		SV_RecCopyFlush(e);             // P1752: the spines' newest bytes may still be queued
 
 	/*
 	  Read it whole, through a file this VM wrote: a streamed save's run.rec was written by fcopyrange,
@@ -4757,6 +4761,8 @@ float(entity t, entity e, float sid, float sseq) SV_SaveLocGift =
 			else
 			{
 				got = -1i;
+				if (segs >= 1)
+					SV_RecCopyFlush(e);     // P1752: the spines' newest bytes may still be queued (increments)
 				f = fopen(tmp, FS_FILE_WRITESTREAM);   // fappendrange writes only to a stream handle
 				if (f >= 0)
 				{
@@ -4858,6 +4864,8 @@ float(entity t, entity e, float sid, float sseq) SV_SaveLocGift =
 				line = "recserial 0";
 			else if (!strncmp(line, "recrid ", 7) || !strncmp(line, "helped ", 7))
 				continue;               // its own below; a gift passed on unloaded names its new sender
+			else if (!strncmp(line, "recseg ", 7))
+				continue;               // P1752: the sender's spines; the gift's run.rec is this slot's own
 			fputs(f, strcat(line, "\n"));
 		}
 		// The takeover adopts this as the run's (rs_rid): written even when the sender's had none.
@@ -5348,8 +5356,8 @@ void(entity e, float n) SV_SaveLocLoad =
 		       sprintf("^5save %g^7 -- run resumed at ^5%s^7, %g checkpoint(s), segmented run\n",
 		               n, SV_TimerString(e.run_t_ticks), rec_sl_cps[r]));
 	else if (dem && !sl_aprwd)   // P1750 (+review: not a rewind/replay/sync/gift row, which keeps its speed)
-		sprint(e, PRINT_HIGH, sprintf("^5save %g^7 -- ^3position only^7: a lobby keeps the run and speed on your newest %g "
-		                              "timed saves, and this one is older\n", n, SL_RECKEEP));
+		sprint(e, PRINT_HIGH, sprintf("^5save %g^7 -- ^3position only^7: this save no longer keeps its run (an older "
+		                              "kind of save: only the newest 24 of those keep it)\n", n));
 	else
 		SV_SaveLocSay(e);
 };
@@ -6599,6 +6607,7 @@ void(entity e, float n) SV_SaveLocDeleteRow =
 		rec_sl_seg [i - 1] = rec_sl_seg [i];
 		rec_sl_cps [i - 1] = rec_sl_cps [i];
 		rec_sl_placed[i - 1] = rec_sl_placed[i];
+		rec_sl_spine[i - 1] = rec_sl_spine[i];
 	}
 
 	rec_sl_nb[blk] = cnt - 1;
