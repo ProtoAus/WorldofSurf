@@ -105,6 +105,10 @@ float  ui_tm_lastendrec;        // last STAT_FS_STAGEENDREC seen; -1 = seeding
 float  ui_tm_endword;           // the SF_* word that close reported
 
 float() Watch_ClockTicks;       // display-only fractional replay clock
+float() WarpOp_TimerPred;       // P1754: cl_warpop.qc
+float wop_tm_ticks, wop_tm_frozen;      // ...its answer
+float ui_tm_noext;              // P1754: the ticks drawn are already the command's, not a snapshot's
+float ui_tm_predon, ui_tm_predlast;     // P1754: cl_tmpred_log's edges
 
 // Extrapolation.
 float  ui_tm_lastticks;         // the last DIFFERENT value the stat carried
@@ -447,7 +451,7 @@ float(float state, float ticks, float tick, float flags) Timer_Display =
 	if (flags & TF_FROZEN)
 		return ticks;
 
-	if (state != TS_RUNNING || !cvar("hud_timer_smooth") || tick <= 0)
+	if (state != TS_RUNNING || !cvar("hud_timer_smooth") || tick <= 0 || ui_tm_noext)
 		return ticks;
 
 	age = cltime - ui_tm_lastat;
@@ -1402,6 +1406,7 @@ void(float hold) Timer_SplitsHold =
 void(vector scr) Timer_Draw =
 {
 	local float state, ticks, seg, segs, track, flags, split, delta, pb, cp;
+	local float dstate, dticks, dflags;     // P1754: what the panel draws
 	local float tick, small, y;
 	local float fails;
 	local float endrec;             // build 48
@@ -1720,10 +1725,32 @@ void(vector scr) Timer_Draw =
 	  "not behind anything", which is the green the request describes as the
 	  starting state.  hud_timer_pace 0 restores the flat white clock.
 	*/
-	y = Timer_DrawPanel(scr, state, ticks, flags, pb, tick, [seg, segs, track],
+	// P1754: a predicted load's clock is drawn on the press; the edges above stay the server's.
+	dstate = state;
+	dticks = ticks;
+	dflags = flags;
+	if (!spc_hud && WarpOp_TimerPred())
+	{
+		dstate = TS_RUNNING;
+		dticks = wop_tm_ticks;
+		dflags = (flags - (flags & (TF_FROZEN | TF_STOPPED))) | TF_PRACTICE | TF_SHADOW | TF_SEGMENT;
+		if (wop_tm_frozen)
+			dflags = dflags | TF_FROZEN;
+		ui_tm_noext = TRUE;
+	}
+	// The handoff, for a rig: what was drawn last against the server's own reading once it lands.
+	if (cvar("cl_tmpred_log") && ui_tm_noext != ui_tm_predon)
+		print(ui_tm_noext ? sprintf("tmpred on: drawn %g frozen %g; stat %g state %g\n", dticks, wop_tm_frozen, ticks, state)
+		                  : sprintf("tmpred off: last drawn %g; stat %g shown %g state %g\n", ui_tm_predlast, ticks,
+		                            Timer_Display(state, ticks, tick, flags), state));
+	ui_tm_predon = ui_tm_noext;
+	if (ui_tm_noext)
+		ui_tm_predlast = dticks;
+	y = Timer_DrawPanel(scr, dstate, dticks, dflags, pb, tick, [seg, segs, track],
 	                    [fails, Timer_Stat(STAT_FS_STAGEST),
 	                     (ui_tm_cvpace && (flags & TF_HAVEPB))
 	                       ? (ui_tm_pace ? ui_tm_pace : -1) : 0]);
+	ui_tm_noext = FALSE;
 	p = [scr_x * ui_tm_x, scr_y * ui_tm_y, 0];
 
 	/*

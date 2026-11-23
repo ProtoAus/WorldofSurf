@@ -87,6 +87,13 @@ float rec_sl_cv;
   leave a live arm behind that a later 8 walks into.
 */
 float sl_delall_at;              // P1753: cltime a delete-all went
+// P1755: the rec_sl_sent numbers of the last sl_del / sl_delall sent, for the panel until STAT_FS_SLACK counts them.
+#define SL_DELPEND 8
+float sl_delpend[SL_DELPEND];
+float sl_delpendi, sl_delallsent;
+float sl_delall_show;           // round 1: the panel reads 0 through the sweep (SL_DELBATCH rows a frame)
+float sl_delall_cnt, sl_delall_cntat;   // round 2: the count it last saw, and when that changed
+float sl_delall_moved;          // ...the count has dropped since it went (the first SL_DELBATCH runs in the command)
 float rec_sl_armdel;             // cltime of the first press; 0 = not armed
 
 #define FS_SL_ARMTIME 3
@@ -278,13 +285,18 @@ float rec_sl_ackseen;
 
 void() SaveLoc_Resync =
 {
-	local float ack;
+	local float ack, k;
 
 	if (!LT_StatsAreMine())
 		return;
 	ack = getstatf(STAT_FS_SLACK);
 	if (ack < rec_sl_ackseen)
+	{
 		rec_sl_sent = ack;
+		sl_delallsent = sl_delall_show = 0;     // P1755 round 1: the old count's numbers mean nothing now
+		for (k = 0; k < SL_DELPEND; k = k + 1)
+			sl_delpend[k] = 0;
+	}
 	if (ack > rec_sl_sent)
 		rec_sl_sent = ack;
 	rec_sl_ackseen = ack;
@@ -347,6 +359,18 @@ void(string c) SaveLoc_Cmd =
 	{
 		SaveLoc_Resync();
 		rec_sl_sent = rec_sl_sent + 1;
+		if (c == "sl_del")              // P1755
+		{
+			sl_delpend[sl_delpendi] = rec_sl_sent;
+			sl_delpendi = (sl_delpendi + 1) % SL_DELPEND;
+		}
+		if (c == "sl_delall")
+		{
+			sl_delallsent = sl_delall_show = rec_sl_sent;
+			sl_delall_cnt = getstatf(STAT_FS_SAVECOUNT);
+			sl_delall_cntat = cltime;
+			sl_delall_moved = FALSE;
+		}
 		if (!strcmp(c, "sl_load"))
 		if (rec_sl_pv_on)
 			rec_sl_pv_ack = rec_sl_sent;
@@ -1091,10 +1115,11 @@ float(float scan, float down) SaveLoc_Key =
 */
 float() Rewind_Holds;                  // cl_rewind.qc, Patch 477
 
+float(float n) WarpOp_GotoOp;           // P1755: cl_warpop.qc
 float() SaveLoc_Console =
 {
 	local string c;
-	local float k;
+	local float k, op;
 
 	c = argv(0);
 
@@ -1151,6 +1176,15 @@ float() SaveLoc_Console =
 		{
 			SaveLoc_Refuse(0);      // 0: no scancode to suppress repeats of
 			return TRUE;
+		}
+		if (c == "sl_goto")             // P1755: predicted when a key lands on the same row
+		{
+			op = WarpOp_GotoOp(stof(argv(1)));
+			if (op == WOP_LOADNOW) c = "sl_load";
+			else if (op == WOP_NEXT) c = "sl_next";
+			else if (op == WOP_PREV) c = "sl_prev";
+			else if (op == WOP_FIRST) c = "sl_first";
+			else if (op == WOP_LAST) c = "sl_last";
 		}
 		// P1706: on a command, predicted like a step's row (Momentum's mom_saveloc_current is this bind).
 		if (c == "sl_load")
@@ -1246,10 +1280,93 @@ void(vector p, float w, float h, string key, string label, float state, float ls
 	HUD_Text([p_x + 8 * sc + cap, p_y + (h - sc - lsz) * 0.5 + lsz * FONT_CAPDROP], label, lsz, fg, 1);
 };
 
+float() WarpOp_PredList;                 // P1754: cl_warpop.qc
+float wop_pl_idx, wop_pl_cnt, wop_pl_clk;       // ...its answer
+float() WarpOp_Idx;
+float() WarpOp_Cnt;
+float(float r) WarpOp_KStore;
+float sl_pl_idx, sl_pl_cnt, sl_pl_clk, sl_pl_on;
+
+/*
+  P1754/P1755: the panel's list on the press -- after every unanswered op (WarpOp_PredList), or after sl_del /
+  sl_delall while those are the only sl_ commands STAT_FS_SLACK has not counted (SV_SaveLocDeleteRow's cursor rule),
+  and through a delete-all's sweep; sl_pl_clk is the cursor row's stored clock (0 none, -1 unknown: the stat's).
+  sl_pl_on FALSE: the stats as they are.
+*/
+void() SaveLoc_PanelList =
+{
+	local float ack, d, i, cnt, idx;
+
+	sl_pl_on = FALSE;
+	sl_pl_clk = -1;
+	sl_pl_idx = getstatf(STAT_FS_SAVEINDEX);
+	sl_pl_cnt = getstatf(STAT_FS_SAVECOUNT);
+	if (!LT_StatsAreMine())
+		return;
+	SaveLoc_Resync();
+	ack = getstatf(STAT_FS_SLACK);
+	// Round 2: through the sweep, before any pending save (SV_SaveLocBegin refuses saves while it runs). Its first
+	// SL_DELBATCH runs in the command, so an ack with the count never dropped is a refusal (rate, saves off), and a
+	// count still for 0.5 s after dropping is a sweep that stopped.
+	if (sl_delall_show)
+	{
+		if (sl_pl_cnt != sl_delall_cnt)
+		{
+			sl_delall_cnt = sl_pl_cnt;
+			sl_delall_cntat = cltime;
+			if (ack >= sl_delallsent)
+				sl_delall_moved = TRUE;     // round 3: an earlier sl_del's drop lands before this ack
+		}
+		if (ack >= sl_delallsent && !sl_delall_moved)
+			sl_delall_show = 0;
+		if (ack >= sl_delallsent && sl_delall_moved && cltime - sl_delall_cntat > 0.5)
+			sl_delall_show = 0;
+		if (sl_pl_cnt < 1 || cltime - sl_delall_at > 10 || cltime < sl_delall_at)
+			sl_delall_show = 0;
+	}
+	if (sl_delall_show)
+	{
+		sl_pl_idx = sl_pl_cnt = 0;
+		sl_pl_on = TRUE;
+		return;
+	}
+	if (WarpOp_PredList())
+	{
+		sl_pl_idx = wop_pl_idx;
+		sl_pl_cnt = wop_pl_cnt;
+		sl_pl_clk = wop_pl_clk;
+		sl_pl_on = TRUE;
+		return;
+	}
+	if (rec_sl_sent <= ack)
+		return;
+	d = 0;
+	for (i = 0; i < SL_DELPEND; i = i + 1)
+		if (sl_delpend[i] > ack && sl_delpend[i] <= rec_sl_sent)
+			d = d + 1;
+	if (d < 1 || rec_sl_sent - ack != d)
+		return;                         // another sl_ command is unanswered
+	cnt = WarpOp_Cnt();
+	idx = WarpOp_Idx();
+	if (cnt < 1 || idx < 1 || idx > cnt)
+		return;
+	if (d == 1 && cnt > 1)
+		sl_pl_clk = WarpOp_KStore((idx < cnt) ? 1 : 2);   // the next row slides onto the cursor, or the last goes
+	for (i = 0; i < d && cnt > 0; i = i + 1)
+	{
+		cnt = cnt - 1;
+		if (idx > cnt) idx = cnt;
+		if (cnt > 0 && idx < 1) idx = 1;
+	}
+	sl_pl_idx = idx;
+	sl_pl_cnt = cnt;
+	sl_pl_on = TRUE;
+};
+
 void(vector scr) SaveLoc_Draw =
 {
 	local vector p;
-	local float sc, w, h, lsz, y, locked, fresh, armed, total, hh, count, idx;
+	local float sc, w, h, lsz, y, locked, fresh, armed, total, hh, count, idx, runat;
 	local string lead;
 
 	lead = SaveLoc_LeadText();
@@ -1268,8 +1385,16 @@ void(vector scr) SaveLoc_Draw =
 		return;
 	}
 
-	count = getstatf(STAT_FS_SAVECOUNT);
-	idx   = getstatf(STAT_FS_SAVEINDEX);
+	SaveLoc_PanelList();                // P1754: on the press
+	count = sl_pl_cnt;
+	idx   = sl_pl_idx;
+	runat = getstatf(STAT_FS_SAVETICKS);
+	if (sl_pl_on && sl_pl_clk >= 0)
+		runat = sl_pl_clk;
+	else if (sl_pl_on && (idx != getstatf(STAT_FS_SAVEINDEX) || count != getstatf(STAT_FS_SAVECOUNT)))
+		runat = 0;                      // round 2: unknown, and the stat's clock is another row's
+	if (count < 1)
+		runat = 0;
 
 	sc  = ui_cv_scale;
 	Font_Set(ui_font_ui);
@@ -1286,7 +1411,7 @@ void(vector scr) SaveLoc_Draw =
 		rec_sl_armdel = 0;
 
 	total = 3 * sc + hh + 9 * h + 3 * sc;
-	if (getstatf(STAT_FS_SAVETICKS) > 0) total = total + h;
+	if (runat > 0) total = total + h;
 	if (locked) total = total + h;
 
 	p = [scr_x * cvar("hud_saveloc_x"), scr_y * cvar("hud_saveloc_y"), 0];
@@ -1302,11 +1427,11 @@ void(vector scr) SaveLoc_Draw =
 
 	// The run clock stored in the slot the cursor is on: what tells seven saves
 	// along one run apart. A save taken outside a run stores 0 and shows none.
-	if (getstatf(STAT_FS_SAVETICKS) > 0)
+	if (runat > 0)
 	{
 		HUD_Text([p_x + 6 * sc, y + (h - sc - lsz) * 0.5], "run at", lsz, SUI_THEME_MUTED, 1);
 		HUD_TextR([p_x + w - 6 * sc, y + (h - sc - lsz) * 0.5],
-		          Time_TickString(getstatf(STAT_FS_SAVETICKS), Timer_Tick()), lsz,
+		          Time_TickString(runat, Timer_Tick()), lsz,
 		          SUI_THEME_ACCENT, 1);
 		y = y + h;
 	}

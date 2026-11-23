@@ -338,8 +338,11 @@ void() SaveSync_PicFrame =
 			ok = SaveSync_CopyPic(strcat(SaveSync_There(ss_pic_from[i]), "trail.txt"),
 			                      strcat(SaveSync_Here(ss_pic_to[i]), "trail.txt"), o);
 		else
+		{
+			Trail_Forget(-ss_pic_to[i]);    // P1756 review: that folder's picture is replaced, not this line's
 			ok = SaveSync_CopyPic(strcat(SaveSync_Here(ss_pic_from[i]), "trail.txt"),
 			                      strcat(SaveSync_There(-ss_pic_to[i]), "trail.txt"), o);
+		}
 		ss_pic_n[i] = ss_pic_n[i] + 1;
 		ss_pic_at[i] = (ok || ss_pic_n[i] >= 3) ? 0 : cltime + 2;
 	}
@@ -926,6 +929,8 @@ void(float t) SaveSync_Event =
 			fremove(strcat(SaveSync_There(id), "run.view"));
 			fremove(strcat(SaveSync_There(id), "seq.txt"));
 			fremove(strcat(SaveSync_There(id), "trail.txt"));
+			Trail_Forget(id);       // P1756 review: a reused folder number
+			rec_rp_mark[id] = 0;    // ...and its .view mark (round 2: a deleted save's mark could still pass its line check)
 			SaveLead_Forget();      // P1384
 			c = SaveSync_FindHere(o, p, y, FALSE);
 			if (c >= 0)

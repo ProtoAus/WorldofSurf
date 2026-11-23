@@ -20,6 +20,7 @@
 .float wop_ack;                  // Patch 759: the same, one number (STAT_FS_WOPACK)
 .string wop_cur;                 // P1238: STAT_FS_WOPCUR, zoned (SV_WarpOpCur)
 .string wop_chain;               // P1342: optional exact-C-bound extra rows, zoned
+.string wop_clk;                 // P1754: STAT_FS_WOPCLK, zoned
 .float  wop_csig, wop_ct;        // ...a cheap signature of what it carries, and when it was last built
 float  wop_live;                 // fs_wop published
 
@@ -489,13 +490,32 @@ float(vector o, vector a, vector v) SV_WopCurSig =
 	return o_x * 1.1 + o_y * 1.3 + o_z * 1.7 + a_x * 0.7 + a_y * 0.9 + a_z * 3.1 + v_x * 0.11 + v_y * 0.13 + v_z * 0.17;
 };
 
+// P1754: list position pos's clock for STAT_FS_WOPCLK (its grammar in sh_defs.qc): a running clock is what
+// SV_SaveApplyStateRows resumes; a demoted or untimed row has none. base/cnt: SV_WarpOpCur's, read once.
+float(float base, float cnt, float pos) SV_WarpOpClk =
+{
+	local float r;
+
+	if (cnt < 1)
+		return -1;
+	while (pos < 1) pos = pos + cnt;
+	while (pos > cnt) pos = pos - cnt;
+	r = base + pos - 1;
+	if (rec_sl_tick[r] <= 0)
+		return -1;
+	if (rec_sl_fin[r])
+		return -2 - rec_sl_tick[r];
+	return rec_sl_tick[r];
+};
+
+float wop_kclk[WOPCLK_ROWS];
 // P1238: STAT_FS_WOPCUR, rebuilt after the rows.  The sprintfs run only when the signature moves, or
 // once a second so a signature that collided cannot leave the string stale for longer.
 void(entity e) SV_WarpOpCur =
 {
-	local string s, chain;
+	local string s, chain, kc;
 	local vector holdvel;
-	local float sig, k, held, blk, base;
+	local float sig, k, held, blk, base, idx, cnt;
 
 	held = FALSE;
 	holdvel = '0 0 0';
@@ -517,6 +537,24 @@ void(entity e) SV_WarpOpCur =
 	sig = sig + held * 31.7 + 23 * SV_WopCurSig('0 0 0', '0 0 0', holdvel);
 	for (k = 0; k < 4; k = k + 1)
 		sig = sig + (11 + 2 * k) * SV_WopCurSig(wop_xorg[k], wop_xang[k], wop_xvel[k]);
+	// P1754: the same rows' clocks (a demotion moves one without moving a row).
+	idx = e.rec_sl_index;
+	cnt = e.rec_sl_count;
+	blk = SL_Blk(e);
+	if (!rec_sl_tick || !rec_sl_fin || cnt > rec_sl_nb[blk])
+		cnt = 0;
+	base = SL_Base(blk);
+	wop_kclk[0] = SV_WarpOpClk(base, cnt, idx);
+	wop_kclk[1] = SV_WarpOpClk(base, cnt, (idx < cnt) ? idx + 1 : 1);
+	wop_kclk[2] = SV_WarpOpClk(base, cnt, (idx > 1) ? idx - 1 : cnt);
+	wop_kclk[3] = SV_WarpOpClk(base, cnt, 1);
+	wop_kclk[4] = SV_WarpOpClk(base, cnt, cnt);
+	wop_kclk[5] = SV_WarpOpClk(base, cnt, idx + 2);
+	wop_kclk[6] = SV_WarpOpClk(base, cnt, idx - 2);
+	wop_kclk[7] = SV_WarpOpClk(base, cnt, idx + 3);
+	wop_kclk[8] = SV_WarpOpClk(base, cnt, idx - 3);
+	for (k = 0; k < WOPCLK_ROWS; k = k + 1)
+		sig = sig + (0.013 + 0.0011 * k) * wop_kclk[k];
 	if (e.wop_cur != "" && sig == e.wop_csig && time - e.wop_ct < 1 && time >= e.wop_ct)
 		return;
 	e.wop_csig = sig;
@@ -541,6 +579,15 @@ void(entity e) SV_WarpOpCur =
 	{
 		if (e.wop_chain != "") strunzone(e.wop_chain);
 		e.wop_chain = (chain != "") ? strzone(chain) : "";
+	}
+	// P1754: bound to this exact C string by its crc16 and length (stats arrive independently).
+	kc = sprintf("K %.0f %.0f ", crc16(FALSE, s), strlen(s));
+	for (k = 0; k < WOPCLK_ROWS; k = k + 1)
+		kc = strcat(kc, sprintf("%.0f ", wop_kclk[k]));     // %g loses digits past 999999 ticks
+	if (strcmp(e.wop_clk, kc))
+	{
+		if (e.wop_clk != "") strunzone(e.wop_clk);
+		e.wop_clk = strzone(kc);
 	}
 };
 

@@ -139,6 +139,10 @@ string rec_rp_ulkeep;       // the PREVIOUS run's nonce, still being asked about
   would otherwise silently re-point every mark held here.
 */
 float rec_rp_mark[FS_MAXSAVES + 1];
+// P1757: the line each mark ends on (zoned). A load is warm while that line is still there among the lines in use --
+// a line carries cltime and clientcommandframe, so it names one moment of one session -- and a file load keeps the
+// other marks (Patch 808 cleared them with the buffer they pointed into).
+string rec_rp_markrow[FS_MAXSAVES + 1];
 float rec_rp_gift[FS_MAXSAVES + 1];     // P1567: another player's save in this slot (cl_trail.qc), until ours
 float rec_rp_slseq;              // STAT_FS_SLSEQ as of last frame
 
@@ -1823,6 +1827,22 @@ float(float lines) Rec_ViewTrim =
   entirely; remembering without writing means a load in a LATER session finds
   nothing on disk and the sidecar starts halfway up a ramp.
 */
+void(float id) Rec_ViewMarkRow =
+{
+	if (rec_rp_markrow[id] != "")
+		strunzone(rec_rp_markrow[id]);
+	rec_rp_markrow[id] = "";
+	if (rec_rp_view >= 1 && rec_rp_mark[id] > 0 && rec_rp_mark[id] <= rec_rp_lines)
+		rec_rp_markrow[id] = strzone(bufstr_get(rec_rp_view, rec_rp_mark[id] - 1));
+};
+
+float(float id) Rec_ViewMarkOK =
+{
+	if (rec_rp_view < 1 || rec_rp_mark[id] <= 0 || rec_rp_lines < rec_rp_mark[id] || rec_rp_markrow[id] == "")
+		return FALSE;
+	return !strcmp(bufstr_get(rec_rp_view, rec_rp_mark[id] - 1), rec_rp_markrow[id]);
+};
+
 void(float id) Rec_ViewSaved =
 {
 	local float fh, lines;
@@ -1892,13 +1912,14 @@ void(float id) Rec_ViewSaved =
 	// does.  Marking the untrimmed one would put the two back out of step on
 	// the very next load, which is the bug this exists to close.
 	rec_rp_mark[id] = lines;
+	Rec_ViewMarkRow(id);
 };
 
 /*
   A save was loaded: put the sidecar back where that save left it.
 
-  WARM -- we still hold the buffer this session's mark was taken in, and it is
-  at least that long: assign.  Lines past the mark are stale but unreachable,
+  WARM -- the line the mark ends on is still at the mark among the lines in use
+  (P1757, Rec_ViewMarkOK): assign.  Lines past the mark are stale but unreachable,
   because every write goes through Rec_ViewPut by index and Rec_ViewEnd passes an
   explicit count.
 
@@ -1926,9 +1947,7 @@ void(float id) Rec_ViewLoaded =
 	if (id < FS_RETRY_SLOT || id > FS_MAXSAVES)
 		return;
 
-	if (rec_rp_view >= 1)
-	if (rec_rp_mark[id] > 0)
-	if (rec_rp_lines >= rec_rp_mark[id])
+	if (Rec_ViewMarkOK(id))             // P1757: its last line still there
 	{
 		rec_rp_lines = rec_rp_mark[id];
 		rec_rp_full  = FALSE;        // room again, so the cap may be re-reported
@@ -1998,15 +2017,15 @@ void(float id) Rec_ViewLoaded =
 
 	if (rec_rp_view >= 1)
 		buf_del(rec_rp_view);
-	// Patch 808: and every other mark was a line of the buffer just thrown away.
-	for (i = 0; i <= FS_MAXSAVES; i = i + 1)
-		rec_rp_mark[i] = 0;
+	// P1757: the other marks stay -- each is checked against its own line when loaded (Rec_ViewMarkOK); this file's
+	// lines are a prefix of the run that made it, so its ancestors' marks still hold.
 
 	// The buffer is the truth about the file; the remembered mark was only this
 	// session's claim about it, so it is replaced rather than trusted.
 	rec_rp_view  = buf;
 	rec_rp_lines = buf_getsize(buf);
 	rec_rp_mark[id] = rec_rp_lines;
+	Rec_ViewMarkRow(id);
 	rec_rp_full  = FALSE;
 };
 

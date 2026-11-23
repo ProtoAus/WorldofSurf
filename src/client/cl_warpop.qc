@@ -61,6 +61,12 @@ float  wop_rellast, wop_loadlast;   // P1238: the last release and load commands
 float  wop_c_ok, wop_c_ack, wop_c_idx, wop_c_cnt, wop_c_slack;
 vector wop_c_org[5], wop_c_ang[5], wop_c_vel[5];   // cursor, next, prev, first, last
 string wop_c_src;
+float  wop_k_ok;                // P1754: STAT_FS_WOPCLK, bound to wop_c_src (WarpOp_Clk)
+float  wop_k_clk[WOPCLK_ROWS];  // cursor, next, prev, first, last, +2, -2, +3, -3 (the grammar in sh_defs.qc)
+string wop_k_src, wop_k_csrc;
+float  wop_tgclk;               // P1754: WarpOp_RowAt's row: the running clock a load resumes, -1 none or unknown
+float  wop_tgstore;             // ...and the clock it stores (the panel's run-at): 0 none, -1 unknown
+float  *wop_clk;                // P1754: a predicted load/step's row clock (WarpOp_TimerPred)
 float wop_x_ok, wop_x_held;
 vector wop_x_holdvel;             // actual held row, which can differ from a refused load's cursor
 string wop_x_src, wop_x_cur;
@@ -153,6 +159,7 @@ float(float rwgo) WarpOp_AbleEx =
 		wop_ang  = memalloc(sizeof(vector) * WOP_RING);
 		wop_blind = memalloc(sizeof(float) * WOP_RING);
 		wop_cap   = memalloc(sizeof(float) * WOP_RING);
+		wop_clk   = memalloc(sizeof(float) * WOP_RING);
 	}
 	return TRUE;
 };
@@ -218,7 +225,7 @@ void() WarpOp_Chain =
 	wop_x_ok = TRUE;
 };
 
-void() WarpOp_Cur =
+void() WarpOp_CurC =
 {
 	local string s;
 	local float r;
@@ -243,6 +250,43 @@ void() WarpOp_Cur =
 		wop_c_vel[r] = [stof(argv(11 + r * 9)), stof(argv(12 + r * 9)), stof(argv(13 + r * 9))];
 	}
 };
+
+// P1754: STAT_FS_WOPCLK, only while it names the C snapshot in use (the two stats arrive independently).
+void() WarpOp_Clk =
+{
+	local string k;
+	local float i;
+
+	k = getstats(STAT_FS_WOPCLK);
+	if (!strcmp(k, wop_k_src) && !strcmp(wop_c_src, wop_k_csrc))
+		return;
+	if (wop_k_src != "") strunzone(wop_k_src);
+	if (wop_k_csrc != "") strunzone(wop_k_csrc);
+	wop_k_src = strzone(k);
+	wop_k_csrc = strzone(wop_c_src);
+	wop_k_ok = FALSE;
+	if (!wop_c_ok || tokenize(k) != 3 + WOPCLK_ROWS || argv(0) != "K")
+		return;
+	if (stof(argv(1)) != crc16(FALSE, wop_c_src) || stof(argv(2)) != strlen(wop_c_src))
+		return;
+	for (i = 0; i < WOPCLK_ROWS; i = i + 1)
+		wop_k_clk[i] = stof(argv(3 + i));
+	wop_k_ok = TRUE;
+};
+
+void() WarpOp_Cur = { WarpOp_CurC(); WarpOp_Clk(); };
+// Row r's resumed clock (-1 none/unknown) and stored clock (0 none, -1 unknown), into wop_tgclk / wop_tgstore.
+void(float r) WarpOp_KRow =
+{
+	local float v;
+	wop_tgclk = wop_tgstore = -1;
+	if (!wop_k_ok)
+		return;
+	v = wop_k_clk[r];
+	wop_tgclk = (v >= 0) ? v : -1;
+	wop_tgstore = (v >= 0) ? v : ((v <= -2) ? -2 - v : 0);
+};
+float(float r) WarpOp_KStore = { WarpOp_KRow(r); return wop_tgstore; };
 
 float(float i) WarpOp_Unanswered =
 {
@@ -283,6 +327,7 @@ float(float op, vector org, vector vel, vector ang, float duck) WarpOp_Queue =
 	wop_duck[i] = duck;
 	wop_qt[i]   = cltime;
 	wop_blind[i] = FALSE;
+	wop_clk[i]  = -1;
 	wop_slot = i;
 	return TRUE;
 };
@@ -379,6 +424,25 @@ float() WarpOp_SaveSlot =
   or follows a blind load (whose hold the replay does not have): send it blind.
 */
 float(float idx, float i0, float cnt) WarpOp_RowAt;
+// P1754: the clock the unanswered save in slot j stores -- SV_TimerTicks at its command, the stat's ticks plus the
+// commands between while running; a finished run's ticks; 0 off the clock -- or -1 unknown: an op ahead of it
+// (anything but a save or a release) can move the clock first.
+float(float j) WarpOp_SaveClk =
+{
+	local float i, c;
+
+	for (i = 0; i < WOP_RING; i = i + 1)
+		if (wop_q[i] < wop_q[j] && wop_op[i] != WOP_SAVE && wop_op[i] != WOP_RELEASE && WarpOp_Unanswered(i))
+			return -1;
+	if (getstatf(STAT_FS_TIMERSTATE) == TS_FINISHED)
+		return getstatf(STAT_FS_TIMERTICKS);
+	if (getstatf(STAT_FS_TIMERSTATE) != TS_RUNNING)
+		return 0;
+	if (getstatf(STAT_FS_TIMERFLAGS) & TF_FROZEN)
+		return getstatf(STAT_FS_TIMERTICKS);
+	c = (wop_seq[j] > 0) ? wop_seq[j] : clientcommandframe;
+	return getstatf(STAT_FS_TIMERTICKS) + max(0, c - 1 - servercommandframe);
+};
 // P1753: the cursor after every load and step queued after ring position bq, from idx in a list of cnt rows.
 // -1: one follows a blind load (whose hold the replay does not have).
 float(float idx, float cnt, float bq) WarpOp_Walk =
@@ -416,6 +480,7 @@ float(float op) WarpOp_Row =
 	wop_tgorg = '0 0 0';
 	wop_tgang = '0 0 0';
 	wop_tgvel = '0 0 0';
+	wop_tgclk = wop_tgstore = -1;
 	// P1547: behind a save not yet answered the cursor is that save, its row the one this client took at
 	// the save's command. P1753: steps too -- the list as the server will have it is this window's (the
 	// save is unanswered by its own ack, so the window predates it) plus that row at the end, cursor on it.
@@ -450,6 +515,8 @@ float(float op) WarpOp_Row =
 			wop_tgang = wop_ang[j];
 			wop_tgang_z = wop_duck[j];
 			wop_tgvel = wop_vel[j];
+			wop_tgstore = WarpOp_SaveClk(j);            // P1754
+			wop_tgclk = (wop_tgstore >= 0 && getstatf(STAT_FS_TIMERSTATE) == TS_RUNNING) ? wop_tgstore : -1;
 			return TRUE;
 		}
 		if (cnt < 1 || i0 < 1 || i0 > cnt)
@@ -480,11 +547,13 @@ float(float idx, float i0, float cnt) WarpOp_RowAt =
 {
 	local float b;
 
+	wop_tgclk = wop_tgstore = -1;
 	if (idx == i0 && wop_c_ok)
 	{
 		wop_tgorg = wop_c_org[0];
 		wop_tgang = wop_c_ang[0];
 		wop_tgvel = wop_c_vel[0];
+		WarpOp_KRow(0);                                 // P1754
 		return (wop_tgorg != '0 0 0');
 	}
 	if (idx == i0)
@@ -512,6 +581,7 @@ float(float idx, float i0, float cnt) WarpOp_RowAt =
 				wop_tgorg = wop_x_org[b];
 				wop_tgang = wop_x_ang[b];
 				wop_tgvel = wop_x_vel[b];
+				WarpOp_KRow(5 + b);                             // the D rows are this C's (WarpOp_Cur)
 				return (wop_tgorg != '0 0 0');
 			}
 		return FALSE;
@@ -521,6 +591,7 @@ float(float idx, float i0, float cnt) WarpOp_RowAt =
 		wop_tgorg = wop_c_org[b + 1];
 		wop_tgang = wop_c_ang[b + 1];
 		wop_tgvel = wop_c_vel[b + 1];
+		WarpOp_KRow(b + 1);
 		return (wop_tgorg != '0 0 0');
 	}
 	b = STAT_FS_WOPROW + WOPROW_STRIDE * b;
@@ -528,6 +599,122 @@ float(float idx, float i0, float cnt) WarpOp_RowAt =
 	wop_tgang = [getstatf(b + 3), getstatf(b + 4), getstatf(b + 5)];
 	wop_tgvel = [getstatf(b + 6), getstatf(b + 7), getstatf(b + 8)];
 	return (wop_tgorg != '0 0 0');
+};
+
+/*
+  P1754: the timer while a predicted load or step is unanswered (cl_timer.qc Timer_Draw, the panel only): the newest
+  one's row clock, frozen while held, else plus the commands the server has run since it or its release -- what
+  STAT_FS_TIMERTICKS reads when the answer lands. FALSE (the stats): blind, an unknown clock, or a newer op that
+  could move the clock (anything but a save or a release).
+*/
+float() WarpOp_TimerPred =
+{
+	local float i, j, start;
+
+	if (!wop_seq)
+		return FALSE;
+	j = -1;
+	for (i = 0; i < WOP_RING; i = i + 1)
+		if (wop_op[i] == WOP_LOAD || wop_op[i] == WOP_LOADNOW || (wop_op[i] >= WOP_NEXT && wop_op[i] <= WOP_LAST))
+		if (WarpOp_Unanswered(i))
+		if (j < 0 || wop_q[i] > wop_q[j])
+			j = i;
+	if (j < 0 || wop_blind[j] || wop_clk[j] < 0)
+		return FALSE;
+	for (i = 0; i < WOP_RING; i = i + 1)
+		if (wop_q[i] > wop_q[j] && wop_op[i] != WOP_SAVE && wop_op[i] != WOP_RELEASE && WarpOp_Unanswered(i))
+			return FALSE;
+	wop_tm_ticks = wop_clk[j];
+	wop_tm_frozen = (rec_sl_holding || wop_relseq < 0);
+	if (wop_tm_frozen)
+		return TRUE;
+	start = max(wop_seq[j], wop_relseq);
+	if (start > 0 && servercommandframe >= start)
+		wop_tm_ticks = wop_tm_ticks + servercommandframe - start + 1;  // the mover runs the op's own command too
+	return TRUE;
+};
+
+/*
+  P1754: the list as the server will have it after every unanswered save, load and step, for the panel's "N / M"
+  and "run at": wop_pl_idx, wop_pl_cnt and the cursor row's stored clock wop_pl_clk (0 none, -1 unknown). FALSE:
+  nothing pending.
+  WarpOp_Row's walk; display only.
+*/
+float() WarpOp_PredList =
+{
+	local float j, cnt, i0, idx, n, c, s;
+	local vector o, a, v;
+
+	wop_pl_clk = -1;
+	if (!wop_seq)
+		return FALSE;
+	o = wop_tgorg; a = wop_tgang; v = wop_tgvel; c = wop_tgclk; s = wop_tgstore;
+	cnt = WarpOp_Cnt();
+	i0 = WarpOp_Idx();
+	j = WarpOp_SaveSlot();
+	if (j >= 0)
+	{
+		if (cnt >= FS_MAXSAVES)
+			return FALSE;
+		for (n = 0; n < WOP_RING; n = n + 1)
+			if (n != j && wop_op[n] == WOP_SAVE && WarpOp_Unanswered(n))
+				return FALSE;               // two saves in flight
+		n = cnt + 1;
+		idx = WarpOp_Walk(n, n, wop_q[j]);
+		if (idx < 0)
+			return FALSE;
+		wop_pl_idx = idx;
+		wop_pl_cnt = n;
+		if (idx == n)
+			wop_pl_clk = WarpOp_SaveClk(j);
+		else if (cnt >= 1 && i0 >= 1 && i0 <= cnt && WarpOp_RowAt(idx, i0, cnt))
+			wop_pl_clk = wop_tgstore;
+	}
+	else
+	{
+		if (!WarpOp_Pending(WOPP_LIST) || cnt < 1 || i0 < 1 || i0 > cnt)
+			return FALSE;
+		idx = WarpOp_Walk(i0, cnt, 0);
+		if (idx < 0)
+			return FALSE;
+		wop_pl_idx = idx;
+		wop_pl_cnt = cnt;
+		if (WarpOp_RowAt(idx, i0, cnt))
+			wop_pl_clk = wop_tgstore;
+	}
+	wop_tgorg = o; wop_tgang = a; wop_tgvel = v; wop_tgclk = c; wop_tgstore = s;
+	return TRUE;
+};
+
+// P1755: `sl_goto n` as the key that lands on the same row (WOP_LOADNOW/NEXT/PREV/FIRST/LAST), so it is predicted.
+// Only with nothing pending: then the cursor is the server's, and the stringcmd a key falls back to lands on n too.
+float(float n) WarpOp_GotoOp =
+{
+	local float cnt, idx;
+
+	if (!WarpOp_Able() || WarpOp_Pending(WOPP_ANY) || Trail_RequestBusy())
+		return 0;
+	SaveLoc_Resync();
+	if (rec_sl_sent != getstatf(STAT_FS_SLACK) || (wop_c_ok && wop_c_slack != getstatf(STAT_FS_SLACK)))
+		return 0;                       // round 1: the cursor string can trail the count it answers
+	for (cnt = 0; cnt < WOP_RING; cnt = cnt + 1)
+		if (wop_seq[cnt] > 0 && wop_seq[cnt] > WarpOp_Ack())
+			return 0;                   // carried and unacked past WarpOp_Unanswered's 1 s
+	cnt = WarpOp_Cnt();
+	idx = WarpOp_Idx();
+	if (n != floor(n) || n < 1 || n > cnt || idx < 1 || idx > cnt)
+		return 0;
+	if (n == idx)
+		return WOP_LOADNOW;
+	if (n == WarpOp_StepIdx(WOP_NEXT, idx, cnt))
+		return WOP_NEXT;
+	if (n == WarpOp_StepIdx(WOP_PREV, idx, cnt))
+		return WOP_PREV;
+	if (n == 1)
+		return WOP_FIRST;
+	if (n == cnt)
+		return WOP_LAST;
+	return 0;
 };
 
 // One charge of SV_SaveLocRate's bucket; FALSE when the server would refuse.
@@ -801,6 +988,7 @@ float() WarpOp_Load =
 		return FALSE;
 	}
 	wop_blind[wop_slot] = blind;
+	wop_clk[wop_slot] = blind ? -1 : wop_tgclk;         // P1754
 	wop_loadpred = !blind;
 	wop_loadvel = wop_tgvel;
 	wop_loadseq = -1;
@@ -945,6 +1133,7 @@ float(float op, float rep) WarpOp_Step =
 		return rep;                     // a repeat with the ring full is dropped
 	}
 	wop_blind[wop_slot] = blind;
+	wop_clk[wop_slot] = blind ? -1 : wop_tgclk;         // P1754
 	if (!blind)
 	if (rec_sl_holding)
 	{
@@ -991,6 +1180,7 @@ float() WarpOp_LoadNow =
 		return FALSE;
 	}
 	wop_blind[wop_slot] = blind;
+	wop_clk[wop_slot] = blind ? -1 : wop_tgclk;         // P1754
 	wop_rwgo_on = FALSE;
 	if (!blind)
 	if (rec_sl_holding)

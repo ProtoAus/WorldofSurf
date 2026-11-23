@@ -4,6 +4,7 @@
 #define TR_REQUESTS 8
 string tr_req_cmd[TR_REQUESTS];
 float tr_req_raw[TR_REQUESTS], tr_req_tick[TR_REQUESTS], tr_req_end[TR_REQUESTS];
+float tr_req_rn[TR_REQUESTS];   // P1756: tr_rep_n of each
 float tr_req_save[TR_REQUESTS];
 float tr_req_head, tr_req_n, tr_req_at, tr_req_dispatch;
 float tr_req_opsave;            // P1547: tr_req_wait is a WOP_SAVE's (-1 until its command carries it)
@@ -21,7 +22,7 @@ void() Trail_RequestReset =
 			buf_del(tr_req_raw[i]);
 		if (tr_req_cmd[i] != "")
 			strunzone(tr_req_cmd[i]);
-		tr_req_raw[i] = 0;
+		tr_req_raw[i] = tr_req_rn[i] = 0;
 		tr_req_cmd[i] = "";
 	}
 	tr_req_head = tr_req_n = tr_req_wait = tr_req_dispatch = tr_req_opsave = 0;
@@ -46,7 +47,7 @@ float() Trail_RequestDispatching = { return tr_req_dispatch; };
 
 float(string c) Trail_Request =
 {
-	local float i, raw, tick, endt, ack, go, saving, curt;
+	local float i, raw, tick, endt, ack, go, saving, curt, rn;
 	if (tr_req_dispatch)
 		return FALSE;
 	saving = !strcmp(c, "sl_save");
@@ -68,9 +69,9 @@ float(string c) Trail_Request =
 	// A go in flight is observed before saving the held body, not re-scrubbed.
 	if (saving && !Rewind_Waiting())
 	{
-		raw = tr_rep_raw; tick = tr_rep_tick; endt = tr_rep_end;
+		raw = tr_rep_raw; tick = tr_rep_tick; endt = tr_rep_end; rn = tr_rep_n;
 		ack = tr_rep_ack; go = tr_rep_go;
-		tr_rep_raw = 0;
+		tr_rep_raw = tr_rep_n = 0;
 		c = SaveLoc_SaveCommand();
 		if (!strcmp(c, "sl_save") && tr_on && tr_nsamp > 0)
 		{
@@ -80,9 +81,10 @@ float(string c) Trail_Request =
 			tr_cur_t = curt;
 		}
 		tr_req_raw[i] = tr_rep_raw;
+		tr_req_rn[i] = tr_rep_n;
 		tr_req_tick[i] = tr_rep_tick;
 		tr_req_end[i] = tr_rep_end;
-		tr_rep_raw = raw; tr_rep_tick = tick; tr_rep_end = endt;
+		tr_rep_raw = raw; tr_rep_tick = tick; tr_rep_end = endt; tr_rep_n = rn;
 		tr_rep_ack = ack; tr_rep_go = go;
 	}
 	tr_req_cmd[i] = strzone(c);
@@ -102,9 +104,10 @@ void() Trail_RequestSend =
 	saving = tr_req_save[i];
 	skip = (!strcmp(c, "sl_hold") && !rec_sl_holding);
 	tr_rep_raw = tr_req_raw[i];
+	tr_rep_n = tr_req_rn[i];
 	tr_rep_tick = tr_req_tick[i];
 	tr_rep_end = tr_req_end[i];
-	tr_req_raw[i] = 0;
+	tr_req_raw[i] = tr_req_rn[i] = 0;
 	if (!skip)
 	{
 		tr_req_dispatch = TRUE;

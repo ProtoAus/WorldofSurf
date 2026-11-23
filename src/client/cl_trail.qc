@@ -145,7 +145,7 @@ void() Trail_Reset =
 	tr_kept = tr_kfrom = tr_emit = 0;
 	if (tr_raw >= 1)
 		buf_del(tr_raw);
-	tr_raw = tr_stitch = tr_slseq = tr_practice = tr_catching = ln_holdslot = 0;
+	tr_raw = tr_rawn = tr_stitch = tr_slseq = tr_practice = tr_catching = ln_holdslot = 0;
 	tr_timedgo_ack = tr_saveack = tr_rep_ack = tr_rep_go = 0;
 	Trail_ReplayClear();
 };
@@ -416,7 +416,7 @@ float(float f, float t, float riding) Trail_Take =
 		tr_contbrk = FALSE;
 		tr_stagefrom = t;
 	}
-	if (tr_catching && buf_getsize(tr_raw) >= LN_CAP * 4)
+	if (tr_catching && tr_rawn >= LN_CAP * 4)
 		Trail_Settle();                     // Trail_Record keeps no more rows to catch up from
 	if (!tr_catching)                       // P1384: else Trail_Catch feeds the recorded row
 		Line_Point(tr_live, o, v, fl, t, brk, tr_stitch, [yaw, nrm_z, wsh * nrm]);
@@ -527,6 +527,7 @@ void() Trail_Frame =
 		if (id >= 1 && id <= FS_MAXSAVES)
 		{
 			fremove(Trail_SavePath(id));
+			Trail_Forget(id);           // P1756
 			fremove(Seq_Path(id));
 			fremove(Rec_SavePath(id));
 			if (seq_mk_id == id)
@@ -586,7 +587,8 @@ void() Trail_Frame =
 				if (tr_raw >= 1)
 					buf_del(tr_raw);
 				tr_raw = tr_rep_raw;
-				tr_rep_raw = 0;
+				tr_rawn = tr_rep_n;
+				tr_rep_raw = tr_rep_n = 0;
 				tr_tick = tr_rep_tick;
 				Trail_Trim(tr_rep_end);
 				Trail_Save(id, saved);
@@ -750,8 +752,32 @@ void() Trail_Draw =
 */
 float() Trail_Console =
 {
+	local float fh;
+
 	if (argv(0) != "trail")
 		return FALSE;
+	// P1756: `trail dump <file>` -- the rows in use, as a save's trail.txt holds them below its header.
+	if (argv(1) == "dump" && argv(2) != "")
+	{
+		fh = fopen(argv(2), FILE_WRITE);
+		if (fh >= 0 && tr_raw >= 1)
+			buf_writefile(fh, tr_raw, 0, tr_rawn);
+		if (fh >= 0)
+			fclose(fh);
+		print(sprintf("trail: %g rows (buffer %g) to %s\n", Trail_RawN(), (tr_raw >= 1) ? buf_getsize(tr_raw) : 0, argv(2)));
+		return TRUE;
+	}
+	// P1757: `trail viewdump <file>` -- the .view sidecar's lines in use, as a save's run.view holds its prefix.
+	if (argv(1) == "viewdump" && argv(2) != "")
+	{
+		fh = fopen(argv(2), FILE_WRITE);
+		if (fh >= 0 && rec_rp_view >= 1)
+			buf_writefile(fh, rec_rp_view, 0, rec_rp_lines);
+		if (fh >= 0)
+			fclose(fh);
+		print(sprintf("trail: view %g lines to %s\n", rec_rp_lines, argv(2)));
+		return TRUE;
+	}
 
 	// THREE PRINTS AND NOT ONE, because fteqcc caps a varargs call at eight
 	// parameters -- the format string among them -- and SILENTLY DROPS the
