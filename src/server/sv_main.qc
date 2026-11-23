@@ -202,6 +202,7 @@ void() StartFrame =
 		SV_EntityIOBuild();
 
 		SV_PropStaticMissing();     // P1604: into propmiss before the report prints it
+		SV_PropCascadeCasters();    // P1760: before the report prints its count
 		SV_EntityReport();
 
 		/*
