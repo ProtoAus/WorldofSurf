@@ -21,6 +21,13 @@
 
 ## next
 
+### P1757 Going back to a save stays smooth
+- The camera record of a save made on your run stays in memory across loads, so going back to it after trying a later save no longer reads it from disk (48 to 12 ms on a 6-minute run).
+
+### P1756 Less stutter when saving and loading on long runs
+- Saving on a long run no longer stalls a frame for the run line: the game writes it in one go, and the copy taken on the press is made the same way (a 6-minute run: a save's worst frame 80 to 18-31 ms).
+- Loading a save you made on this run cuts the line back instead of reading it from disk (40-90 to about 12 ms), and the line then redraws a few milliseconds a frame so the frame rate stays even.
+
 ### P1755 Delete and goto answer on the press
 - Removing a save updates the save panel's count and "run at" the moment you press, instead of a round trip later.
 - `sl_goto` to the save you are on, the next, the previous, the first or the last is predicted like those keys, so it lands at once.

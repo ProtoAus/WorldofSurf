@@ -711,6 +711,17 @@ once the reload clock is rebased -- scratchpad p1716_rebase.py), giving a "re-si
   AG recording can replay differently where it touched one. pm_dettest's trace hashes now run in the render winding
   (its "srctrace stays the triangles every older pin replays on" comment, sv_ccmds.c ~4500, is stale) and its mover
   passes stop at 12. The hl2 plugin and exe must ship together (an old plugin on a mover-13 exe collides like 12).
+- P1754-P1757 leftovers (23 Nov, worldofsurf-08; Lex "the timer and save counter updating the moment you press,
+  delete and goto not waiting on the server, and the brief stutter on long runs"). DONE: timer + panel on the press
+  (P1754), delete/goto (P1755), line picture (P1756), view prefix warm across a file load (P1757). OPEN, measured
+  on a 6-minute ahop_coast run (rig long5, ~36k line rows): (1) a save still writes two whole prefixes in its frame --
+  Rec_ViewSaved 8-14 ms + Trail_Save 3-6 ms (both engine writes) -- 18-31 ms; spreading them over frames (FILE_WRITE-
+  STREAM, finished before any cut or read of those rows) or client spines would remove it. (2) Loading a save that is
+  not on the current line (stepping forward after stepping back) reads both files: Trail_Load 21-22 + Watch_BufLoad
+  18-24 ms, 56-59 ms; a one-branch cache of the line and view buffers (swap on load, copy before a cut that would lose
+  a marked row) would make it a swap. (3) The timer on a predicted load stays at the save's time until the server's
+  answer, then joins the server's count (a jump of up to half a round trip; 1-2 ticks at 15 ms ping). (4) sl_goto to
+  a save outside the window (cursor +-1, first, last) is still a stringcmd.
 - P1752/P1753 leftovers (23 Nov, worldofsurf-08; Lex "Yes, do all 3"): DONE spines + 999 (P1752, 4 review rounds)
   and the step-after-save prediction (P1753, 3 rounds). OPEN, the rest of "the client owns the list": the HUD timer
   and the N/M panel at the press (needs the window rows' run clocks -- a new stat bound to the window's ack), delete /
