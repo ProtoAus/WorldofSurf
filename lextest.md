@@ -1,6 +1,10 @@
 # lextest.md — things waiting on a human
 
-## P1748-P1750 -- your 23 Nov list (worldofsurf-08) -- next release + lobbies
+## 0.1.62 release -- PUBLISHED 23 Nov 05:36Z (record: tools/release-0.1.62.md); lobbies on its engine + progs 05:39Z; owner check PENDING
+- P1748-P1751 (your 23 Nov list, worldofsurf-08). Lobbies: engine patch-1748 (mover 16) and the release's progs.
+1. Start the game: it updates to 0.1.62. The checks below. (Your dev install still reports 0.1.59-dev.)
+
+## P1748-P1751 -- your 23 Nov list (worldofsurf-08) -- IN 0.1.62 + lobbies
 1. bhop_canals save 3 (and save 2): drop onto the canal bank from above -- you land on the slope; nothing falls through.
    The server says mover 16 (`serverinfo pm_sourceversion`); a classic map still records 15.
 2. ahop_coast: join it twice -- no download of `coast.windmill` and the others on the second (or first) join.

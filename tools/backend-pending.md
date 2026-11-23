@@ -1,5 +1,11 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 23 Nov 2026 05:39Z: lobby engine patch-1748 (mover 16) + 0.1.62 progs LIVE (worldofsurf-08)
+All 12 lobbies: fteqw-svarm64 be372f27 + fteplug_hl2_arm64.so b96bb483 (3e7ad92da, git-9039-patch-1748-0-g3e7ad92da) and
+0.1.62's progs (qw d2bd004d / cs 65de9276); backups *.pre0162-20261123T053830Z; gate in
+/srv/nvme/agent-work/eng1748-20261123-08. The lobby binary is surfd's verifier: THE NEXT GENERATION'S KIT MUST PIN
+be372f27 (gen1745 recorded 049f7062; 0.1.61's b94f7365 was never pinned either). Record: tools/release-0.1.62.md.
+
 ## 23 Nov 2026 02:27Z: gen1745 LIVE -- the base for the NEXT generation (ftesurf-e4, Lex "can you please deploy the new UA we have please.")
 Primary 570cc70a (members-v1, 92) = gen1710's files + at REF c2cbe46f: ksfimport.py (P1734 + P1745), surfd.py (P1737's
 report_points), mapnew.py, momgrab.py, steam.py, momfetch.py (P1745), and mapwatch.py = its held live bytes + the one UA
