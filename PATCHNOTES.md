@@ -27,6 +27,18 @@
 ### P1752 Every lobby save keeps your run
 - In a lobby, every save now keeps your run time and speed, up to 999 per map, so loading an old save carries on the run. Saving no longer copies your whole run each time, so a save is cheap however long the run is.
 
+### P1747 Record a replay as a video
+- Watching a replay, press "record video" on its bar: pick the size, frame rate, supersampling, motion blur and whether the HUD shows, and the game renders the run to an MP4 in your game folder's videos folder.
+- Every frame is exact: the game steps one video frame at a time, so the video is smooth however slowly your PC renders it. Water and glass reflections go to full quality for the recording and back after.
+- Motion blur is a real camera shutter (several in-between frames averaged) and off by default. Video files need ffmpeg installed (or beside the game); without it you get PNG frames and the sound.
+
+### P1746 Map upload for map admins (F8)
+- Map admins can press F8 in the main menu, a game they host or a lobby to upload a new map: pick the .bsp (or drag it onto the game window, or Browse), then a screenshot from that map's own.
+- Set the tier, stages and bonuses, attach your zone file, and press Upload; a progress bar shows it going up.
+- The map goes live for everyone: lobbies can load it straight away and it shows in every player's map list within a minute, with its picture.
+
+## 0.1.62 2026-11-23
+
 ### P1751 Replays from the Local tab no longer wobble
 - A replay of your lobby run opened from the Local tab drew your camera a ping early, so at speed the view turned before the body and looked wobbly. It is lined up with the movement again, as online replays already were.
 
@@ -38,16 +50,6 @@
 
 ### P1748 Solid ground on far-out maps
 - On very large maps such as bhop_canals, some sloped walls and banks far from the map's centre let players fall through. They are solid now. Older recordings still replay exactly as they were made.
-
-### P1747 Record a replay as a video
-- Watching a replay, press "record video" on its bar: pick the size, frame rate, supersampling, motion blur and whether the HUD shows, and the game renders the run to an MP4 in your game folder's videos folder.
-- Every frame is exact: the game steps one video frame at a time, so the video is smooth however slowly your PC renders it. Water and glass reflections go to full quality for the recording and back after.
-- Motion blur is a real camera shutter (several in-between frames averaged) and off by default. Video files need ffmpeg installed (or beside the game); without it you get PNG frames and the sound.
-
-### P1746 Map upload for map admins (F8)
-- Map admins can press F8 in the main menu, a game they host or a lobby to upload a new map: pick the .bsp (or drag it onto the game window, or Browse), then a screenshot from that map's own.
-- Set the tier, stages and bonuses, attach your zone file, and press Upload; a progress bar shows it going up.
-- The map goes live for everyone: lobbies can load it straight away and it shows in every player's map list within a minute, with its picture.
 
 ## 0.1.61 2026-11-23
 
