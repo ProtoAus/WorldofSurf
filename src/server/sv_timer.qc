@@ -2358,7 +2358,7 @@ void(entity e) SV_TimerMapTeleport =
 .int    rec_sp_bytes;            // where they end: the last save's bytes, or a warm load's cut
 .float  rec_sp_live;             // the last segment's spine takes this stream's next bytes
 .string rec_sp_bad;              // a spine whose append failed: never adopted again (review)
-#define SPINE_DEPTHMAX 64          // segments a save may list; past it a save keeps no run (review: rescan cost)
+#define SPINE_DEPTHMAX 64          // segments a save may list; past it the next save starts a root (review: rescan cost)
 // Patch 817: the attempt a re-arm ended (SV_RecFailKeep), kept for the rewind until the
 // next recording opens: a go or save over it cuts its prefix from here
 // (SV_RewindWriteState), and the load that follows is a timed save's cold load.
@@ -2760,9 +2760,12 @@ float(entity e, int b) SV_RecSpineAppend =
 	if (!e.rec_sp_live)
 	{
 		if (n >= SPINE_DEPTHMAX)
-		{
-			sprint(e, PRINT_HIGH, "^3save:^7 this branch of loads is too deep to keep the run -- load your newest save\n");
-			return FALSE;
+		{	// round 2: compact -- one whole copy into a root spine, rather than a save that cannot keep its run
+			SV_RecSpineReset(e);
+			e.rec_sp_segs = buf_create_ex("string", 0);
+			if (e.rec_sp_segs < 1)
+				return FALSE;
+			n = 0;
 		}
 		own0 = (n > 0) ? e.rec_sp_bytes : 0i;
 		sp = strcat(rec_snap_spinedir, SV_RandHex(16), ".rec");
@@ -8202,7 +8205,8 @@ void(entity e, float mark, float samples, float padn, float cps) SV_RecRestore =
 // b. FALSE (nothing taken) when they do not end at b or list a spine whose append failed.
 float(entity e, int b, float segs) SV_RecSpineAdopt =
 {
-	local float n, i;
+	local float n, i, sz, ok, mine, k;
+	local searchhandle h;
 
 	n = (segs >= 1) ? buf_getsize(segs) : 0;
 	if (n < 1)
@@ -8210,13 +8214,29 @@ float(entity e, int b, float segs) SV_RecSpineAdopt =
 	tokenize(bufstr_get(segs, n - 1));
 	if (stoi(argv(2)) != b)
 		return FALSE;
-	if (e.rec_sp_bad != "")
-		for (i = 0; i < n; i = i + 1)
+	for (i = 0; i < n; i = i + 1)
+	{	// round 2: a short, failed or deleted spine is never adopted (a warm load reads none of them)
+		tokenize(bufstr_get(segs, i));
+		if (argv(0) == e.rec_sp_bad)
+			return FALSE;
+		sz = stof(argv(2)) - stof(argv(1));
+		mine = FALSE;                   // already this stream's: its appends were checked as they went
+		if (e.rec_sp_segs >= 1 && e.rec_sp_serial == e.rec_rec_serial)
+			for (k = 0; k < buf_getsize(e.rec_sp_segs) && !mine; k = k + 1)
+				if (!strncmp(bufstr_get(e.rec_sp_segs, k), strcat(argv(0), " "), strlen(argv(0)) + 1))
+					mine = TRUE;
+		if (sz > 0 && !mine)
 		{
-			tokenize(bufstr_get(segs, i));
-			if (argv(0) == e.rec_sp_bad)
+			h = search_begin(argv(0), 0, TRUE);
+			if (h < 0)
 				return FALSE;
+			ok = (search_getsize(h) == 1 && search_getfilesize(h, 0) >= sz);
+			search_end(h);
+			if (!ok)
+				return FALSE;
+			tokenize(bufstr_get(segs, i));  // search_* may not, but keep argv honest for the loop
 		}
+	}
 	SV_RecSpineReset(e);
 	e.rec_sp_segs = buf_create_ex("string", 0);
 	if (e.rec_sp_segs < 1)

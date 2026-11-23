@@ -5356,8 +5356,8 @@ void(entity e, float n) SV_SaveLocLoad =
 		       sprintf("^5save %g^7 -- run resumed at ^5%s^7, %g checkpoint(s), segmented run\n",
 		               n, SV_TimerString(e.run_t_ticks), rec_sl_cps[r]));
 	else if (dem && !sl_aprwd)   // P1750 (+review: not a rewind/replay/sync/gift row, which keeps its speed)
-		sprint(e, PRINT_HIGH, sprintf("^5save %g^7 -- ^3position only^7: this save no longer keeps its run (an older "
-		                              "kind of save: only the newest 24 of those keep it)\n", n));
+		sprint(e, PRINT_HIGH, sprintf("^5save %g^7 -- ^3position only^7: this save no longer keeps its run (only the "
+		                              "newest %g saves holding a whole copy keep it)\n", n, SL_RECKEEP));
 	else
 		SV_SaveLocSay(e);
 };
