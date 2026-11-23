@@ -421,8 +421,9 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             if len(seen) > 4096:
                 for k in [k for k, v in seen.items() if not v or now - v[-1] >= 60]:
                     del seen[k]
-                if len(seen) > 4096 and peer not in seen:
-                    return fail('The upload service is busy; try again in a minute.', 429)
+                # still full: the oldest go, so a crowd of addresses cannot lock everyone else out
+                for k in sorted(seen, key=lambda k: seen[k][-1])[:len(seen) - 4096 + 1]:
+                    del seen[k]
             hits = [t for t in seen.get(peer, ()) if now - t < 60]
             if len(hits) >= PEER_RATE:
                 return fail('Too many requests; wait a minute.', 429)

@@ -48,7 +48,9 @@ ZONE_DIRS = ['/srv/nvme/ftesurf-server/game/ftesurf/maps/zones/local', '/srv/nvm
 # every zone directory a lobby reads (the TAS installer's list): a name with zones in any of them is not new
 ZONE_CHECK = ['/srv/nvme/ftesurf-server/game/%s/maps/zones/%s' % d for d in (
     ('ftesurf', 'local'), ('ftesurf', 'curated'), ('momentum', 'curated'), ('momentum', 'local'),
-    ('ftesurf', 'online'), ('momentum', 'online'))] + ['/srv/nvme/ftesurf-site/zones']
+    ('ftesurf', 'online'), ('momentum', 'online'))] + [
+    '/srv/nvme/ftesurf-server/game/ftesurf/data/maps/zones/local', '/srv/nvme/ftesurf-server/game/ftesurf/data/maps/zones/online',
+    '/srv/nvme/ftesurf-site/zones']     # (a lobby reads data/ first: QC_FixFileName)
 MEDIA = '/srv/nvme/ftesurf-site/media'
 LIST = '/srv/nvme/surfd/data/mapwatch/mapdl.txt'
 NGINX = """location = /mapup/api/part {
@@ -56,6 +58,7 @@ NGINX = """location = /mapup/api/part {
     client_max_body_size 1100m;   # mapupd.MAX_BSP and a gzip's slack
     proxy_request_buffering off;  # straight to the service's spool on the NVMe, not nginx's temp on the root fs
     client_body_timeout 20s;      # between reads
+    lingering_close off;          # a refused body's slot goes at once
     proxy_pass http://127.0.0.1:%d;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $remote_addr;

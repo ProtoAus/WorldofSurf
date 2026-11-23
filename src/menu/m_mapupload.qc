@@ -20,6 +20,7 @@
 #define MUP_HASHCALLS 160           // ~10 MB a frame
 #define MUP_CODE_LIFE 480           // s a code is used for (the service's is 600)
 #define MUP_READSTREAM 10           // sh_streamfile.qc's FS_FILE_READSTREAM (that file needs fwritepathstatus, not in menu)
+#define MUP_READNL 4                // FILE_READNL (the menu defs lack it): fgets gives the whole file
 string(float fh, int quota) MUp_HashStep = #0:file_sha256_step;
 __int64(float fh) MUp_StreamSize = #0:fsize64;
 float(string url, float id, string mimetype, string head, string path, float flags) uri_postfile = #0:uri_postfile;
@@ -210,8 +211,7 @@ void() MUp_Rehash =
 };
 void(string path) MUp_PickMap =
 {
-	local string n, f;
-	local float i;
+	local string n;
 	MUp_Rehash();
 	mup_bsp = MUp_Keep(mup_bsp, path);
 	n = MUp_CleanName(MUp_Stem(path));
@@ -220,13 +220,43 @@ void(string path) MUp_PickMap =
 	mup_mode = (substring(n, 0, 5) == "bhop_");
 	MUp_ZoneFind();
 	MUp_ListShots();
+	// no picture is chosen for the admin: a server can send `screenshot <name>`, so one in the grid may not be theirs
 	if (mup_shot != "" && substring(mup_shot, 0, 8) != "dropped/") mup_shot = MUp_Keep(mup_shot, "");
-	if (mup_shot == "")
-		for (i = 0; i < buf_getsize(mup_shots); i = i + 1)
-		{
-			f = bufstr_get(mup_shots, i);
-			if (substring(f, 0, 12) == "screenshots/") { mup_shot = MUp_Keep(mup_shot, f); break; }
-		}
+};
+// what the window may pick, whatever the console passes (ui_mapupload pick|shot|zone): maps/ or dropped/ maps, screenshots/
+// or dropped/ pictures, this name's local zone file or a dropped one -- never another data/ path a server can write
+float(string p, float kind) MUp_PathOK =
+{
+	local string e;
+	e = MUp_Ext(p);
+	if (strstrofs(p, "..") >= 0 || strstrofs(p, "\\") >= 0 || strstrofs(p, ":") >= 0) return FALSE;
+	if (kind == 1) return (e == "bsp" && (substring(p, 0, 5) == "maps/" || substring(p, 0, 8) == "dropped/"));
+	if (kind == 2) return ((e == "png" || e == "jpg" || e == "jpeg" || e == "tga")
+		&& (substring(p, 0, 12) == "screenshots/" || substring(p, 0, 8) == "dropped/"));
+	return (e == "json" && (substring(p, 0, 22) == "data/maps/zones/local/" || substring(p, 0, 8) == "dropped/"));
+};
+// what a zone file holds, shown beside its chip so the admin knows what they attach: "" when it does not read
+string mup_zonesumfor, mup_zonesum;
+string(string p) MUp_ZoneSummary =
+{
+	local float fh, root, tracks, stages, bonuses;
+	local string body;
+	if (!strcmp(p, mup_zonesumfor)) return mup_zonesum;
+	mup_zonesumfor = MUp_Keep(mup_zonesumfor, p);
+	mup_zonesum = MUp_Keep(mup_zonesum, "does not read as a zone file");
+	fh = fopen(p, MUP_READNL);
+	if (fh < 0) return mup_zonesum;
+	body = fgets(fh);
+	fclose(fh);
+	if (!ZoneFile_Valid(body)) return mup_zonesum;
+	root = json_parse(body);
+	tracks = json_find_object_child(root, "tracks");
+	stages = json_get_length(json_find_object_child(json_find_object_child(json_find_object_child(tracks, "main"), "zones"), "segments"));
+	bonuses = json_get_length(json_find_object_child(tracks, "bonuses"));
+	json_free(root);
+	mup_zonesum = MUp_Keep(mup_zonesum, sprintf("%s, %g bonus%s", (stages > 1) ? sprintf("%g stages", stages) : "linear",
+		bonuses, (bonuses == 1) ? "" : "es"));
+	return mup_zonesum;
 };
 
 void() MUp_Init =
@@ -668,8 +698,8 @@ void(vector p, float w) MUp_DrawExtras =
 	sui_text(p, SZ_LABEL, "Zones", COL_DIM, 1, 0);
 	if (mup_zone != "")
 	{
-		ui_chip([p_x + 70, p_y - 5], "mup_zonechip", mup_usezone ? sprintf("Attached: %s", MUp_Base(mup_zone))
-			: sprintf("Click to attach %s", MUp_Base(mup_zone)), mup_usezone);
+		ui_chip([p_x + 70, p_y - 5], "mup_zonechip", mup_usezone ? sprintf("Attached: %s (%s)", MUp_Base(mup_zone), MUp_ZoneSummary(mup_zone))
+			: sprintf("Click to attach %s (%s)", MUp_Base(mup_zone), MUp_ZoneSummary(mup_zone)), mup_usezone);
 		if (sui_is_released("mup_zonechip")) mup_usezone = !mup_usezone;
 	}
 	else
@@ -825,6 +855,11 @@ float(string verb, string arg) MUp_Command =
 {
 	if (!mup_open) MUp_Open();
 	if (MUp_Busy() && (verb == "pick" || verb == "shot" || verb == "zone")) { print("map upload: busy\n"); return TRUE; }
+	if ((verb == "pick" && !MUp_PathOK(arg, 1)) || (verb == "shot" && !MUp_PathOK(arg, 2)) || (verb == "zone" && arg != "" && !MUp_PathOK(arg, 3)))
+	{
+		print("map upload: not a path the window offers\n");
+		return TRUE;
+	}
 	if (verb == "pick") { MUp_PickMap(arg); return TRUE; }
 	if (verb == "shot") { mup_shot = MUp_Keep(mup_shot, arg); return TRUE; }
 	if (verb == "zone") { mup_zone = MUp_Keep(mup_zone, arg); mup_usezone = (arg != ""); return TRUE; }

@@ -128,6 +128,19 @@ void(string s) MVR_Fail =
 	print(sprintf("vidrec: %s\n", s));
 };
 
+string(string s) MVR_SafeName =
+{
+	local float i, c;
+	if (strlen(s) < 1 || strlen(s) > 64) return "replay";
+	for (i = 0; i < strlen(s); i = i + 1)
+	{
+		c = str2chr(s, i);
+		if (!((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95 || c == 45 || c == 46))
+			return "replay";
+	}
+	return strtolower(s);
+};
+
 void() MVR_Start =
 {
 	local vector out, rnd;
@@ -143,7 +156,9 @@ void() MVR_Start =
 	if (rnd_x > 8192 || rnd_y > 8192) { ss = 2; rnd = out * 2; }       // a GL framebuffer's practical edge
 	sub = MVR_Sub();
 	tokenize(cvar_string("vidrec_replay"));
-	map = argv(0);
+	// vidrec_replay is another VM's (any server's CSQC can set it): only a plain name goes into the capture
+	// command the menu runs at local trust, or a crafted one would add commands after the quotes
+	map = MVR_SafeName(argv(0));
 	mvr_out = MVR_Keep(mvr_out, sprintf("videos/%s_%s%s", map, strftime(FALSE, "%Y%m%d-%H%M%S"), ff ? ".mp4" : ""));
 	MVR_Save();
 	cvar_set("capturedriver", ff ? "ffmpeg" : "raw");
