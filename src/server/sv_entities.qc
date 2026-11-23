@@ -3299,6 +3299,24 @@ void(entity t, string rgb) SV_BrushColour =
 	t.colormod = color;
 };
 
+// P1759: a prop's tint, rounded to the wire's 1/32 step (sv_ents.c truncates): bhop_canals' 21 18 13 shafts
+// arrived as 16 16 8 truncated, 24 16 16 rounded.
+void(entity t, string rgb) SV_PropColour =
+{
+	local vector c;
+
+	SV_BrushColour(t, rgb);
+	c = t.colormod;
+	if (c_x == 0.001 && c_y == 0 && c_z == 0)
+		return;	// the black sentinel
+	c_x = rint(c_x * 32) / 32;
+	c_y = rint(c_y * 32) / 32;
+	c_z = rint(c_z * 32) / 32;
+	if (c == '0 0 0')
+		c_x = 0.001;
+	t.colormod = c;
+};
+
 void(entity t) SV_BrushRenderInit =
 {
 	if (t.rendercolor != "")
@@ -6071,7 +6089,10 @@ void(entity t, entity o, entity act) SV_ApplyInputRaw =
 	if (in == "color")
 	if (substring(t.model, 0, 1) == "*" || substring(t.classname, 0, 5) == "prop_")
 	{
-		SV_BrushColour(t, pm);
+		if (substring(t.model, 0, 1) == "*")
+			SV_BrushColour(t, pm);
+		else
+			SV_PropColour(t, pm);
 		if (cvar("developer"))
 			dprint(sprintf("entity I/O: %s Color %s\n", t.targetname, pm));
 		SV_BrushRenderState(t);
@@ -8388,8 +8409,10 @@ void(float defsolid) SV_SpawnProp =
 	local float h, zlo, zhi;
 	local vector bmin, bmax;
 
-	if (self.disableshadows)
-		self.effects = self.effects | EF_NOSHADOW;	// P1724: r_shadows 2 skips it as a caster
+	// P1724: r_shadows 2 skips it as a caster.  P1760: on a cascade map the key is disableshadowdepth; a prop spawned
+	// before env_cascade_light is set right by SV_PropCascadeCasters, a template copy (spawned later) here.
+	if (vbsp_csm ? self.disableshadowdepth : self.disableshadows)
+		self.effects = self.effects | EF_NOSHADOW;
 
 	// A prop with no model is nothing to draw and nothing to hit.  A prop
 	// carrying a BRUSH model ('*N') is a mapper error -- studio props do not
@@ -8679,7 +8702,7 @@ void(float defsolid) SV_SpawnProp =
 	if (self.rendercolor != "")
 	if (stov(self.rendercolor) != '255 255 255')
 	{
-		SV_BrushColour(self, self.rendercolor);
+		SV_PropColour(self, self.rendercolor);
 		vbsp_prop_tint_n = vbsp_prop_tint_n + 1;
 	}
 	// P1273 (Lex, 3 Nov): a prop_dynamic nothing collides with plays its DefaultAnim, as Source's does
@@ -8710,10 +8733,11 @@ void() SV_PropCascadeCasters =
 		{
 			if (e.disableshadowdepth)
 				e.effects = e.effects | EF_NOSHADOW;
-			else if (e.effects & EF_NOSHADOW)
+			else
 			{
-				e.effects = e.effects - EF_NOSHADOW;
-				vbsp_prop_csmcast_n = vbsp_prop_csmcast_n + 1;
+				e.effects = e.effects - (e.effects & EF_NOSHADOW);
+				if (e.disableshadows)
+					vbsp_prop_csmcast_n = vbsp_prop_csmcast_n + 1;
 			}
 		}
 };
