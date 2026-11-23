@@ -711,6 +711,17 @@ once the reload clock is rebased -- scratchpad p1716_rebase.py), giving a "re-si
   AG recording can replay differently where it touched one. pm_dettest's trace hashes now run in the render winding
   (its "srctrace stays the triangles every older pin replays on" comment, sv_ccmds.c ~4500, is stale) and its mover
   passes stop at 12. The hl2 plugin and exe must ship together (an old plugin on a mover-13 exe collides like 12).
+- P1752/P1753 leftovers (23 Nov, worldofsurf-08; Lex "Yes, do all 3"): DONE spines + 999 (P1752, 4 review rounds)
+  and the step-after-save prediction (P1753, 3 rounds). OPEN, the rest of "the client owns the list": the HUD timer
+  and the N/M panel at the press (needs the window rows' run clocks -- a new stat bound to the window's ack), delete /
+  delete-all / `sl_goto N` as ops, and Trail_Load/Trail_Save/Seq/view work spread over frames (one-frame 13-50 ms
+  hitches on long runs; the client still writes whole trail.txt/run.view per save). P1753 limits: a step's trail/
+  seq/view files for the new save can go wrong when the save's answer arrives after the step's (packet loss), as for
+  P1547 loads (needs an event queue in SV_SaveLocEvent); the resume countdown refuses a save the client cannot see.
+  Pre-existing: a torn state.txt stops the block's spine sweep (spines then pile up, nothing lost).
+  Lex's 78 u hold-release report (surf_highlands 22 Nov, ping 15, 0.1.59-era engine): his ring shows the server's
+  snapshot for the release command still frozen while the client released on it -- a one-command attribution race;
+  NOT reproduced in ~85 releases (dedicated/lobby, LAN/15/50 ms, capped/uncapped fps, patch-1733 and 1748 engines).
 - Save-lock audit 23 Nov (worldofsurf-08, for Lex's "999 saves, zero prederr, instant"; tools/p1752-claim.md): the body
   is already predicted on the usercmd (WOP ops); the server must keep owning run state (clock, latches, taints, the
   recording) -- a trusted client save is a teleport with the clock running. Player reports (data/prederr, 130 traced):

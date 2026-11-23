@@ -11,6 +11,11 @@ The Pi service is LIVE (23 Nov 07:24Z) and Proto and Markbeaton54 hold the map r
    says "Saved videos/<map>_<time>.mp4". Play it: smooth, no HUD, nothing from the bar. Once with Motion blur Film and
    HUD Shown: the blur looks like a camera's, the HUD the size it is on screen.
 
+## P1752 + P1753 (worldofsurf-08) -- LIVE in all lobbies 23 Nov (server + client progs); local games next release
+1. A lobby: make more than 24 timed saves on one map, then load an old one -- the run carries on ("run resumed").
+2. Save, then press previous/first right away (best at a high ping): you land there at once, no snap a moment later.
+3. Saves feel the same as before; a very long run no longer makes each save slower.
+
 ## 0.1.62 release -- PUBLISHED 23 Nov 05:36Z (record: tools/release-0.1.62.md); lobbies on its engine + progs 05:39Z; owner check PENDING
 - P1748-P1751 (your 23 Nov list, worldofsurf-08). Lobbies: engine patch-1748 (mover 16) and the release's progs.
 1. Start the game: it updates to 0.1.62. The checks below. (Your dev install still reports 0.1.59-dev.)
