@@ -1393,6 +1393,9 @@ void() Watch_ViewMap =
   lobby's uploaded views: 0 ms on the LAN, 225-435 ms for remote players (6-53 degrees
   mean error, 0.1-0.7 once shifted).  Found by matching the view's angles to the .rec's
   over -2 ticks .. WT_LAGMAX and taken out of every knot.
+  P1751: run on every view, not only an own online one.  The Local tab's lobby copies
+  (P1564) carry the runner's .view beside the .rec with the same lead (Akatosh's ahop_coast
+  runs: 314-326 ms, steady from t = 0); WT_LAGGAIN leaves an aligned view (LAN, local) as it is.
 */
 #define WT_LAGP    64           // probes, spread over the knots
 #define WT_LAGMAX  1.2          // s of lead searched
@@ -1495,7 +1498,7 @@ void() Watch_ViewLag =
 	rec_wt_vlag = (bestd - 2) * rec_wt_tickrate;
 	for (j = 0; j < rec_wt_vkn; j = j + 1)
 		rec_wt_vkoff[j] = rec_wt_vkoff[j] - rec_wt_vlag;
-	print(sprintf("replay: your per-frame view was %.0f ms %s the recording (your ping); "
+	print(sprintf("replay: the per-frame view was %.0f ms %s the recording (the runner's ping); "
 	              "aligned (%.1f to %.1f degrees over %g probes)\n",
 	              fabs(rec_wt_vlag) * 1000, (rec_wt_vlag < 0) ? "behind" : "ahead of",
 	              zero, best, rec_wt_vlagp));
@@ -2093,7 +2096,7 @@ void() Watch_Scan =
 	rec_wt_vmapms = gettime(1);
 	Watch_ViewMap();
 	rec_wt_vlag = rec_wt_vlagp = 0;
-	if (rec_wt_vown)
+	if (rec_wt_view >= 1)       // P1751: every view (see Watch_ViewLag)
 		Watch_ViewLag();
 	rec_wt_vmapms = (gettime(1) - rec_wt_vmapms) * 1000;
 
@@ -6594,8 +6597,8 @@ void() Watch_Status =
 		              rec_wt_vkover, rec_wt_vshort, rec_wt_vstall, rec_wt_vkstep * 1000));
 	else
 		print("  view none\n");
-	if (rec_wt_vown)
-		print(sprintf("  own online view: lead %.0f ms taken out (%g probes)\n",
+	if (rec_wt_vlagp > 0)
+		print(sprintf("  view lead %.0f ms taken out (%g probes)\n",
 		              rec_wt_vlag * 1000, rec_wt_vlagp));
 	print(sprintf("  load %.0f ms  view map %.0f ms\n", rec_wt_loadms, rec_wt_vmapms));
 	print(sprintf("  now angles %s  fit %g  eye %.2f  view line %g (knot %g)\n",

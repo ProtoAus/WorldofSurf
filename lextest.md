@@ -1,5 +1,16 @@
 # lextest.md — things waiting on a human
 
+## P1748-P1750 -- your 23 Nov list (worldofsurf-08) -- next release + lobbies
+1. bhop_canals save 3 (and save 2): drop onto the canal bank from above -- you land on the slope; nothing falls through.
+   The server says mover 16 (`serverinfo pm_sourceversion`); a classic map still records 15.
+2. ahop_coast: join it twice -- no download of `coast.windmill` and the others on the second (or first) join.
+3. ahop_coast in a local game: `movement` (or the load line) says bhop from the zone file, like the lobbies. Your old
+   local cfg (gamemode 9, gravity 600, maxvel 3500) is data/maps/settings/local/ahop_coast.cfg.pre1749-20261123; the old
+   zone file is ...json.pre1749-20261123 beside the current one.
+4. A lobby with more than 24 timed saves: loading an older one says "position only" and why.
+5. P1751: open one of your lobby runs from the Local tab (best: one played at a high ping) -- the camera follows the
+   movement while bhopping, no wobble. `replay status` shows "view lead N ms taken out" (0 on your LAN runs).
+
 ## 0.1.61 release -- PUBLISHED 23 Nov 00:32Z (record: tools/release-0.1.61.md); lobbies on its progs 00:35Z; owner check PENDING
 - P1743 (start boosters predicted with ping) and P1744 (boosters are your own: per-player cooldowns), worldofsurf-08.
   Engine unchanged from 0.1.60. Lobbies: the release's progs (00:35Z) and its server engine (patch-1739, 02:32Z):

@@ -5257,6 +5257,9 @@ void(entity e, float n) SV_SaveLocLoad =
 		sprint(e, PRINT_HIGH,
 		       sprintf("^5save %g^7 -- run resumed at ^5%s^7, %g checkpoint(s), segmented run\n",
 		               n, SV_TimerString(e.run_t_ticks), rec_sl_cps[r]));
+	else if (dem)   // P1750: Akatosh read the window as a bug ("old save locks don't preserve speed")
+		sprint(e, PRINT_HIGH, sprintf("^5save %g^7 -- ^3position only^7: a lobby keeps the run and speed on your newest %g "
+		                              "timed saves, and this one is older\n", n, SL_RECKEEP));
 	else
 		SV_SaveLocSay(e);
 };
