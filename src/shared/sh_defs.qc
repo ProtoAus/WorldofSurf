@@ -187,8 +187,8 @@
 // Optional: old clients/servers keep C and numeric fallbacks; no save/run format change.
 #define STAT_FS_WOPCHAIN 207
 #define WOPCHAIN_MAX 1400
-// P1754: "K <crc16 of the STAT_FS_WOPCUR string> <its length>" then nine run clocks in ticks -- cursor, next, prev,
-// first, last, +2, -2, +3, -3 -- each -1 unless loading that row resumes a running clock (SV_WarpOpClk).
+// P1754: "K <crc16 of the STAT_FS_WOPCUR string> <its length>" then nine run clocks -- cursor, next, prev, first,
+// last, +2, -2, +3, -3: T a running clock a load resumes at T ticks, -2 - T a finished run's T, -1 none (SV_WarpOpClk).
 #define STAT_FS_WOPCLK 213
 #define WOPCLK_ROWS 9
 #define STAT_FS_TASPLANAMOUNT 205

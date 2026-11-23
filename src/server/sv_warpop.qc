@@ -490,21 +490,21 @@ float(vector o, vector a, vector v) SV_WopCurSig =
 	return o_x * 1.1 + o_y * 1.3 + o_z * 1.7 + a_x * 0.7 + a_y * 0.9 + a_z * 3.1 + v_x * 0.11 + v_y * 0.13 + v_z * 0.17;
 };
 
-// P1754: list position pos's run clock as a load of it resumes it (SV_SaveApplyStateRows: only a running, kept
-// clock); -1 otherwise, or off the list.
-float(entity e, float pos) SV_WarpOpClk =
+// P1754: list position pos's clock for STAT_FS_WOPCLK (its grammar in sh_defs.qc): a running clock is what
+// SV_SaveApplyStateRows resumes; a demoted or untimed row has none. base/cnt: SV_WarpOpCur's, read once.
+float(float base, float cnt, float pos) SV_WarpOpClk =
 {
-	local float blk, cnt, r;
+	local float r;
 
-	blk = SL_Blk(e);
-	cnt = e.rec_sl_count;
-	if (!rec_sl_tick || !rec_sl_fin || cnt < 1 || cnt > rec_sl_nb[blk])
+	if (cnt < 1)
 		return -1;
 	while (pos < 1) pos = pos + cnt;
 	while (pos > cnt) pos = pos - cnt;
-	r = SL_Base(blk) + pos - 1;
-	if (rec_sl_tick[r] <= 0 || rec_sl_fin[r])
+	r = base + pos - 1;
+	if (rec_sl_tick[r] <= 0)
 		return -1;
+	if (rec_sl_fin[r])
+		return -2 - rec_sl_tick[r];
 	return rec_sl_tick[r];
 };
 
@@ -515,7 +515,7 @@ void(entity e) SV_WarpOpCur =
 {
 	local string s, chain, kc;
 	local vector holdvel;
-	local float sig, k, held, blk, base, idx;
+	local float sig, k, held, blk, base, idx, cnt;
 
 	held = FALSE;
 	holdvel = '0 0 0';
@@ -539,15 +539,20 @@ void(entity e) SV_WarpOpCur =
 		sig = sig + (11 + 2 * k) * SV_WopCurSig(wop_xorg[k], wop_xang[k], wop_xvel[k]);
 	// P1754: the same rows' clocks (a demotion moves one without moving a row).
 	idx = e.rec_sl_index;
-	wop_kclk[0] = SV_WarpOpClk(e, idx);
-	wop_kclk[1] = SV_WarpOpClk(e, (idx < e.rec_sl_count) ? idx + 1 : 1);
-	wop_kclk[2] = SV_WarpOpClk(e, (idx > 1) ? idx - 1 : e.rec_sl_count);
-	wop_kclk[3] = SV_WarpOpClk(e, 1);
-	wop_kclk[4] = SV_WarpOpClk(e, e.rec_sl_count);
-	wop_kclk[5] = SV_WarpOpClk(e, idx + 2);
-	wop_kclk[6] = SV_WarpOpClk(e, idx - 2);
-	wop_kclk[7] = SV_WarpOpClk(e, idx + 3);
-	wop_kclk[8] = SV_WarpOpClk(e, idx - 3);
+	cnt = e.rec_sl_count;
+	blk = SL_Blk(e);
+	if (!rec_sl_tick || !rec_sl_fin || cnt > rec_sl_nb[blk])
+		cnt = 0;
+	base = SL_Base(blk);
+	wop_kclk[0] = SV_WarpOpClk(base, cnt, idx);
+	wop_kclk[1] = SV_WarpOpClk(base, cnt, (idx < cnt) ? idx + 1 : 1);
+	wop_kclk[2] = SV_WarpOpClk(base, cnt, (idx > 1) ? idx - 1 : cnt);
+	wop_kclk[3] = SV_WarpOpClk(base, cnt, 1);
+	wop_kclk[4] = SV_WarpOpClk(base, cnt, cnt);
+	wop_kclk[5] = SV_WarpOpClk(base, cnt, idx + 2);
+	wop_kclk[6] = SV_WarpOpClk(base, cnt, idx - 2);
+	wop_kclk[7] = SV_WarpOpClk(base, cnt, idx + 3);
+	wop_kclk[8] = SV_WarpOpClk(base, cnt, idx - 3);
 	for (k = 0; k < WOPCLK_ROWS; k = k + 1)
 		sig = sig + (0.013 + 0.0011 * k) * wop_kclk[k];
 	if (e.wop_cur != "" && sig == e.wop_csig && time - e.wop_ct < 1 && time >= e.wop_ct)
