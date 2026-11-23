@@ -15,6 +15,13 @@ since, re-take its sha256 and re-run the dry run first. Rollback: `systemctl dis
 /etc/nginx/play.proto.bar.conf.pre-mapupd-99171e807f56 back over the site file, remove
 /etc/nginx/snippets/ftesurf-mapupd.conf and /etc/nginx/conf.d/ftesurf-mapupd-zones.conf, `nginx -t && systemctl reload
 nginx`. Pi task root /srv/nvme/agent-work/mapupd-20261123-cb (OWNER.md).
+## 23 Nov 2026 06:58Z: lobby qwprogs = v0.1.62 + P1750 review fix LIVE (worldofsurf-08)
+All 12 lobbies: qwprogs fd61f951 (deploy/p1752-lobby cd5c6cde = v0.1.62 + main b8d696da; the "position only" line no
+longer follows rewind resumes, replay points, synced saves or gifts), over 0.1.62's d2bd004d; csprogs 65de9276, engine
+be372f27 and plugin unchanged; backups *.pre1750r-20261123T065737Z; script coastperf-20261122-08/deploy1750r.sh.
+After: 12 active, patch-1748 / pm_sourceversion 16, no errors in server<N>.log since the restart. The next lobby build
+must start from main (or include b8d696da).
+
 ## 23 Nov 2026 05:39Z: lobby engine patch-1748 (mover 16) + 0.1.62 progs LIVE (worldofsurf-08)
 All 12 lobbies: fteqw-svarm64 be372f27 + fteplug_hl2_arm64.so b96bb483 (3e7ad92da, git-9039-patch-1748-0-g3e7ad92da) and
 0.1.62's progs (qw d2bd004d / cs 65de9276); backups *.pre0162-20261123T053830Z; gate in
