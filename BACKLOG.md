@@ -711,6 +711,17 @@ once the reload clock is rebased -- scratchpad p1716_rebase.py), giving a "re-si
   AG recording can replay differently where it touched one. pm_dettest's trace hashes now run in the render winding
   (its "srctrace stays the triangles every older pin replays on" comment, sv_ccmds.c ~4500, is stale) and its mover
   passes stop at 12. The hl2 plugin and exe must ship together (an old plugin on a mover-13 exe collides like 12).
+- Save-lock audit 23 Nov (worldofsurf-08, for Lex's "999 saves, zero prederr, instant"; tools/p1752-claim.md): the body
+  is already predicted on the usercmd (WOP ops); the server must keep owning run state (clock, latches, taints, the
+  recording) -- a trusted client save is a teleport with the clock running. Player reports (data/prederr, 130 traced):
+  save-lock gestures ~half before P1706, one since (Lex, surf_highlands 22 Nov, ping 15: 78 u right after a hold
+  RELEASE, WOP_RELEASE at seq-1 -- unexplained, LAN). Costs: every save copies the whole run so far, server run.rec
+  (~14 KB/s of run) AND client trail.txt (~8 KB/s) + run.view (~3 KB/s); a load flushes every queued copy in one frame.
+  Still waiting a round trip: HUD timer/panel (server stats), the run line swap, delete/goto/steps after a pending save
+  (stringcmds); Trail_Load reads the whole file in one frame (p99 13-24 ms, 30-53 ms at 45k rows). Lobby disk 23 Nov:
+  2.4 GB (6,670 saves, 2,803 copies, 2,533 demoted; 38 player-maps at the 24 cap = 1.08 GB). Plan: (1) spine recordings
+  (copy only new bytes; copy-on-branch at a load) on server + client, then SL_RECKEEP 999; (2) client-owned save list
+  (row at the press, predicted timer, delete/goto as ops, trail work spread over frames); (3) the release mispredict.
 - P1748 limits (reviews): a far brush without all six axial planes (none on bhop_canals) keeps mover 15's bevels;
   r_showbrushes still draws far brushes' windings clipped (display only); pm_dettest has no pass over the old-brush
   traces pin-15 runs replay on far maps; runs ranked before mover 16 on far maps verify on the old collision (pm_verify
