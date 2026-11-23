@@ -5326,15 +5326,20 @@ Fixed items are removed; remaining reader contracts need acting controls.
   push. Falsifier: cross the real brush from an acknowledged normal-moving
   position at several network rates, without setpos or another server warp;
   compare the first predicted carrier with the same command's server state.
-- **P1743 setspeed gates share that window, and race starts are where it shows.** A cooldown pad another
-  player has just left is off on the server for 1 s; a client entering it within its own RTT still has the
-  "on" snapshot and predicts a boost the server refuses (0.1.59 predicted none, correctly, because the pad
-  was server-only). Solo, P1743 removes a 1758.5 u/s error on every boost (surf_classics, sv_minping 300).
-  Falsifier: two clients under 300 ms through surf_classics S7 within 200 ms. Fix shape if it matters:
-  per-player cooldown state on the server (a rule change, Lex's call), not a client guess.
-  The server half is older than P1743: vbsp_ss_stamp is one per pad, shared by every player, so a player
-  entering while another still overlaps the pad gets no boost (Source's StartTouch is per toucher). Fix:
-  a per-player stamp (changes outcomes in crowded starts, so a deliberate patch with its own A/B).
+- **P1744 gives each player their own world of a booster (Lex 23 Nov: "every client experiences their own timer").**
+  A push/setspeed's own rows fired by a player (surf_classics' OnEndTouch !self,Disable + !self,Enable 1 s later)
+  change only that player's copy (off flag, P1185 off-cause, bank owner: run_bw*); every other switch changes the pad
+  and every copy, and touches read the toucher's world. One player is the old state machine by construction; with
+  several, each sees their own projection. Four rounds of review got here: per-player bits alone left boosters dead
+  after a re-arm by another entity (bhop_sandtrap2), gates open for others, and a shared bank owner that marked honest
+  runs practice (the two-client rig printed 'inherited player-origin' on the round-2 build). Residuals: a player with
+  more than four diverged pads at once falls back to the shared world for the fifth; other classes (teleport,
+  trigger_multiple, func_conveyor...) are unchanged; activators above slot 32 and vbsp_mp 0 keep the shared switch;
+  a departed client's own rows are dropped (their world is gone) unless they made a fallback shared off; a cooldown
+  wired on OnStartTouchAll/OnEndTouchAll stays shared (first in / last out are crowd events; none of 151 local booster
+  self-rows use them -- census the full library before changing that); per-player setspeed stamps fall back to the
+  pad's for a fifth overlapping pad. tools/p1744model/ models every two-player event sequence against the old switch
+  and each player's own-world projection (run it before changing SV_PpInput, SV_BwStep or SV_IOBankCore).
   **A stale-on netgated owner commits its outputs at other triggers for good** (push, teleport and, since
   P1743, setspeed): TG_IOFireEv fires the owner's zero-delay rows at other slots, and TG_IOCommit folds
   them into tg_io_on / io_fired once acked, though the server (pad off by another player) never ran them.

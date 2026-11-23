@@ -18,8 +18,8 @@
 ## P1743 (worldofsurf-08) -- LIVE in all lobbies 22 Nov 19:08Z (lobbies serve the csprogs); local games next release
 1. surf_classics at ping (a lobby, or `sv_minping 300` on a local server): stage 7 and stage 23 start boosters kick at
    once, no late snap. `trig_dump` there says "3 setspeeds" and no "skip io-wired trigger_setspeed".
-2. Two players through the same start booster within a ping of each other: the second one may still snap (the server
-   has it switched off for a second); worth one try in a tournament lobby.
+2. P1744: two players through the same start booster a moment apart (a tournament start): both are launched, no snap.
+   bhop_sandtrap2's first push (boost1) works again after you touch the speed pad that re-arms it.
 
 ## P1742 (worldofsurf-08) -- next dev-install build, then the release after it
 1. A lobby at high ping (or `sv_minping 300` on a local server): movement feels the same as before, fps higher.
