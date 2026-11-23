@@ -11,14 +11,21 @@
   is frame-exact; a menu opened mid-video pauses the replay so the video has no gap.
 */
 // vrec_state (cl_keys.qc): 0 idle, 1 rewound and waiting for go, 2 recording, 3 ended
-float vrec_endat, vrec_menupaused;
+float vrec_endat, vrec_menupaused, vrec_rate;
 
 void() VRec_Init =
 {
 	registercvar("vidrec_ready", "0");
 	registercvar("vidrec_end", "0");
 	registercvar("vidrec_replay", "");
+	cvar_set("vidrec_replay", "");      // a VM after a map change has no replay, whatever the last one said
 	registercommand("vidrec_cs");
+};
+// a map change or a disconnect ends the video: this VM goes and the next starts idle (the menu stops the capture)
+void() VRec_Shutdown =
+{
+	if (vrec_state >= 1) cvar_set("vidrec_end", "1");
+	cvar_set("vidrec_replay", "");
 };
 
 float() VRec_Clean = { return (vrec_state >= 1 && vrec_clean); };
@@ -37,6 +44,7 @@ void() VRec_Publish =
 
 void(float notmenu) VRec_Frame =
 {
+	local float held;
 	VRec_Publish();
 	if (vrec_state != 2) return;
 	if (!rec_wt_open)
@@ -45,9 +53,11 @@ void(float notmenu) VRec_Frame =
 		cvar_set("vidrec_end", "1");
 		return;
 	}
-	// a menu or the console over the video: hold the replay so nothing goes by unrecorded
-	if (!notmenu && !rec_wt_paused) { rec_wt_paused = TRUE; vrec_menupaused = TRUE; }
-	else if (notmenu && vrec_menupaused) { rec_wt_paused = FALSE; vrec_menupaused = FALSE; }
+	// a menu or the console over the video (the engine's capture_held says it pauses): hold the replay, so nothing goes
+	// by unrecorded
+	held = (!notmenu || cvar("capture_held"));
+	if (held && !rec_wt_paused) { rec_wt_paused = TRUE; vrec_menupaused = TRUE; }
+	else if (!held && vrec_menupaused) { rec_wt_paused = FALSE; vrec_menupaused = FALSE; }
 	if (rec_wt_paused && !vrec_menupaused && rec_wt_time >= rec_wt_vt1)
 	{
 		if (!vrec_endat) vrec_endat = cltime + 1;
@@ -74,6 +84,7 @@ float() VRec_ConsoleCommand =
 		vrec_clean = !stof(argv(2));
 		Watch_Seek(rec_wt_vt0);
 		rec_wt_paused = TRUE;
+		vrec_rate = rec_wt_rate;
 		rec_wt_rate = 1;
 		vrec_state = 1;
 		vrec_endat = 0;
@@ -87,6 +98,7 @@ float() VRec_ConsoleCommand =
 	}
 	else if (argv(1) == "done")
 	{
+		if (vrec_state && vrec_rate > 0) rec_wt_rate = vrec_rate;
 		vrec_state = 0;
 		vrec_clean = FALSE;
 		cvar_set("vidrec_ready", "0");

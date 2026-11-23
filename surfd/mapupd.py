@@ -22,6 +22,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shutil
 import sqlite3
 import sys
 import threading
@@ -47,6 +48,11 @@ SESSION_TTL = 3 * 3600              # s an accepted manifest may take to upload
 PEER_RATE = 30                      # requests a minute per address, before any other work
 PART_HEAD = re.compile(rb'FTESURF-MAPUP-PART 1\nsession ([0-9a-f]{32})\npart (bsp|shot|zone)\nenc (raw|gzip)\n\n')
 PART_HEAD_MAX = 96
+SMALL_BODY = 8192                   # challenge, begin and finish (nginx caps them too)
+DRAIN_MAX = 8 << 20                 # a refused body read away only up to this
+INFLATE_STEP = 4 << 20              # bytes out of one inflate call
+FREE_FLOOR = 20 << 30               # disk left beside the library after an upload
+DAY_UPLOADS, DAY_KB = 10, 8 << 20   # one account's maps and KB in a day
 VBSP_VERSIONS = (17, 18, 19, 20, 21, 25)    # what plugins/hl2/mod_vbsp.c loads (25: Strata, SourceBroom)
 SQL = '''
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT NOT NULL);
@@ -172,11 +178,13 @@ def check_bsp(path, size):
 def make_pictures(src, out_dir, name):
     """<name>.jpg (the card and backdrop, at most 1920x1080) and <name>-thumb.jpg (320x180), from the upload."""
     from PIL import Image
+    Image.MAX_IMAGE_PIXELS = 40_000_000     # 8K is 33 MP; decoded RGB stays well under the unit's memory
     try:
-        with Image.open(src) as im:
+        # the decoder is chosen from the bytes: only these three, whatever the name says (never EPS, which is Ghostscript)
+        with Image.open(src, formats=('PNG', 'JPEG', 'TGA')) as im:
+            if im.width < 160 or im.height < 90 or im.width * im.height > Image.MAX_IMAGE_PIXELS:
+                raise Refused('The picture must be at least 160x90 and at most 40 megapixels.')
             im.load()
-            if im.width < 160 or im.height < 90 or im.width > 16384 or im.height > 16384:
-                raise Refused('The picture must be between 160x90 and 16384x16384.')
             im = im.convert('RGB')
             big = im.copy()
             big.thumbnail((1920, 1080), Image.LANCZOS)
@@ -295,6 +303,21 @@ def heal_meta(path, uploads, log=print):
     return len(add)
 
 
+def drop_rows(path, prefix, meta=False):
+    """The lines starting `prefix` out of a table, the meta table's "# end N" kept true."""
+    lines = path.read_text(encoding='utf-8').split('\n')
+    keep = [ln for ln in lines if not ln.startswith(prefix)]
+    if len(keep) == len(lines):
+        return
+    if meta:
+        n = sum(1 for ln in keep if ln.startswith('meta '))
+        keep = ['# end %d' % n if re.fullmatch(r'# end [0-9]{1,6}', ln) else ln for ln in keep]
+    tmp = path.with_name('.%s.mapupd.tmp' % path.name)
+    tmp.write_text('\n'.join(keep), encoding='utf-8')
+    os.chmod(tmp, os.stat(path).st_mode & 0o777)
+    os.replace(tmp, path)
+
+
 def library_has(maps_dir, name):
     try:
         return any(p.suffix.lower() == '.bsp' and p.stem.lower() == name for p in Path(maps_dir).iterdir())
@@ -329,16 +352,47 @@ def log(*words):
     print('mapupd:', *words, file=sys.stderr, flush=True)
 
 
+def taken(name, maps_dir, zone_dirs, list_path, media_dir):
+    """Why `name` cannot be a new map ("" when it can): a BSP, a zone file, or a row any table already has."""
+    if library_has(maps_dir, name):
+        return '%s is already in the library. Uploads add new maps; give it a new name.' % name
+    for d in zone_dirs:
+        if (Path(d) / (name + '.json')).exists():
+            return '%s already has zones on the server; give the map a new name.' % name
+    try:
+        if list_path and name in {r['map'] for r in mapmanifest.read_list(list_path)}:
+            return '%s is already in the map list; give it a new name.' % name
+    except (OSError, ValueError):
+        pass
+    try:
+        if media_dir and any(ln.split()[1:2] == [name] for ln in (Path(media_dir) / 'mapmeta.txt').read_text().split('\n')
+                             if ln.startswith('meta ')):
+            return '%s is already in the map table; give it a new name.' % name
+    except OSError:
+        pass
+    return ''
+
+
+def peer_key(addr):
+    # an IPv6 client holds a /64: a limit per address it can rotate would be no limit
+    if ':' in addr:
+        return ':'.join(addr.split(':')[:4]) + '::/64'
+    return addr
+
+
 def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_path=None, clock=time.time,
-               verify=None):
+               verify=None, free_bytes=None):
     app = Flask(__name__)
     store, account_db = Path(store), Path(account_db)
     db_path, spool = store / 'mapupd.db', store / 'spool'
     zone_dirs = tuple(Path(p) for p in zone_dirs)
     media_dir = Path(media_dir) if media_dir else None
+    if free_bytes is None:
+        free_bytes = lambda: min(shutil.disk_usage(maps_dir).free, shutil.disk_usage(store).free)
     verifier = []
     seen, seen_lock = {}, threading.Lock()
     state_lock = threading.Lock()       # one finish at a time: two can never publish one name
+    inflight, inflight_lock = set(), threading.Lock()   # (token, part) being received: one stream a file
     with connect(db_path) as db:
         secret = db.execute("SELECT v FROM meta WHERE k='secret'").fetchone()['v']
 
@@ -355,12 +409,19 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
         return '%08x%s%s' % (stamp, salt, mac('code', '%08x' % stamp, salt, msha)[:16])
 
     @app.before_request
-    def rate():
-        now, peer = time.monotonic(), request.remote_addr or ''
+    def gate():
+        # every route but a file's takes a small body, judged before a byte of it is read
+        if request.path != '/mapup/api/part':
+            size = request.content_length
+            if size is None or size > SMALL_BODY:
+                return fail('Invalid request.', 413)
+        now, peer = time.monotonic(), peer_key(request.remote_addr or '')
         with seen_lock:
             if len(seen) > 4096:
                 for k in [k for k, v in seen.items() if not v or now - v[-1] >= 60]:
                     del seen[k]
+                if len(seen) > 4096 and peer not in seen:
+                    return fail('The upload service is busy; try again in a minute.', 429)
             hits = [t for t in seen.get(peer, ()) if now - t < 60]
             if len(hits) >= PEER_RATE:
                 return fail('Too many requests; wait a minute.', 429)
@@ -373,12 +434,28 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
         return response
 
     def drain():
-        # what nginx buffered is read away, so the refusal is not lost to a reset connection
+        # a refusal's body is read away (so the game gets the reason, not a reset), but only a small one: a big
+        # unproven body closes the connection instead of tying up a thread
+        size = request.content_length or 0
+        if size > DRAIN_MAX:
+            return
         try:
             while request.stream.read(1 << 20):
                 pass
         except Exception:
             pass
+
+    @app.post('/mapup/api/health')
+    def health():
+        # the installer's probe: the store and surfd's accounts, read by the service itself inside its sandbox
+        try:
+            with connect(db_path, readonly=True) as db:
+                db.execute('SELECT COUNT(*) FROM roles').fetchone()
+            with connect(account_db, readonly=True) as main:
+                main.execute('SELECT 1 FROM accounts LIMIT 1').fetchone()
+        except sqlite3.Error:
+            return fail('Unavailable.', 503)
+        return answer(accounts=1)
 
     @app.post('/mapup/api/challenge')
     def challenge():
@@ -388,21 +465,33 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             return fail('Invalid request.')
         return answer(nonce=code_for(int(clock()), secrets.token_hex(4), msha))
 
-    def account(pub):
+    def account(pub=None, sid=None):
+        """(RANK_*, steamid) for a key, or for a Steam account (finish's second look)."""
         try:
             with connect(account_db, readonly=True) as main:
-                return accounts.ranked_as(main, pub)
+                if pub is not None:
+                    return accounts.ranked_as(main, pub)
+                row = main.execute('SELECT banned_at FROM accounts WHERE steamid=?', (sid,)).fetchone()
+                return ((accounts.RANK_BANNED if row[0] else accounts.RANK_LINKED) if row else accounts.RANK_UNLINKED), sid
         except sqlite3.Error:
             raise Refused('Accounts cannot be read right now; try again later.')
+
+    def has_role(db, sid):
+        return db.execute('SELECT 1 FROM roles WHERE steamid=?', (sid,)).fetchone() is not None
+
+    def drop_session(db, token):
+        db.execute('DELETE FROM sessions WHERE token=?', (token,))
+        for p in spool.glob(token + '.*'):
+            p.unlink(missing_ok=True)
 
     @app.post('/mapup/api/begin')
     def begin():
         raw = request.get_data(cache=False)
-        if len(raw) > 4096:
-            return fail('Invalid request.')
         try:
             text = raw.decode('ascii')
-            cut = text.index('nonce ')
+            cut = text.rfind('\nnonce ') + 1      # the proof is the last three lines (an author may say "nonce ")
+            if cut <= 0:
+                raise Refused('That upload carries no account proof: update your game.')
             manifest, proof = text[:cut], text[cut:]
             pm = re.fullmatch(r'nonce ([0-9a-f]{32})\npub ([0-9a-f]{64})\nsig ([0-9a-f]{128})\n', proof)
             if not pm:
@@ -413,19 +502,23 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             now, stamp = int(clock()), int(nonce[:8], 16)
             if not (0 <= now - stamp <= CODE_TTL and hmac.compare_digest(nonce, code_for(stamp, nonce[8:16], msha))):
                 raise Refused('That confirmation expired or is not for these files: press Upload again.')
-            state, sid = account(pub)
-            if state == accounts.RANK_UNLINKED or state == accounts.RANK_UNPROVEN:
-                raise Refused('Link your Steam account in Settings first.')
+            # the signature before the account: whether a key is linked is not anyone's to ask
             if not verifier:
                 verifier.append(verify or ed25519_verifier())
             if not verifier[0](bytes.fromhex(pub), (STATEMENT % (SITE, nonce, msha)).encode(), bytes.fromhex(sig)):
                 raise Refused('The account proof did not check out.')
+            state, sid = account(pub=pub)
+            if state in (accounts.RANK_UNLINKED, accounts.RANK_UNPROVEN):
+                raise Refused('Link your Steam account in Settings first.')
             if state != accounts.RANK_LINKED:
                 raise Refused('This Steam account cannot upload.')
-            if library_has(maps_dir, m['map']):
-                raise Refused('%s is already in the library. Uploads add new maps; give it a new name.' % m['map'])
+            why = taken(m['map'], maps_dir, zone_dirs, list_path, media_dir)
+            if why:
+                raise Refused(why)
+            if free_bytes() < 2 * m['bsp'][1] + FREE_FLOOR:
+                raise Refused('The server is short of disk space; ask Proto.')
             with connect(db_path) as db, writing(db):
-                if db.execute('SELECT 1 FROM roles WHERE steamid=?', (sid,)).fetchone() is None:
+                if not has_role(db, sid):
                     raise Refused('This Steam account is not a map uploader. Ask Proto for the role.')
                 db.execute('DELETE FROM nonces WHERE seen<?', (now - CODE_TTL - 60,))
                 try:
@@ -433,14 +526,19 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                 except sqlite3.IntegrityError:
                     raise Refused('That confirmation was used: press Upload again.')
                 for old in db.execute('SELECT token FROM sessions WHERE created<?', (now - SESSION_TTL,)).fetchall():
-                    for p in spool.glob(old['token'] + '.*'):
-                        p.unlink(missing_ok=True)
-                db.execute('DELETE FROM sessions WHERE created<?', (now - SESSION_TTL,))
-                other = db.execute('SELECT steamid FROM sessions WHERE map=?', (m['map'],)).fetchone()
-                if other and other['steamid'] != sid:
-                    raise Refused('Someone else is uploading %s right now.' % m['map'])
+                    drop_session(db, old['token'])
+                # an earlier attempt at this map by the same account is replaced (a failed one must not lock anyone out)
+                for old in db.execute('SELECT token, steamid FROM sessions WHERE map=?', (m['map'],)).fetchall():
+                    if old['steamid'] != sid:
+                        raise Refused('Someone else is uploading %s right now.' % m['map'])
+                    drop_session(db, old['token'])
                 if db.execute('SELECT COUNT(*) FROM sessions WHERE steamid=?', (sid,)).fetchone()[0] >= 3:
-                    raise Refused('You have three uploads open; finish or wait for them (three hours).')
+                    raise Refused('You have three other uploads open; they close after three hours.')
+                n, kb = db.execute('SELECT COUNT(*), COALESCE(SUM(kb), 0) FROM uploads WHERE steamid=? AND at>?',
+                                   (sid, now - 86400)).fetchone()
+                if n >= DAY_UPLOADS or (kb + m['bsp'][1] // 1024) > DAY_KB:
+                    raise Refused('That is today\'s limit for one account (%d maps, %d GB); try tomorrow.'
+                                  % (DAY_UPLOADS, DAY_KB >> 20))
                 token = secrets.token_hex(16)
                 db.execute('INSERT INTO sessions(token, steamid, map, manifest, created) VALUES(?,?,?,?,?)',
                            (token, sid, m['map'], manifest, now))
@@ -464,7 +562,6 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
         now = int(clock())
         size = request.content_length
         if size is None or size <= 0 or size > MAX_BSP + (64 << 20):
-            drain()
             return fail('Upload too large.', 413)
         head = request.stream.read(PART_HEAD_MAX)
         cut = head.find(b'\n\n')
@@ -474,12 +571,20 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             return fail('That upload is not one this service reads: update your game.')
         token, which, enc = (x.decode() for x in hm.groups())
         rest = head[cut + 2:]
+        key = (token, which)
+        tmp = spool / ('%s.%s.part' % (token, which))
+        with inflight_lock:
+            if key in inflight:
+                drain()
+                return fail('That file is already arriving.', 409)
+            inflight.add(key)
         try:
             row, m = session(token, now)
             if m[which] is None or which in row['got'].split():
                 raise Refused('That file was not asked for.')
             want_sha, want_size = m[which][0], m[which][1]
-            tmp = spool / ('%s.%s.part' % (token, which))
+            if size > want_size + (64 << 20) + PART_HEAD_MAX:     # gzip can grow a little, never by this much
+                raise Refused('That file is larger than the one confirmed: press Upload again.')
             h, got = hashlib.sha256(), 0
             inflate = zlib.decompressobj(31) if enc == 'gzip' else None
             with open(tmp, 'wb') as out:
@@ -490,15 +595,16 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                         raise Refused('That file is larger than the one confirmed: press Upload again.')
                     h.update(data)
                     out.write(data)
+                def inflated(data):
+                    # a few MB a call, never past the confirmed size: a small gzip bomb stays small
+                    put(inflate.decompress(data, min(want_size - got + 1, INFLATE_STEP)))
+                    while inflate.unconsumed_tail:
+                        put(inflate.decompress(inflate.unconsumed_tail, min(want_size - got + 1, INFLATE_STEP)))
                 chunk = rest
                 while True:
                     if chunk:
                         if inflate:
-                            # bounded: never more than the confirmed size comes out, whatever went in
-                            data = inflate.decompress(chunk, want_size - got + 1)
-                            put(data)
-                            while inflate.unconsumed_tail:
-                                put(inflate.decompress(inflate.unconsumed_tail, want_size - got + 1))
+                            inflated(chunk)
                         else:
                             put(chunk)
                     chunk = request.stream.read(1 << 20)
@@ -509,7 +615,6 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                     if not inflate.eof:
                         raise Refused('That file arrived cut short: press Upload again.')
             if got != want_size or not hmac.compare_digest(h.hexdigest(), want_sha):
-                tmp.unlink(missing_ok=True)
                 raise Refused('That file is not the one confirmed (it changed or arrived damaged): press Upload again.')
             os.replace(tmp, spool / ('%s.%s' % (token, which)))
             with connect(db_path) as db, writing(db):
@@ -522,16 +627,29 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             return answer(received=which, left=' '.join(left))
         except Refused as e:
             drain()
-            (spool / ('%s.%s.part' % (token, which))).unlink(missing_ok=True)
             return fail(str(e))
         except zlib.error:
             drain()
-            (spool / ('%s.%s.part' % (token, which))).unlink(missing_ok=True)
             return fail('That file arrived damaged (gzip): press Upload again.')
+        finally:
+            tmp.unlink(missing_ok=True)
+            with inflight_lock:
+                inflight.discard(key)
+
+    def file_sha(path):
+        h = hashlib.sha256()
+        with open(path, 'rb') as f:
+            for block in iter(lambda: f.read(1 << 20), b''):
+                h.update(block)
+        return h.hexdigest()
 
     def publish(row, m, now):
         name, token = m['map'], row['token']
         bsp = spool / (token + '.bsp')
+        # what lies in the spool is what was signed, read again (a part's check hashed its stream)
+        for which in ('bsp', 'shot', 'zone'):
+            if m[which] and file_sha(spool / ('%s.%s' % (token, which))) != m[which][0]:
+                raise Refused('A file changed on the server before publishing; press Upload again.')
         check_bsp(bsp, m['bsp'][1])
         zone_body = None
         if m['zone']:
@@ -545,33 +663,39 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             make_pictures(shot, media_dir / 'uploads', name)
         final = Path(maps_dir) / (name + '.bsp')
         part = Path(maps_dir) / ('.mapupd.%s.bsp.part' % name)
+        zone_paths = [d / (name + '.json') for d in zone_dirs] if zone_body is not None else []
         with zonepub_publish.content_publication():
-            if library_has(maps_dir, name):
-                raise Refused('%s is already in the library.' % name)
-            with open(bsp, 'rb') as src, open(part, 'wb') as dst:
-                while True:
-                    block = src.read(1 << 20)
-                    if not block:
-                        break
-                    dst.write(block)
-                dst.flush()
-                os.fsync(dst.fileno())
-            os.chmod(part, 0o644)       # nginx (www-data) serves the library
+            why = taken(name, maps_dir, zone_dirs, list_path, media_dir)
+            if why:
+                raise Refused(why)
+            # zones first: a map is never live without the zones it was sent with
+            if zone_paths:
+                zonepub_publish.put(zone_paths, [zone_body] * len(zone_paths), MAX_ZONE)
             try:
-                os.link(part, final)    # never over a file that arrived meanwhile
+                with open(bsp, 'rb') as src, open(part, 'wb') as dst:
+                    for block in iter(lambda: src.read(1 << 20), b''):
+                        dst.write(block)
+                    dst.flush()
+                    os.fsync(dst.fileno())
+                os.chmod(part, 0o644)       # nginx (www-data) serves the library
+                os.link(part, final)        # never over a file that arrived meanwhile
+            except BaseException:
+                for z in zone_paths:        # taken() saw none of these: they are this upload's
+                    z.unlink(missing_ok=True)
+                raise
             finally:
                 part.unlink(missing_ok=True)
-            if zone_body is not None and zone_dirs:
-                zonepub_publish.put([d / (name + '.json') for d in zone_dirs], [zone_body] * len(zone_dirs), MAX_ZONE)
         u = dict(map=name, steamid=row['steamid'], at=now, bsp_sha=m['bsp'][0], kb=(m['bsp'][1] + 1023) // 1024,
                  mode=m['mode'], tier=m['tier'], stages=m['stages'], bonuses=m['bonuses'], author=m['author'],
                  shot=1 if shot else 0, zone=1 if zone_body else 0)
-        with connect(db_path) as db, writing(db):
-            db.execute('INSERT OR REPLACE INTO uploads VALUES(:map,:steamid,:at,:bsp_sha,:kb,:mode,:tier,:stages,'
-                       ':bonuses,:author,:shot,:zone)', u)
-            db.execute('DELETE FROM sessions WHERE token=?', (token,))
-        for p in spool.glob(token + '.*'):
-            p.unlink(missing_ok=True)
+        try:
+            with connect(db_path) as db, writing(db):
+                db.execute('INSERT OR REPLACE INTO uploads VALUES(:map,:steamid,:at,:bsp_sha,:kb,:mode,:tier,:stages,'
+                           ':bonuses,:author,:shot,:zone)', u)
+                drop_session(db, token)
+        except sqlite3.Error as e:
+            log('PUBLISHED BUT NOT RECORDED', name, e)
+            raise Refused('%s is live, but the server could not record it (no list row yet); tell Proto.' % name)
         heal(now)
         log('published', name, m['bsp'][0][:12], 'by', row['steamid'][-4:])
         return u
@@ -581,12 +705,20 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             return [dict(r) for r in db.execute('SELECT * FROM uploads ORDER BY at')]
 
     def heal(now=None):
-        us = uploads()
+        # only maps still in the library: one an operator took out loses its rows with mapwatch's next run
+        us = [u for u in uploads() if library_has(maps_dir, u['map'])]
         today = time.strftime('%Y-%m-%d', time.gmtime(now or clock()))
         a = heal_list(list_path, us, today, log)
         b = heal_meta(media_dir / 'mapmeta.txt', us, log) if media_dir else 0
         if a or b:
             log('healed', a, 'list rows and', b, 'table rows')
+        # and the spool: a file no open session owns (a crash between write and cleanup)
+        with connect(db_path, readonly=True) as db:
+            live = {r['token'] for r in db.execute('SELECT token FROM sessions')}
+        cutoff = time.time() - 3600
+        for p in spool.iterdir():
+            if p.name.split('.')[0] not in live and p.stat().st_mtime < cutoff:
+                p.unlink(missing_ok=True)
         return a, b
     app.config['MAPUPD_HEAL'] = heal
 
@@ -602,6 +734,12 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             need = [k for k in ('bsp', 'shot', 'zone') if m[k]]
             if sorted(need) != sorted(row['got'].split()):
                 raise Refused('Not every file has arrived yet.')
+            # a role revoked or an account banned since begin stops it here
+            if account(sid=row['steamid'])[0] != accounts.RANK_LINKED:
+                raise Refused('This Steam account cannot upload.')
+            with connect(db_path) as db:
+                if not has_role(db, row['steamid']):
+                    raise Refused('This Steam account is not a map uploader. Ask Proto for the role.')
             if not state_lock.acquire(timeout=30):
                 raise Refused('Another map is being published; try again in a minute.')
             try:
@@ -614,7 +752,7 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             return fail(str(e))
         except zonepub_publish.PartialPublish as e:
             log('partial zone publish:', e)
-            return fail('The map was added but its zones could not all be written; an operator must look.', 500)
+            return fail('The zones could not all be written (and were put back); nothing was published. Tell Proto.', 500)
         except OSError as e:
             log('publish failed:', e)
             return fail('The map could not be written on the server; nothing was published.', 500)
@@ -630,6 +768,14 @@ def main():
     for word in ('grant', 'revoke'):
         sub.add_parser(word).add_argument('--identity-file', type=Path, required=True,
                                          help='private file holding the approved SteamID64')
+    gz = sub.add_parser('grant-zone-admins', help="give the zone service's admins the map role")
+    gz.add_argument('--zonepub-store', type=Path, default=Path('/srv/nvme/ftesurf-ops/zonepub-state/zones.sqlite3'))
+    rm = sub.add_parser('remove', help='take an upload back')
+    rm.add_argument('--map', required=True)
+    rm.add_argument('--maps', required=True)
+    rm.add_argument('--zone-dir', action='append')
+    rm.add_argument('--media')
+    rm.add_argument('--list')
     sub.add_parser('roles', help='how many accounts hold the role (never the ids)')
     sub.add_parser('list', help='published uploads')
     args = ap.parse_args()
@@ -647,7 +793,43 @@ def main():
                 db.execute('INSERT OR IGNORE INTO roles VALUES(?)', (sid,))
             else:
                 db.execute('DELETE FROM roles WHERE steamid=?', (sid,))
+                gone = [r['token'] for r in db.execute('SELECT token FROM sessions WHERE steamid=?', (sid,))]
+                db.execute('DELETE FROM sessions WHERE steamid=?', (sid,))
+                for t in gone:
+                    for f in (args.store / 'spool').glob(t + '.*'):
+                        f.unlink(missing_ok=True)
         print('Map role updated')
+    elif args.command == 'grant-zone-admins':
+        # the zone service's admins get the map role too, the ids never printed
+        with connect(args.zonepub_store, readonly=True) as z:
+            sids = [r[0] for r in z.execute('SELECT steamid FROM roles') if re.fullmatch(r'7656119[0-9]{10}', r[0])]
+        with connect(db_path) as db, writing(db):
+            for sid in sids:
+                db.execute('INSERT OR IGNORE INTO roles VALUES(?)', (sid,))
+        print('Granted the map role to the %d zone admins' % len(sids))
+    elif args.command == 'remove':
+        # an upload taken back: its row (so the tick stops healing it), the BSP aside, zones, pictures and table rows
+        name = args.map
+        if not NAME.fullmatch(name):
+            ap.error('Expected an uploaded map name')
+        with connect(db_path) as db, writing(db):
+            if db.execute('DELETE FROM uploads WHERE map=?', (name,)).rowcount != 1:
+                ap.error('%s is not an upload' % name)
+        maps = Path(args.maps)
+        old = maps / '.old'
+        old.mkdir(exist_ok=True)
+        with zonepub_publish.content_publication():
+            if (maps / (name + '.bsp')).exists():
+                os.replace(maps / (name + '.bsp'), old / ('%s.removed-%d.bsp' % (name, int(time.time()))))
+            for d in args.zone_dir or ():
+                (Path(d) / (name + '.json')).unlink(missing_ok=True)
+        if args.media:
+            for f in (name + '.jpg', name + '-thumb.jpg'):
+                (Path(args.media) / 'uploads' / f).unlink(missing_ok=True)
+            drop_rows(Path(args.media) / 'mapmeta.txt', 'meta ' + name + ' ', meta=True)
+        if args.list:
+            drop_rows(Path(args.list), 'dl ' + name + ' ')
+        print('Removed %s (its BSP is in %s)' % (name, old))
     elif args.command == 'roles':
         with connect(db_path, readonly=True) as db:
             print(db.execute('SELECT COUNT(*) FROM roles').fetchone()[0], 'accounts hold the map role')

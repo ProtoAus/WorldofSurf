@@ -160,6 +160,7 @@ float(string verb, string arg) MUp_Command;
 void(vector screensize) MVR_Draw;
 void() MVR_Frame;
 void() MVR_Open;
+void() MVR_Shutdown;
 float(float evtype, float scanx) MVR_Input;
 float() MVR_Command;
 void() MC_Init;
@@ -10195,6 +10196,7 @@ void(float wantmode) m_toggle =
 
 void() m_shutdown =
 {
+	MVR_Shutdown();                 // P1747: a recording's settings back before config.cfg is written
 	if (mmm_job)
 	{	// P1116: a reply mid-check is not left on disk (Mmm_Unspool's rule)
 		fclose(mmm_in);

@@ -42,8 +42,10 @@ int mup_size1, mup_size2, mup_size3;
 float mup_hkind, mup_hfh;                    // the file being hashed (fh + 1), its kind
 int mup_hdone, mup_htotal;
 // the code for the current manifest
-string mup_msha, mup_nonce, mup_noncefor;
+string mup_msha, mup_nonce, mup_noncefor, mup_creqfor;   // creqfor: the manifest the code in flight was asked for
 float mup_nonceat, mup_creq, mup_changed;
+string mup_up1, mup_up2, mup_up3;            // the files an upload sends, fixed at its press (the window may change)
+float mup_sentat, mup_wasopen;               // when the request in flight went; the menu was open before F8
 // the upload
 float mup_state;                             // 0 editing, 1 begin, 2 a file, 3 finish, 4 done, 5 refused
 float mup_req, mup_partreq, mup_partsdone;
@@ -133,7 +135,7 @@ void() MUp_ListMaps =
 	mup_maps = buf_create();
 	for (pass = 0; pass < 2; pass = pass + 1)
 	{
-		h = search_begin(pass ? "maps/*.bsp" : "data/dropped/*.bsp", SB_FULLPACKAGEPATH | SB_NAMESORT, TRUE);
+		h = search_begin(pass ? "maps/*.bsp" : "dropped/*.bsp", SB_FULLPACKAGEPATH | SB_NAMESORT, TRUE);
 		if (h < 0) continue;
 		n = search_getsize(h);
 		for (i = 0; i < n && buf_getsize(mup_maps) < MUP_MAXMAPS; i = i + 1)
@@ -163,7 +165,7 @@ void() MUp_ListShots =
 	mup_shotfor = MUp_Keep(mup_shotfor, mup_name);
 	for (pass = 0; pass < 2; pass = pass + 1)
 	{
-		if (pass == 0) pat = "data/dropped/*";
+		if (pass == 0) pat = "dropped/*";
 		else if (mup_allshots || mup_name == "") pat = "screenshots/*";
 		else pat = strcat("screenshots/", mup_name, "_*");
 		h = search_begin(pat, SB_NAMESORT, TRUE);
@@ -187,16 +189,24 @@ void() MUp_ZoneFind =
 	z = strcat("data/maps/zones/local/", mup_name, ".json");
 	if (mup_name != "" && ui_file_exists(z))
 	{
-		if (mup_zone == "" || substring(mup_zone, 0, 13) != "data/dropped/") mup_zone = MUp_Keep(mup_zone, z);
+		if (mup_zone == "" || substring(mup_zone, 0, 8) != "dropped/") mup_zone = MUp_Keep(mup_zone, z);
 	}
-	else if (mup_zone != "" && substring(mup_zone, 0, 13) != "data/dropped/")
+	else if (mup_zone != "" && substring(mup_zone, 0, 8) != "dropped/")
 		mup_zone = MUp_Keep(mup_zone, "");
 	mup_usezone = (mup_zone != "");
 };
 
+void(float kind, string path, string sha, int size) MUp_SetHash;
+// every slot hashed again: a file chosen under the same path may have changed (a recompile, a fresh drop)
+void() MUp_Rehash =
+{
+	MUp_SetHash(1, "", "", 0i); MUp_SetHash(2, "", "", 0i); MUp_SetHash(3, "", "", 0i);
+};
 void(string path) MUp_PickMap =
 {
-	local string n;
+	local string n, f;
+	local float i;
+	MUp_Rehash();
 	mup_bsp = MUp_Keep(mup_bsp, path);
 	n = MUp_CleanName(MUp_Stem(path));
 	mup_name = MUp_Keep(mup_name, n);
@@ -204,8 +214,13 @@ void(string path) MUp_PickMap =
 	mup_mode = (substring(n, 0, 5) == "bhop_");
 	MUp_ZoneFind();
 	MUp_ListShots();
-	if (mup_shot != "" && substring(mup_shot, 0, 13) != "data/dropped/") mup_shot = MUp_Keep(mup_shot, "");
-	if (buf_getsize(mup_shots) > 0 && mup_shot == "") mup_shot = MUp_Keep(mup_shot, bufstr_get(mup_shots, 0));
+	if (mup_shot != "" && substring(mup_shot, 0, 8) != "dropped/") mup_shot = MUp_Keep(mup_shot, "");
+	if (mup_shot == "")
+		for (i = 0; i < buf_getsize(mup_shots); i = i + 1)
+		{
+			f = bufstr_get(mup_shots, i);
+			if (substring(f, 0, 12) == "screenshots/") { mup_shot = MUp_Keep(mup_shot, f); break; }
+		}
 };
 
 void() MUp_Init =
@@ -216,6 +231,7 @@ void() MUp_Init =
 	mup_filter = ""; mup_name = ""; mup_author = ""; mup_bsp = ""; mup_shot = ""; mup_zone = "";
 	mup_sha1 = mup_sha2 = mup_sha3 = mup_hpath1 = mup_hpath2 = mup_hpath3 = "";
 	mup_msha = mup_nonce = mup_noncefor = mup_session = mup_left = mup_part = mup_note = mup_shotfor = "";
+	mup_creqfor = mup_up1 = mup_up2 = mup_up3 = "";
 	mup_stages = 2;
 	registercvar("ui_dropfiles", "0", 0);
 };
@@ -223,8 +239,9 @@ void() MUp_Init =
 void() MUp_Open =
 {
 	MUp_Init();
-	if (!mup_open) mup_back = menu_screen;
+	if (!mup_open) { mup_back = menu_screen; mup_wasopen = menu_active; }
 	mup_open = TRUE;
+	MUp_Rehash();
 	menu_screen = SCREEN_MAPUPLOAD;
 	cvar_set("ui_dropfiles", "1");
 	if (time - mup_listed_at > 5 || !buf_getsize(mup_maps)) MUp_ListMaps();
@@ -238,6 +255,8 @@ void() MUp_Hide =
 	mup_open = FALSE;
 	cvar_set("ui_dropfiles", "0");
 	MUp_PicsFree();
+	if (mup_hfh) { fclose(mup_hfh - 1); mup_hfh = 0; }
+	MUp_Rehash();
 	if (menu_screen == SCREEN_MAPUPLOAD) menu_screen = (mup_back == SCREEN_MAPUPLOAD) ? SCREEN_MAIN : mup_back;
 	sui_text_unfocus();
 };
@@ -245,14 +264,17 @@ void() MUp_Close =
 {
 	if (!mup_open) return;
 	MUp_Hide();
-	if (clientstate() == 2 && menu_screen == SCREEN_MAIN) m_close();   // F8 over a game goes back to it
+	if (clientstate() == 2 && !mup_wasopen) m_close();   // F8 over a game goes back to it
 };
+float() MUp_Busy;
 
-// the engine copied a dropped or picked file to data/dropped/<name> (pr_menu.c MP_FileDropped)
+// the engine copied a dropped or picked file to dropped/<name> (pr_menu.c MP_FileDropped)
 void(string path, string name) Menu_FileDropped =
 {
 	local string e;
 	if (!mup_open) return;
+	if (MUp_Busy()) { mup_note = MUp_Keep(mup_note, "Wait for this upload to finish before dropping more files."); return; }
+	MUp_Rehash();
 	e = MUp_Ext(path);
 	if (e == "bsp")
 	{
@@ -266,12 +288,14 @@ void(string path, string name) Menu_FileDropped =
 		mup_usezone = TRUE;
 		mup_note = MUp_Keep(mup_note, sprintf("Zone file: %s", name));
 	}
-	else
+	else if (e == "png" || e == "jpg" || e == "jpeg" || e == "tga")
 	{
 		MUp_ListShots();
 		mup_shot = MUp_Keep(mup_shot, path);
 		mup_note = MUp_Keep(mup_note, sprintf("Picture: %s", name));
 	}
+	else
+		mup_note = MUp_Keep(mup_note, sprintf("%s is not a map, a picture (.png .jpg .tga) or a zone file.", name));
 	if (mup_state >= 4) mup_state = 0;
 };
 
@@ -303,6 +327,7 @@ void() MUp_HashFrame =
 	if (mup_hfh && strcmp(MUp_Want(mup_hkind), MUp_Hashed(mup_hkind)))
 	{	// the choice moved on while it hashed
 		fclose(mup_hfh - 1); mup_hfh = 0;
+		MUp_SetHash(mup_hkind, "", "", 0i);
 	}
 	if (!mup_hfh)
 	{
@@ -332,6 +357,32 @@ void() MUp_HashFrame =
 	MUp_SetHash(mup_hkind, MUp_Hashed(mup_hkind), (h == "!") ? "!" : h, MUp_Size(mup_hkind));
 };
 
+// mapupd.AUTHOR: letters, digits, space, _ . ' - (empty is fine)
+float(string a) MUp_AuthorOK =
+{
+	local float i, c;
+	if (strlen(a) > 40) return FALSE;
+	for (i = 0; i < strlen(a); i = i + 1)
+	{
+		c = str2chr(a, i);
+		if (!((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 32 || c == 95 || c == 46 || c == 39 || c == 45))
+			return FALSE;
+	}
+	return TRUE;
+};
+// Where an upload may start: the main menu, a game this client hosts, or a lobby the directory lists. A server's code
+// can write the zone files an upload attaches (data/maps/zones/local), so an unknown server's is not trusted with one.
+float() MUp_Official =
+{
+	local string ip;
+	local float i;
+	if (clientstate() != 2 || isserver()) return TRUE;
+	ip = serverkey("ip");
+	for (i = 0; i < Lob_Count(); i = i + 1)
+		if (!strcmp(Lob_Addr(i), ip)) return TRUE;
+	return FALSE;
+};
+
 // what's still missing, as the line under Upload says it; "" when the manifest is whole
 string() MUp_Missing =
 {
@@ -339,12 +390,16 @@ string() MUp_Missing =
 	if (mup_bsp == "") return "Choose a map: pick one from the list, Browse, or drop a .bsp on the window.";
 	if (!MUp_NameOK(mup_name)) return "The name must be surf_ or bhop_ then lowercase letters, digits, _ or -.";
 	if (mup_mode && !(mup_usezone && mup_zone != "")) return "A bhop map needs its zone file.";
+	if (!MUp_AuthorOK(strtrim(mup_author))) return "The author name may use letters, digits, spaces and _ . ' - only.";
 	for (k = 1; k <= 3; k = k + 1)
 		if (MUp_Want(k) != "")
 		{
 			if (strcmp(MUp_Want(k), MUp_Hashed(k)) || MUp_Sha(k) == "") return "Reading the files...";
 			if (MUp_Sha(k) == "!") return sprintf("%s cannot be read (it must be a loose file under 1 GB).", MUp_Base(MUp_Want(k)));
 		}
+	if (mup_shot != "" && mup_size2 > 16777216i) return "The picture is over 16 MB: pick a smaller one.";
+	if (mup_usezone && mup_zone != "" && mup_size3 > 262144i) return "The zone file is over 256 KB.";
+	if (!MUp_Official()) return "Upload from the main menu, a game you host, or one of our lobbies.";
 	return "";
 };
 
@@ -380,8 +435,12 @@ void() MUp_CodeFrame =
 	if (mup_creq || time - mup_changed < 1.5) return;
 	if (ms_consent < FS_TERMS_ONLINE) return;
 	mup_creq = Lob_NextReq();
+	mup_creqfor = MUp_Keep(mup_creqfor, mup_msha);
 	if (!uri_post(strcat(MUP_BASE, "challenge"), mup_creq, "application/json", sprintf("{\"manifest\":\"%s\"}", mup_msha)))
+	{
 		mup_creq = 0;
+		mup_changed = time + 30;
+	}
 };
 
 // Upload's press, from Menu_InputEvent while the button is under the cursor: the one moment the engine signs
@@ -391,6 +450,7 @@ void() MUp_Press =
 	if (!mup_open || (mup_state != 0 && mup_state != 5) || MUp_Missing() != "") return;
 	if (ms_consent < FS_TERMS_ONLINE) { MUp_Fail("Accept the online terms first (F2, Terms)."); return; }
 	if (!checkbuiltin(uri_postfile) || !checkbuiltin(friends_sign)) { MUp_Fail("This game is too old to upload maps: update it."); return; }
+	mup_msha = MUp_Keep(mup_msha, strtolower(digest_hex("SHA256", MUp_Manifest())));
 	if (strcmp(mup_noncefor, mup_msha) || time - mup_nonceat >= MUP_CODE_LIFE)
 	{
 		mup_note = MUp_Keep(mup_note, "Getting ready... press Upload again in a moment.");
@@ -404,6 +464,8 @@ void() MUp_Press =
 	}
 	body = strcat(MUp_Manifest(), sprintf("nonce %s\npub %s\nsig %s\n", mup_nonce, argv(0), argv(1)));
 	mup_noncefor = MUp_Keep(mup_noncefor, "");      // a code signs once
+	mup_up1 = MUp_Keep(mup_up1, mup_hpath1); mup_up2 = MUp_Keep(mup_up2, mup_hpath2); mup_up3 = MUp_Keep(mup_up3, mup_hpath3);
+	mup_sentat = time;
 	mup_req = Lob_NextReq();
 	if (!uri_post(strcat(MUP_BASE, "begin"), mup_req, "text/plain", body)) { MUp_Fail("play.proto.bar could not be reached."); return; }
 	mup_state = 1;
@@ -422,6 +484,7 @@ void() MUp_NextPart =
 	{
 		mup_state = 3;
 		mup_req = Lob_NextReq();
+		mup_sentat = time;
 		mup_note = MUp_Keep(mup_note, "Publishing...");
 		if (!uri_post(strcat(MUP_BASE, "finish"), mup_req, "text/plain", sprintf("session %s\n", mup_session)))
 			MUp_Fail("play.proto.bar could not be reached.");
@@ -429,7 +492,8 @@ void() MUp_NextPart =
 	}
 	which = argv(0);
 	mup_left = MUp_Keep(mup_left, Mmm_Join(1, n));
-	path = (which == "bsp") ? mup_hpath1 : (which == "shot") ? mup_hpath2 : mup_hpath3;
+	path = (which == "bsp") ? mup_up1 : (which == "shot") ? mup_up2 : mup_up3;
+	mup_sentat = time;
 	mup_part = MUp_Keep(mup_part, which);
 	head = sprintf("FTESURF-MAPUP-PART 1\nsession %s\npart %s\nenc %s\n\n", mup_session, which, (which == "bsp") ? "gzip" : "raw");
 	mup_partreq = Lob_NextReq();
@@ -454,14 +518,21 @@ float(float reqid, float code, string body) MUp_Reply =
 		if (ok)
 		{
 			mup_nonce = MUp_Keep(mup_nonce, json_get_string(json_find_object_child(root, "nonce")));
-			mup_noncefor = MUp_Keep(mup_noncefor, mup_msha);
+			mup_noncefor = MUp_Keep(mup_noncefor, mup_creqfor);
 			mup_nonceat = time;
+			if (mup_state == 0 && substring(mup_note, 0, 13) == "Getting ready") mup_note = MUp_Keep(mup_note, "Ready: press Upload.");
 		}
 		else
+		{
 			mup_changed = time + 30;   // asked again in half a minute
+			mup_note = MUp_Keep(mup_note, strcat("Not ready: ", err));
+		}
 	}
 	else if (!ok)
+	{
 		MUp_Fail(err);
+		MUp_Rehash();
+	}
 	else if (reqid == mup_req && mup_state == 1)
 	{
 		mup_session = MUp_Keep(mup_session, json_get_string(json_find_object_child(root, "session")));
@@ -524,7 +595,7 @@ void(vector p, float w) MUp_DrawMaps =
 		if (!strcmp(f, mup_bsp)) sui_roundbox([0, y], [w - 20, 24], 6, COL_ROW_SEL, 1);
 		else if (sui_is_hovered(id)) sui_roundbox([0, y], [w - 20, 24], 6, COL_ROW_HOVER, 1);
 		sui_text([8, y + 4], SZ_LABEL, nm, !strcmp(f, mup_bsp) ? COL_ACCENT : COL_TEXT, 1, 0);
-		if (substring(f, 0, 13) == "data/dropped/") sui_text([w - 110, y + 4], SZ_LABEL, "dropped", COL_DIM, 1, 0);
+		if (substring(f, 0, 8) == "dropped/") sui_text([w - 110, y + 4], SZ_LABEL, "dropped", COL_DIM, 1, 0);
 		if (sui_is_released(id) && !MUp_Busy()) MUp_PickMap(f);
 		y = y + 24;
 	}
@@ -539,12 +610,15 @@ void(vector p, float w) MUp_DrawDetails =
 	cw = floor((w - 12) / 2);
 	sui_text(p, SZ_LABEL, "Name", COL_DIM, 1, 0);
 	ui_field("mup_name", p + '0 22 0', [w, 30], mup_name, mup_namecur, "surf_yourmap");
-	if (strcmp(mup_name, mup_shotfor) && !sui_text_has_focus("mup_name")) { MUp_ZoneFind(); MUp_ListShots(); }
+	if (strcmp(mup_name, mup_shotfor) && !sui_text_has_focus("mup_name") && !MUp_Busy()) { MUp_Rehash(); MUp_ZoneFind(); MUp_ListShots(); }
 	p_y = p_y + 64;
 	sui_text(p, SZ_LABEL, "Mode", COL_DIM, 1, 0);
 	x = p_x + 70;
 	x = x + ui_chip([x, p_y - 5], "mup_surf", "Surf", !mup_mode) + 6;
 	ui_chip([x, p_y - 5], "mup_bhop", "Bhop", mup_mode);
+	// the name says the mode (the list and the pool read the prefix): a chip renames it
+	if (sui_is_released("mup_surf") && substring(mup_name, 0, 5) == "bhop_") mup_name = MUp_Keep(mup_name, strcat("surf_", substring(mup_name, 5, -1)));
+	if (sui_is_released("mup_bhop") && substring(mup_name, 0, 5) == "surf_") mup_name = MUp_Keep(mup_name, strcat("bhop_", substring(mup_name, 5, -1)));
 	if (sui_is_released("mup_surf")) mup_mode = 0;
 	if (sui_is_released("mup_bhop")) mup_mode = 1;
 	if (MUp_NameOK(mup_name)) mup_mode = (substring(mup_name, 0, 5) == "bhop_");   // the name decides (the pool reads it)
@@ -647,6 +721,14 @@ void(vector screensize) MUp_Draw =
 	local vector pr;
 	MUp_HashFrame();
 	MUp_CodeFrame();
+	// an answer that never comes: a request out 90 s, or a file sent and its reply a minute late
+	pr = (mup_state == 2) ? uri_progress(mup_partreq) : '0 0 -1';
+	if ((mup_state == 1 || mup_state == 3) && time - mup_sentat > 90)
+		MUp_Fail("play.proto.bar did not answer; press Upload to try again.");
+	else if (mup_state == 2 && pr_z < 0 && time - mup_sentat > 60)
+		MUp_Fail("play.proto.bar did not answer the file; press Upload to try again.");
+	else if (mup_state == 2 && pr_z >= 0)
+		mup_sentat = time;           // still sending: a big map takes as long as it takes
 	w = min(1040, screensize_x - 24);
 	h = min(690, screensize_y - 24);
 	p = [floor((screensize_x - w) * 0.5), floor((screensize_y - h) * 0.5)];
@@ -715,6 +797,11 @@ float(float evtype, float scanx) MUp_Input =
 		MUp_Press();
 		return FALSE;               // sui still sees the click (the button draws pressed)
 	}
+	if (evtype == IE_KEYDOWN && scanx == K_ESCAPE && sui_text_focus())
+	{
+		sui_text_unfocus();
+		return TRUE;
+	}
 	if (evtype == IE_KEYDOWN && scanx == K_ESCAPE && !MUp_Busy())
 	{
 		MUp_Close();
@@ -728,6 +815,7 @@ float(float evtype, float scanx) MUp_Input =
 float(string verb, string arg) MUp_Command =
 {
 	if (!mup_open) MUp_Open();
+	if (MUp_Busy() && (verb == "pick" || verb == "shot" || verb == "zone")) { print("map upload: busy\n"); return TRUE; }
 	if (verb == "pick") { MUp_PickMap(arg); return TRUE; }
 	if (verb == "shot") { mup_shot = MUp_Keep(mup_shot, arg); return TRUE; }
 	if (verb == "zone") { mup_zone = MUp_Keep(mup_zone, arg); mup_usezone = (arg != ""); return TRUE; }

@@ -6,14 +6,14 @@
   to ffmpeg (capturedriver ffmpeg), which scales a supersampled render down and, for motion blur, averages subframes:
   a real shutter over the frame's own time, not the old frame blended into the new one.
 */
-#define MVR_NSAVE 27
+#define MVR_NSAVE 28
 string mvr_names[MVR_NSAVE] = {"capturedriver", "capturecodec", "capturerate", "capturefixed", "capturedemowidth",
 	"capturedemoheight", "capture_outwidth", "capture_outheight", "capture_outrate", "capture_blurframes", "capture_codec",
 	"capture_crf", "capturesound", "hl2_water", "hl2_refract", "r_capturerate", "r_capturehalfrate", "r_capturestagger",
 	"r_watertargetsize", "r_refractreflect_scale", "r_waterforcereflectentities", "hl2_water_lod", "show_fps",
-	"hud_watch_skipidle", "hud_watch_skipfail", "cl_idlefps", "vid_conautoscale"};
+	"hud_watch_skipidle", "hud_watch_skipfail", "cl_idlefps", "vid_conautoscale", "con_notifylines"};
 string mvr_saved[MVR_NSAVE];
-float mvr_inited, mvr_back;
+float mvr_inited, mvr_back, mvr_wasopen;
 float mvr_res, mvr_fps, mvr_ss, mvr_blur, mvr_hud, mvr_maxq, mvr_codec;
 float mvr_state, mvr_t0;            // 0 idle, 1 settings applied, 2 rewinding, 3 recording, 4 finishing, 5 done
 float mvr_ff;                       // this recording went to ffmpeg (not PNG frames)
@@ -44,7 +44,7 @@ vector() MVR_Out =
 	local vector v;
 	if (mvr_res == 0)
 	{
-		v = mvr_screen;
+		v = mvr_screen * max(1, cvar("vid_conautoscale"));
 		if (v_x < 320) v = '1920 1080 0';
 		return [floor(v_x / 2) * 2, floor(v_y / 2) * 2, 0];
 	}
@@ -125,7 +125,9 @@ void() MVR_Start =
 	cvar_set("cl_idlefps", "0");
 	// the HUD laid out as it is on this screen: a supersampled (or bigger than the window) render scales 2D up to match
 	if (mvr_hud && mvr_screen_x >= 320)
-		cvar_set("vid_conautoscale", ftos(max(1, rint(rnd_x / mvr_screen_x * 4) / 4) * max(1, cvar("vid_conautoscale"))));
+		cvar_set("vid_conautoscale", ftos(max(1, rint(rnd_x / mvr_screen_x * 4) / 4)));
+	if (!mvr_hud)
+		cvar_set("con_notifylines", "0");
 	if (mvr_maxq)
 	{	// every reflection and refraction at full size, redrawn each frame (their usual rate is 60 a second)
 		cvar_set("hl2_water", "2");
@@ -141,6 +143,7 @@ void() MVR_Start =
 	mvr_state = 1;
 	mvr_t0 = gettime(0);
 	mvr_note = MVR_Keep(mvr_note, sprintf("Recording %s ...", mvr_out));
+	menu_screen = (mvr_back == SCREEN_VIDREC) ? SCREEN_MAIN : mvr_back;   // ESC later opens the menu, not this
 	print(sprintf("vidrec: %s, rendered %gx%g, %g fps%s, %s\n", mvr_out, rnd_x, rnd_y, MVR_Fps(),
 		(sub > 1) ? sprintf(" (%g subframes, %g blended)", sub, MVR_Blend()) : "", ff ? MVR_Codec() : "PNG frames"));
 	m_close();                      // a menu over the game pauses the capture
@@ -156,13 +159,12 @@ void() MVR_Frame =
 		cvar_set("ui_vidrec_open", "0");
 		if (!MVR_Busy() && clientstate() == 2)
 		{
-			if (menu_screen != SCREEN_VIDREC) mvr_back = menu_screen;
-			menu_screen = SCREEN_VIDREC;
+			MVR_Open();
 			m_open();
 		}
 	}
 	if (!MVR_Busy()) return;
-	if (clientstate() != 2) { MVR_Fail("The game left the map; the video stopped."); return; }
+	if (clientstate() != 2 && mvr_state <= 3) { MVR_Fail("The game left the map; the video stopped."); return; }
 	if (mvr_state == 1 && gettime(0) - mvr_t0 > 0.75)
 	{	// the settings had their shader reloads; now the replay goes back to its start
 		cvar_set("vidrec_ready", "0");
@@ -177,11 +179,15 @@ void() MVR_Frame =
 			localcmd_local(sprintf("capture \"%s\"\n", mvr_out));
 			localcmd("vidrec_cs go\n");
 			mvr_state = 3;
+			mvr_t0 = gettime(0);
 		}
 		else if (cvar("vidrec_ready") < 0 || gettime(0) - mvr_t0 > 5)
 			MVR_Fail("No replay is open.");
 	}
-	else if (mvr_state == 3 && cvar("vidrec_end") == 1)
+	else if (mvr_state == 3 && mvr_ff && gettime(0) - mvr_t0 > 3
+	         && cvar_string("capture_ffmpeg_last") != strcat("encoding ", mvr_out))
+		MVR_Fail("The capture did not start (see the console).");
+	else if (mvr_state == 3 && (cvar("vidrec_end") == 1 || cvar_string("vidrec_replay") == ""))
 	{
 		localcmd_local("capturestop\n");
 		localcmd("vidrec_cs done\n");
@@ -218,13 +224,24 @@ void() MVR_Frame =
 void() MVR_Open =
 {
 	MVR_Init();
-	if (menu_screen != SCREEN_VIDREC) mvr_back = menu_screen;
+	if (menu_screen != SCREEN_VIDREC) { mvr_back = menu_screen; mvr_wasopen = menu_active; }
 	menu_screen = SCREEN_VIDREC;
 };
 void() MVR_Close =
 {
 	menu_screen = (mvr_back == SCREEN_VIDREC) ? SCREEN_MAIN : mvr_back;
-	if (clientstate() == 2 && menu_screen == SCREEN_MAIN) m_close();
+	if (clientstate() == 2 && !mvr_wasopen) m_close();     // opened over the game: back to it
+};
+// the menu going away (quit, menu_restart) mid-recording: stop and put the settings back, or config.cfg keeps them
+void() MVR_Shutdown =
+{
+	if (mvr_state >= 1 && mvr_state <= 3)
+	{
+		if (mvr_state == 3) localcmd_local("capturestop\n");
+		localcmd("vidrec_cs done\n");
+		MVR_Restore();
+		mvr_state = 0;
+	}
 };
 
 // one labelled row of chips; returns the chosen index
@@ -283,8 +300,7 @@ void(vector screensize) MVR_Draw =
 	frames = ceil((secs + 1) * MVR_Fps());
 	line = sprintf("Renders %gx%g, saves %gx%g at %g fps: %g frames", rnd_x, rnd_y, out_x, out_y, MVR_Fps(), frames);
 	if (mvr_blur) line = strcat(line, sprintf(", each the average of %g of %g subframes", MVR_Blend(), MVR_Sub()));
-	ui_para([p_x + 18, y], w - 36, SZ_LABEL, 20, line, COL_TEXT, TRUE);
-	y = y + 26;
+	y = y + ui_para([p_x + 18, y], w - 36, SZ_LABEL, 20, line, COL_TEXT, TRUE) + 6;
 	ff = (cvar_string("capture_ffmpeg") != "");
 	if (!cvar_type("capturefixed"))
 		line = "This game is too old to record videos: update it.";
@@ -293,7 +309,7 @@ void(vector screensize) MVR_Draw =
 	else
 		line = "ffmpeg was not found, so it saves PNG frames and the audio instead. Install ffmpeg, or put ffmpeg beside the game, for a video file.";
 	y = y + ui_para([p_x + 18, y], w - 36, SZ_LABEL, 20, line, COL_DIM, TRUE) + 6;
-	if (cvar("sv_running") != 1 && rep != "")
+	if (!isserver() && rep != "")
 		y = y + ui_para([p_x + 18, y], w - 36, SZ_LABEL, 20, "Best in a game you host: on a lobby, other players and moving map parts keep the server's clock.", SUI_THEME_WARN, TRUE) + 6;
 	if (!MVR_Busy())
 	{
@@ -301,7 +317,8 @@ void(vector screensize) MVR_Draw =
 		if (rep != "")
 			MVR_Start();
 	}
-	else if (ui_button("mvr_stop", [p_x + w - 18 - 168, p_y + h - 50], [168, 32], "Stop recording"))
+	else if (mvr_state <= 3)
+	if (ui_button("mvr_stop", [p_x + w - 18 - 168, p_y + h - 50], [168, 32], "Stop recording"))
 	{
 		if (mvr_state == 3) cvar_set("vidrec_end", "1");    // the next frame stops and saves what was recorded
 		else MVR_Fail("Stopped.");

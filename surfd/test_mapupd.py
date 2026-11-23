@@ -74,7 +74,7 @@ class Flow(unittest.TestCase):
                                                 'variant surf_old surf_old_css\n# end 1\n')
         self.now = 1_800_000_000
         self.app = M.create_app(self.store, self.main, self.maps, self.zones, self.media, self.list,
-                                clock=lambda: self.now, verify=ed25519.verify)
+                                clock=lambda: self.now, verify=ed25519.verify, free_bytes=lambda: 1 << 40)
         self.c = self.app.test_client()
 
     def tearDown(self):
@@ -147,6 +147,7 @@ class Flow(unittest.TestCase):
         self.list.write_text('FTESURF-MAPDL 1\ndl BAD ROW\n')
         with sqlite3.connect(self.store / 'mapupd.db') as db:
             db.execute("INSERT INTO uploads VALUES('surf_x',?,1,?,1,'surf',0,0,0,'',0,0)", (SID, '0' * 64))
+        (self.maps / 'surf_x.bsp').write_bytes(vbsp())
         self.assertEqual(self.app.config['MAPUPD_HEAL'](), (0, 1))
         self.assertEqual(self.list.read_text(), 'FTESURF-MAPDL 1\ndl BAD ROW\n')
 
@@ -226,6 +227,89 @@ class Flow(unittest.TestCase):
             b, _ = self.begin(text)
             self.assertEqual(b['ok'], 0, text)
             self.assertIn(why, b['error'])
+
+    def test_heal_skips_a_map_taken_out(self):
+        bsp = vbsp()
+        tok = self.begin(manifest('surf_gone', bsp))[0]['session']
+        self.part(tok, 'bsp', bsp)
+        self.assertEqual(self.finish(tok)['ok'], 1)
+        (self.maps / 'surf_gone.bsp').unlink()
+        self.list.write_text('FTESURF-MAPDL 1\ndl surf_old surf m 2 10 2026-01-01 0 2 0\n')
+        self.assertEqual(self.app.config['MAPUPD_HEAL'](), (0, 0))
+        self.assertNotIn('surf_gone', self.list.read_text())
+
+    def test_big_bodies_refused_unread(self):
+        r = self.c.post('/mapup/api/begin', data=b'x' * (M.SMALL_BODY + 1))
+        self.assertEqual(r.json['status'], 413)
+        r = self.c.post('/mapup/api/challenge', data=b'x' * (M.SMALL_BODY + 1))
+        self.assertEqual(r.json['status'], 413)
+
+    def test_a_retry_replaces_the_failed_attempt(self):
+        bsp = vbsp()
+        first = self.begin(manifest('surf_retry', bsp))[0]['session']
+        self.part(first, 'bsp', vbsp(version=21))       # refused: other bytes
+        for _ in range(4):                              # more than the three-open limit
+            second = self.begin(manifest('surf_retry', bsp))[0]
+            self.assertEqual(second['ok'], 1, second)
+        self.assertIn('expired', self.part(first, 'bsp', bsp)['error'])
+        self.part(second['session'], 'bsp', bsp)
+        self.assertEqual(self.finish(second['session'])['ok'], 1)
+
+    def test_role_revoked_before_finish(self):
+        bsp = vbsp()
+        tok = self.begin(manifest('surf_revoked', bsp))[0]['session']
+        self.part(tok, 'bsp', bsp)
+        with sqlite3.connect(self.store / 'mapupd.db') as db:
+            db.execute('DELETE FROM roles')
+        self.assertIn('not a map uploader', self.finish(tok)['error'])
+        self.assertFalse((self.maps / 'surf_revoked.bsp').exists())
+
+    def test_names_held_elsewhere(self):
+        (self.zones[1] / 'surf_zoned.json').write_bytes(zone())
+        self.assertIn('already has zones', self.begin(manifest('surf_zoned', vbsp()))[0]['error'])
+        with open(self.list, 'a') as f:
+            f.write('dl surf_listed surf m 0 10 2026-01-01 0 0 0\n')
+        self.assertIn('map list', self.begin(manifest('surf_listed', vbsp()))[0]['error'])
+        self.assertIn('already in the library', self.begin(manifest('SURF_OLD'.lower(), vbsp()))[0]['error'])
+
+    def test_disk_floor_and_daily_limit(self):
+        low = M.create_app(self.store, self.main, self.maps, self.zones, self.media, self.list,
+                           clock=lambda: self.now, verify=ed25519.verify, free_bytes=lambda: 1 << 30).test_client()
+        text = manifest('surf_floor', vbsp())
+        nonce = low.post('/mapup/api/challenge', json=dict(manifest=sha(text.encode()))).json['nonce']
+        sig = ed25519.sign(SEED, (M.STATEMENT % (M.SITE, nonce, sha(text.encode()))).encode()).hex()
+        r = low.post('/mapup/api/begin', data=(text + 'nonce %s\npub %s\nsig %s\n' % (nonce, PUB, sig)).encode()).json
+        self.assertIn('short of disk', r['error'])
+        with sqlite3.connect(self.store / 'mapupd.db') as db:
+            for i in range(M.DAY_UPLOADS):
+                db.execute("INSERT INTO uploads VALUES(?,?,?,?,1,'surf',0,0,0,'',0,0)", ('surf_d%d' % i, SID, self.now, '0' * 64))
+        self.assertIn("today's limit", self.begin(manifest('surf_daily', vbsp()))[0]['error'])
+
+    def test_remove_takes_an_upload_back(self):
+        bsp = vbsp()
+        tok = self.begin(manifest('surf_takeback', bsp, zonebody=zone()))[0]['session']
+        self.part(tok, 'bsp', bsp)
+        self.part(tok, 'zone', zone())
+        self.assertEqual(self.finish(tok)['ok'], 1)
+        argv = ['mapupd.py', '--store', str(self.store), 'remove', '--map', 'surf_takeback', '--maps', str(self.maps),
+                '--media', str(self.media), '--list', str(self.list)] + sum((['--zone-dir', str(d)] for d in self.zones), [])
+        old, sys.argv = sys.argv, argv
+        try:
+            M.main()
+        finally:
+            sys.argv = old
+        self.assertFalse((self.maps / 'surf_takeback.bsp').exists())
+        self.assertTrue(any((self.maps / '.old').iterdir()))
+        self.assertFalse(any((d / 'surf_takeback.json').exists() for d in self.zones))
+        self.assertNotIn('surf_takeback', self.list.read_text())
+        meta = (self.media / 'mapmeta.txt').read_text()
+        self.assertNotIn('surf_takeback', meta)
+        self.assertIn('# end 1', meta)
+        mapmanifest.read_list(self.list)
+        self.assertEqual(self.app.config['MAPUPD_HEAL'](), (0, 0))
+
+    def test_health(self):
+        self.assertEqual(self.post('health', json={}), {'ok': 1, 'accounts': 1})
 
     def test_other_session_cannot_send_parts(self):
         bsp = vbsp()
