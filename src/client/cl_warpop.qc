@@ -378,43 +378,13 @@ float() WarpOp_SaveSlot =
   server published for this cursor (the row itself, next, prev, first or last),
   or follows a blind load (whose hold the replay does not have): send it blind.
 */
-float(float op) WarpOp_Row =
+float(float idx, float i0, float cnt) WarpOp_RowAt;
+// P1753: the cursor after every load and step queued after ring position bq, from idx in a list of cnt rows.
+// -1: one follows a blind load (whose hold the replay does not have).
+float(float idx, float cnt, float bq) WarpOp_Walk =
 {
-	local float cnt, i0, idx, i, j, bq, b;
+	local float i, j;
 
-	wop_tgorg = '0 0 0';
-	wop_tgang = '0 0 0';
-	wop_tgvel = '0 0 0';
-	// P1547: behind a save not yet answered the cursor is that save, its row the one this client took at
-	// the save's command. A step's row count is not known here; a row not taken yet goes blind.
-	j = WarpOp_SaveSlot();
-	if (j >= 0)
-	{
-		if ((op != WOP_LOAD && op != WOP_LOADNOW) || !wop_cap[j])
-			return FALSE;
-		SaveLoc_Resync();
-		if (rec_sl_sent != getstatf(STAT_FS_SLACK))
-			return FALSE;
-		for (i = 0; i < WOP_RING; i = i + 1)
-			if (wop_op[i] >= WOP_NEXT && wop_op[i] <= WOP_LAST)
-			if (wop_q[i] > wop_q[j] && WarpOp_Unanswered(i))
-				return FALSE;
-		wop_tgorg = wop_org[j];
-		wop_tgang = wop_ang[j];
-		wop_tgang_z = wop_duck[j];
-		wop_tgvel = wop_vel[j];
-		return TRUE;
-	}
-	// P1238: string stats follow the numeric ones, so a fresh sl_save's ack (STAT_FS_SLACK) can land a
-	// packet before the cursor string that answers it: predict nothing until they agree.
-	if (wop_c_ok && wop_c_slack != getstatf(STAT_FS_SLACK))
-		return FALSE;
-	cnt = WarpOp_Cnt();
-	i0 = WarpOp_Idx();
-	if (cnt < 1 || i0 < 1 || i0 > cnt)
-		return FALSE;
-	idx = i0;
-	bq = 0;
 	while (TRUE)
 	{
 		j = -1;
@@ -428,15 +398,81 @@ float(float op) WarpOp_Row =
 					j = i;
 			}
 		if (j < 0)
-			break;
+			return idx;
 		bq = wop_q[j];
 		if (wop_blind[j] == WOPB_REFUSED)
 			continue;                       // the server keeps its cursor
 		if (wop_blind[j] == WOPB_BLIND && wop_op[j] == WOP_LOAD)
-			return FALSE;
+			return -1;
 		idx = WarpOp_StepIdx(wop_op[j], idx, cnt);
 	}
+	return idx;
+};
+
+float(float op) WarpOp_Row =
+{
+	local float cnt, i0, idx, i, j, n;
+
+	wop_tgorg = '0 0 0';
+	wop_tgang = '0 0 0';
+	wop_tgvel = '0 0 0';
+	// P1547: behind a save not yet answered the cursor is that save, its row the one this client took at
+	// the save's command. P1753: steps too -- the list as the server will have it is this window's (the
+	// save is unanswered by its own ack, so the window predates it) plus that row at the end, cursor on it.
+	j = WarpOp_SaveSlot();
+	if (j >= 0)
+	{
+		if (!wop_cap[j])
+			return FALSE;
+		SaveLoc_Resync();
+		if (rec_sl_sent != getstatf(STAT_FS_SLACK))
+			return FALSE;
+		for (i = 0; i < WOP_RING; i = i + 1)
+			if (i != j && wop_op[i] == WOP_SAVE && WarpOp_Unanswered(i))
+				return FALSE;               // two saves in flight
+		if (wop_c_ok && wop_c_slack != getstatf(STAT_FS_SLACK))
+			return FALSE;
+		cnt = WarpOp_Cnt();
+		i0 = WarpOp_Idx();
+		if (cnt >= FS_MAXSAVES)
+			return FALSE;                   // the save may be refused: the list is full
+		n = cnt + 1;
+		idx = WarpOp_Walk(n, n, wop_q[j]);
+		if (idx < 0)
+			return FALSE;
+		idx = WarpOp_StepIdx(op, idx, n);
+		if (idx == n)
+		{
+			wop_tgorg = wop_org[j];
+			wop_tgang = wop_ang[j];
+			wop_tgang_z = wop_duck[j];
+			wop_tgvel = wop_vel[j];
+			return TRUE;
+		}
+		if (cnt < 1 || i0 < 1 || i0 > cnt)
+			return FALSE;
+		return WarpOp_RowAt(idx, i0, cnt);
+	}
+	// P1238: string stats follow the numeric ones, so a fresh sl_save's ack (STAT_FS_SLACK) can land a
+	// packet before the cursor string that answers it: predict nothing until they agree.
+	if (wop_c_ok && wop_c_slack != getstatf(STAT_FS_SLACK))
+		return FALSE;
+	cnt = WarpOp_Cnt();
+	i0 = WarpOp_Idx();
+	if (cnt < 1 || i0 < 1 || i0 > cnt)
+		return FALSE;
+	idx = WarpOp_Walk(i0, cnt, 0);
+	if (idx < 0)
+		return FALSE;
 	idx = WarpOp_StepIdx(op, idx, cnt);
+	return WarpOp_RowAt(idx, i0, cnt);
+};
+
+// The published row at list position idx for the window around cursor i0 (cnt rows) into wop_tg*.
+float(float idx, float i0, float cnt) WarpOp_RowAt =
+{
+	local float b;
+
 	if (idx == i0 && wop_c_ok)
 	{
 		wop_tgorg = wop_c_org[0];
@@ -874,11 +910,12 @@ float(float op, float rep) WarpOp_Step =
 {
 	local float blind, charged;
 
-	if (!WarpOp_Able() || Trail_RequestBusy())
+	if (!WarpOp_Able() || (Trail_RequestBusy() && !Trail_RequestOpSave()))   // P1753: carried after a save, as a load
 		return FALSE;
 	SaveLoc_Resync();
 	if (rec_sl_sent != getstatf(STAT_FS_SLACK))
 		return FALSE;
+	if (WarpOp_SaveSlot() < 0)          // P1753: else that save is the cursor
 	if (getstatf(STAT_FS_SAVECOUNT) < 1 || getstatf(STAT_FS_SAVEINDEX) < 1)
 		return FALSE;
 	if (rep)

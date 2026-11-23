@@ -21,6 +21,9 @@
 
 ## next
 
+### P1753 Save keys right after a save are instant
+- Pressing previous, first, last or next right after saving no longer teleports you a moment later at ping: the step is predicted like a load, so it lands at once with no correction.
+
 ### P1752 Every lobby save keeps your run
 - In a lobby, every save now keeps your run time and speed, up to 999 per map, so loading an old save carries on the run. Saving no longer copies your whole run each time, so a save is cheap however long the run is.
 
