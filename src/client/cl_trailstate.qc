@@ -8,7 +8,7 @@ float tr_rawn;
 float() Trail_RawN = { return (tr_raw >= 1) ? tr_rawn : 0; };
 vector tr_cur_ang, tr_cur_vel, tr_loadorg;
 float tr_rep_raw, tr_rep_tick, tr_rep_end, tr_rep_ack, tr_rep_go, tr_saveack;
-float tr_rep_n;                 // P1756: the rows of tr_rep_raw in use (Trail_RewindPrefix copies the whole buffer)
+float tr_rep_n;                 // P1756: the rows of tr_rep_raw in use (Trail_RewindPrefix may copy past them)
 float(float t) Trail_RawIndex;
 float tr_req_wait;
 float tr_timedgo_ack, tr_go_visual_t, tr_rep_tracewant, tr_rep_tracegot, tr_ticket;

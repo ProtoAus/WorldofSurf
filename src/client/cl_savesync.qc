@@ -930,6 +930,7 @@ void(float t) SaveSync_Event =
 			fremove(strcat(SaveSync_There(id), "seq.txt"));
 			fremove(strcat(SaveSync_There(id), "trail.txt"));
 			Trail_Forget(id);       // P1756 review: a reused folder number
+			rec_rp_mark[id] = 0;    // ...and its .view mark (round 2: a deleted save's mark could still pass its line check)
 			SaveLead_Forget();      // P1384
 			c = SaveSync_FindHere(o, p, y, FALSE);
 			if (c >= 0)
