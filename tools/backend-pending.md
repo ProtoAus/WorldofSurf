@@ -3,12 +3,18 @@
 ## P1746 map upload service -- NOT INSTALLED (ftesurf-cb, 23 Nov): one root install, then the role grant
 New isolated service (tools/mapupd.md): surfd/mapupd.py on 127.0.0.1:8096, nginx /mapup/api/ + /ftesurf/media/uploads/,
 store /srv/nvme/ftesurf-ops/mapupd-state, release /opt/ftesurf-mapupd/<commit>. No surfd generation, no lobby restart.
-Source checkout for the install: <pi root>/qc at <commit>. Steps (Lex, sudo): the dry run, then --apply, as in
-tools/mapupd.md; then as proto `mapupd.py --store /srv/nvme/ftesurf-ops/mapupd-state grant-zone-admins` (Proto and
-Markbeaton54 hold the zone role). Rollback: `systemctl disable --now ftesurf-mapupd`, put
-/etc/nginx/play.proto.bar.conf.pre-mapupd-<commit12> back over the site file, remove the snippet and conf.d zones file,
-`nginx -t && systemctl reload nginx`.
-
+Staged 23 Nov: source /srv/nvme/ftesurf-ops/mapupd-src-99171e80 (clean, HEAD 99171e807f5673000056a5665b7f7b7a181420ba),
+dry run as proto passed; nginx predecessor 8b932846e87527431b41e6b3e765e7619f2e7615501c618a92fd2e59d35f2826. Lex, on the Pi:
+  sudo install -m 700 /srv/nvme/ftesurf-ops/mapupd-src-99171e80/tools/install_mapupd.py /root/install_mapupd.py
+  sudo python3 -I /root/install_mapupd.py --source /srv/nvme/ftesurf-ops/mapupd-src-99171e80 \
+      --commit 99171e807f5673000056a5665b7f7b7a181420ba \
+      --expected-nginx-sha256 8b932846e87527431b41e6b3e765e7619f2e7615501c618a92fd2e59d35f2826 --apply
+then as proto: `python3 /opt/ftesurf-mapupd/99171e807f5673000056a5665b7f7b7a181420ba/mapupd.py --store
+/srv/nvme/ftesurf-ops/mapupd-state grant-zone-admins` (Proto and Markbeaton54 hold the zone role). If nginx changed
+since, re-take its sha256 and re-run the dry run first. Rollback: `systemctl disable --now ftesurf-mapupd`, put
+/etc/nginx/play.proto.bar.conf.pre-mapupd-99171e807f56 back over the site file, remove
+/etc/nginx/snippets/ftesurf-mapupd.conf and /etc/nginx/conf.d/ftesurf-mapupd-zones.conf, `nginx -t && systemctl reload
+nginx`. Pi task root /srv/nvme/agent-work/mapupd-20261123-cb (OWNER.md).
 ## 23 Nov 2026 05:39Z: lobby engine patch-1748 (mover 16) + 0.1.62 progs LIVE (worldofsurf-08)
 All 12 lobbies: fteqw-svarm64 be372f27 + fteplug_hl2_arm64.so b96bb483 (3e7ad92da, git-9039-patch-1748-0-g3e7ad92da) and
 0.1.62's progs (qw d2bd004d / cs 65de9276); backups *.pre0162-20261123T053830Z; gate in
