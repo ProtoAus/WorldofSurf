@@ -684,9 +684,10 @@ once the reload clock is rebased -- scratchpad p1716_rebase.py), giving a "re-si
   AG recording can replay differently where it touched one. pm_dettest's trace hashes now run in the render winding
   (its "srctrace stays the triangles every older pin replays on" comment, sv_ccmds.c ~4500, is stale) and its mover
   passes stop at 12. The hl2 plugin and exe must ship together (an old plugin on a mover-13 exe collides like 12).
-- ahop_coast (P1637): Lex's local zone and map settings now say Ahop (9); the published zone still says bhop until Lex
-  publishes it from zone_edit (an admin click). Lobby engines older than P1637 ignore a zone's 9 and use the map index,
-  so the lobby mapmeta must carry ahop_coast 9 (the candidate does). surf_affliction: local zone 10000, publish pending.
+- ahop_coast: Lex 23 Nov chose the lobbies' bhop ("the correct bhop settings"); his local zone is back to the published
+  one (gamemode 2) and his local settings cfg (gamemode 9, gravity 600, maxvel 3500) is set aside as
+  data/maps/settings/local/ahop_coast.cfg.pre1749-20261123 (P1749). mapmeta still files it 9 (the 20 Nov tie rule); the
+  zone's 2 wins in every game. surf_affliction: local zone 10000, publish pending.
 - mode_ahop has no ABH jump boost (only the hl2-* engine profiles do); wiring mode ahop to that profile would drop the
   pm_walkspeed sprint line. Momentum's bhop maxvelocity is 100000; mode_bhop.cfg keeps 3500.
 - surf_not_so_prosurf's cap goes 5000 -> 3500 (KSF's explicit value beats the entity lump); surf_ispy's shipped zone

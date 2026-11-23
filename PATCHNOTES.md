@@ -21,6 +21,9 @@
 
 ## next
 
+### P1749 No repeated downloads on ahop_coast
+- Joining ahop_coast no longer tries to download the same five missing sounds on every connect. They were names from Source's sound scripts, not sound files, and are now skipped like other sound-script names.
+
 ## 0.1.61 2026-11-23
 
 ### P1744 Boosters are your own

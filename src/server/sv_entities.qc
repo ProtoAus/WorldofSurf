@@ -4422,12 +4422,15 @@ float vbsp_snd_scale;
   meaning "nobody has built this yet".
 
   The test walks back to the basename because a DIRECTORY in the path may
-  contain a dot while the filename does not.
+  contain a dot while the filename does not.  P1749: a dot is not enough --
+  `coast.windmill` and `Weapon.Reload` are soundscripts too (ahop_coast's five
+  made every client fail the same downloads on each connect); only an audio
+  extension makes a file.
 */
 float(string s) SV_AmbientIsScript =
 {
 	local float i;
-	local string c;
+	local string c, e;
 
 	i = strlen(s) - 1;
 	while (i >= 0)
@@ -4436,7 +4439,10 @@ float(string s) SV_AmbientIsScript =
 		if (c == "/" || c == "\\")
 			return TRUE;		// reached a separator with no dot
 		if (c == ".")
-			return FALSE;
+		{
+			e = strtolower(substring(s, i + 1, -1));
+			return !(e == "wav" || e == "mp3" || e == "ogg" || e == "flac");
+		}
 		i = i - 1;
 	}
 	return TRUE;
