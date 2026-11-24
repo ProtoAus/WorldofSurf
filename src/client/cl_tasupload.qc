@@ -5,16 +5,18 @@
   and posts the proof and the file in one body. The service checks the run as it checks the web form's.
   The list is the local game's own word (SV_TASUpList: runs it finished, by their SHA-256, kept in data/tasproj/ where
   client code cannot write), so a file a server's csprogs put in data/runs/ is never offered as yours (attack review 2).
-  A bot's .rec goes through the web form.
+  P1797 (Lex, 24 Nov: "list all tas runs in your game"): every other TAS run in data/runs/ follows, any map, marked as
+  found in the folder (sha "-": no claim it was finished here); Open folder shows data/runs/ in the file manager.
 */
 #ifndef TUP_BASE   // a test build only (fteqcc -DTUP_BASE): a server must never choose where a proof goes
 #define TUP_BASE "https://play.proto.bar/tasup/"
 #endif
-#define TUP_MAX 10
+#define TUP_MAX 64                                  // SV_TASUpList's TAS_UPSHOW
+#define TUP_PAGE 8
 #define TUP_BYTES 8388608                           // tasupd.MAX_REC
 string tup_p[TUP_MAX], tup_l[TUP_MAX], tup_s[TUP_MAX];   // path, label, the SHA-256 the game saved it with
 string tupe_p[TUP_MAX], tupe_s[TUP_MAX];                  // the list arriving (TASUp_ListEvent)
-float tup_n, tup_at, tupe_n;
+float tup_n, tup_at, tupe_n, tup_page;
 string tup_key;                 // the map the list was asked for
 float tup_state;                // 0 the list, 1 asking for a code, 2 confirm, 3 sending, 4 answered
 float tup_req, tup_until, tup_armed, tup_size;
@@ -62,23 +64,68 @@ string(string nonce, string sha) TASUp_Signed =
 };
 string(float track) TASUp_Course = { return (track > 0) ? sprintf("Bonus %g", track) : "Main"; };
 
-// a run the local game says it finished (path, sha): offered if it is still there, of this map, a whole course
+// P1797: a listed run's header (TASJargon_Head reads this map's only): map, track, leg, the ticks' rate; a few lines a
+// file, once while it stays listed
+#define TUP_HC 64
+string tup_hcp[TUP_HC], tup_hcm[TUP_HC];
+float tup_hct[TUP_HC], tup_hcl[TUP_HC], tup_hcr[TUP_HC], tup_hcn;
+float(string p) TASUp_Head =
+{
+	local float i, h, fh, c, mtr;
+	local string l, line;
+	for (i = 0; i < tup_hcn; i = i + 1) if (!strcmp(tup_hcp[i], p)) return i;
+	fh = fopen(p, FILE_READ);
+	if (fh < 0) return -1;
+	if (tup_hcn >= TUP_HC)
+	{
+		strunzone(tup_hcp[0]); strunzone(tup_hcm[0]);
+		for (i = 1; i < TUP_HC; i = i + 1)
+		{
+			tup_hcp[i - 1] = tup_hcp[i]; tup_hcm[i - 1] = tup_hcm[i];
+			tup_hct[i - 1] = tup_hct[i]; tup_hcl[i - 1] = tup_hcl[i]; tup_hcr[i - 1] = tup_hcr[i];
+		}
+		tup_hcn = TUP_HC - 1;
+	}
+	h = tup_hcn; tup_hcn = tup_hcn + 1;
+	tup_hct[h] = tup_hcl[h] = -1; tup_hcr[h] = 0.015; mtr = FALSE; line = "";
+	for (i = 0; i < 48; i = i + 1)
+	{
+		l = fgets(fh);
+		if (l == "") continue;
+		c = tokenize(l);
+		if (argv(0) == "begin" || (c >= 7 && FS_TASNumber(argv(0)))) break;
+		if (argv(0) == "map" && c >= 2) line = strtolower(argv(1));
+		else if (argv(0) == "track" && c == 2) tup_hct[h] = stof(argv(1));
+		else if (argv(0) == "leg" && c == 2) tup_hcl[h] = stof(argv(1));
+		else if (argv(0) == "tickrate" && c == 2 && stof(argv(1)) > 0) { if (!mtr) tup_hcr[h] = stof(argv(1)); }
+		else if (argv(0) == "movetickrate" && c == 2 && stof(argv(1)) > 0) { tup_hcr[h] = stof(argv(1)); mtr = TRUE; }
+	}
+	fclose(fh);
+	if (line == "") { line = substring(p, 10, -1); line = substring(line, 0, max(0, strstrofs(line, "/"))); }   // data/runs/<map>/
+	tup_hcp[h] = strzone(p); tup_hcm[h] = strzone(line);
+	return h;
+};
+// a run of a whole course (path, sha): one the local game says it finished (sha its SHA-256), or one found in the folder
+// (sha "-", P1797); offered while it is still there
 void(string p, string sha) TASUp_Add =
 {
-	local float i, hd, t;
-	local string b;
-	if (tup_n >= TUP_MAX || !TASJargon_Safe(p) || !TASUp_Hex(sha, 64)) return;
+	local float i, hd, t, found;
+	local string b, lab;
+	found = !strcmp(sha, "-");
+	if (tup_n >= TUP_MAX || !TASJargon_Safe(p) || !(found || TASUp_Hex(sha, 64))) return;
 	if (substring(p, 0, 10) != "data/runs/" || FS_TagFromName(FS_NameTag(TASJargon_Base(p))) != RT_TAS)   // Base drops .rec
 		return;
 	for (i = 0; i < tup_n; i = i + 1) if (!strcmp(tup_p[i], p)) return;
-	hd = TASJargon_Head(p);
-	if (hd < 0) return;            // nested: QC's || reads jg_hcok[-1] too (flow review 2)
-	if (!jg_hcok[hd] || jg_hcl[hd] > 0) return;
+	hd = TASUp_Head(p);
+	if (hd < 0) return;            // nested: QC's || reads tup_hcl[-1] too (flow review 2)
+	if (tup_hcm[hd] == "" || tup_hcl[hd] > 0) return;
 	b = TASJargon_Base(p);
-	t = rint(stof(substring(b, 0, strstrofs(b, "_"))) * jg_hctr[hd] * 100) / 100;
-	tup_p[tup_n] = strzone(p); tup_s[tup_n] = strzone(sha);
-	tup_l[tup_n] = strzone(sprintf("%s  %s  TAS run", TASUp_Course(max(0, jg_hct[hd])), (t >= 60)
-		? sprintf("%g:%s%.2f", floor(t / 60), (t - 60 * floor(t / 60) < 10) ? "0" : "", t - 60 * floor(t / 60)) : sprintf("%.2fs", t)));
+	t = rint(stof(substring(b, 0, strstrofs(b, "_"))) * tup_hcr[hd] * 100) / 100;
+	lab = sprintf("%s  %s", TASUp_Course(max(0, tup_hct[hd])), (t >= 60)
+		? sprintf("%g:%s%.2f", floor(t / 60), (t - 60 * floor(t / 60) < 10) ? "0" : "", t - 60 * floor(t / 60)) : sprintf("%.2fs", t));
+	if (strcasecmp(tup_hcm[hd], zone_mapname)) lab = strcat(tup_hcm[hd], "  ", lab);
+	tup_p[tup_n] = strzone(p); tup_s[tup_n] = strzone(found ? "" : sha);
+	tup_l[tup_n] = strzone(strcat(lab, found ? "  TAS run (folder)" : "  TAS run"));
 	tup_n = tup_n + 1;
 };
 void() TASUp_Pending;
@@ -160,6 +207,7 @@ void(float i) TASUp_Ask =
 	body = TASUp_Read(tup_p[i]);
 	if (body == "") { TASUp_Answer((tup_size > TUP_BYTES) ? "that file is over 8 MB" : "that file could not be read"); return; }
 	tup_sha = TASUp_Keep(tup_sha, strtolower(digest_hex("SHA256", body)));
+	if (tup_s[i] != "")   // P1797: a folder run makes no claim to check
 	if (strcmp(tup_sha, tup_s[i])) { TASUp_Answer("that file is not the run your game saved (it changed since); nothing was sent"); return; }
 	tup_req = Online_NextReq();
 	if (!uri_post(strcat(TUP_BASE, "api/game/challenge"), tup_req, "application/json", sprintf("{\"sha\":\"%s\"}", tup_sha)))
@@ -209,9 +257,23 @@ void(float byitself) TASUp_Send =
 	print(sprintf("tas upload: sent %s (%g bytes), %s\n", tup_path, tup_size, byitself ? "by itself when the offer ran out"
 		: "signed under a real press"));
 };
+// P1797: this map's run folder if it has a listed run, else data/runs (engine sys_openfolder, on the press)
+float(string gamepath) sys_openfolder = #0:sys_openfolder;
+void() TASUp_OpenFolder =
+{
+	local float i;
+	local string f, pre;
+	f = "data/runs";
+	pre = strcat("data/runs/", strtolower(zone_mapname), "/");
+	for (i = 0; i < tup_n; i = i + 1) if (!strcmp(substring(tup_p[i], 0, strlen(pre)), pre)) { f = substring(pre, 0, strlen(pre) - 1); break; }
+	if (checkbuiltin(sys_openfolder))
+	if (sys_openfolder(f)) { print(sprintf("tas upload: opened %s in the file manager\n", f)); return; }
+	print(sprintf("tas upload: your TAS runs are in the game folder's %s (the file manager could not be opened from here)\n", f));
+};
 void() TASUp_Press =
 {
 	if (tup_state == 2 && sui_is_hovered("tup_send")) TASUp_Send(FALSE);
+	if (tup_state == 0 && sui_is_hovered("tup_folder")) TASUp_OpenFolder();
 };
 
 float(float reqid, float code, string body) TASUp_Reply =
@@ -309,10 +371,10 @@ vector(vector at, float width, float tsz, float hint, float row) TASUp_OfferChip
 
 void(vector at, float width, float tsz, float hint, float row) TASUp_Draw =
 {
-	local float i;
+	local float i, pages;
 	local vector chip, half;
 	TASUp_Pump();
-	at_y = ZonePub_Wrap(at, width, hint, "Send a finished TAS run of this map to the TAS board at play.proto.bar/tasup, as your "
+	at_y = ZonePub_Wrap(at, width, hint, "Send a finished TAS run to the TAS board at play.proto.bar/tasup, as your "
 		"Steam account. It is checked against the game's movement physics: runs that check out are listed there with their "
 		"file; a new record, or anything the check cannot clear, waits for review.", SUI_THEME_DIM, TRUE) + hint;
 	at = TASUp_OfferChips(at, width, tsz, hint, row);
@@ -325,14 +387,26 @@ void(vector at, float width, float tsz, float hint, float row) TASUp_Draw =
 			ZonePub_Wrap(at, width, tsz, "Upload from a game you host: TAS runs are made there.", SUI_THEME_TEXT, TRUE);
 			return;
 		}
+		// P1797: Open folder (acts on the press: TASUp_Press), then the page's runs
+		chip = [tsz * 7, row, 0];
+		Profile_Chip("tup_folder", at, [tsz * 9, row, 0], "Open folder", tsz, FALSE);
+		pages = max(1, ceil(tup_n / TUP_PAGE));
+		tup_page = bound(0, tup_page, pages - 1);
+		if (pages > 1)
+		{
+			if (Profile_Chip("tup_prev", at + [width - chip_x * 2 - 4, 0, 0], chip, "Prev", tsz, FALSE)) tup_page = max(0, tup_page - 1);
+			if (Profile_Chip("tup_next", at + [width - chip_x, 0, 0], chip, "Next", tsz, FALSE)) tup_page = min(pages - 1, tup_page + 1);
+			sui_text(at + [tsz * 9 + 8, (row - hint) * 0.5, 0], [hint, hint], sprintf("%g runs, page %g of %g", tup_n, tup_page + 1, pages),
+				SUI_THEME_DIM, 1, 0);
+		}
+		at_y = at_y + row + 6;
 		if (!tup_n)
 		{
-			ZonePub_Wrap(at, width, tsz, "No TAS run of this map yet. Finish one with Jargon or Manual TAS and it shows here. "
-				"Runs from before this update, and a bot's .rec, go through play.proto.bar/tasup.", SUI_THEME_TEXT, TRUE);
+			ZonePub_Wrap(at, width, tsz, "No TAS run in this game's data/runs yet. Finish one with Jargon or Manual TAS and it "
+				"shows here; a bot's .rec placed in data/runs/<map>/main (or bonus_N) shows too.", SUI_THEME_TEXT, TRUE);
 			return;
 		}
-		chip = [tsz * 7, row, 0];
-		for (i = 0; i < tup_n; i = i + 1)
+		for (i = tup_page * TUP_PAGE; i < min(tup_n, (tup_page + 1) * TUP_PAGE); i = i + 1)
 		{
 			sui_text(at + [0, (row - tsz) * 0.5, 0], [tsz, tsz], tup_l[i], SUI_THEME_TEXT, 1, 0);
 			if (Profile_Chip(sprintf("tup_go%g", i), at + [width - chip_x, 0, 0], chip, "Upload", tsz, FALSE)) TASUp_Ask(i);
@@ -367,7 +441,7 @@ void() TASUp_Pending =
 	tup_pendt = 0;
 	if (i == -2)
 	{
-		print(sprintf("tas upload: %g run(s) of %s\n", tup_n, zone_mapname));
+		print(sprintf("tas upload: %g TAS run(s)\n", tup_n));
 		for (i = 0; i < tup_n; i = i + 1) print(sprintf("tas upload: %g %s (%s)\n", i + 1, tup_l[i], tup_p[i]));
 		return;
 	}
