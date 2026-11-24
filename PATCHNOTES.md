@@ -39,7 +39,7 @@
 ### P1800 Missing props drawn
 - Static props with inverted fade distances (bhop_canals' driftwood logs, rebar, cleats) draw again.
 
-## 0.1.67 2026-11-25
+## 0.1.67 2026-11-24
 
 ### P1799 Map uploads: zones optional, a Zone editor tab
 - Map admins can upload a map without a zone file: the upload window asks "Are you sure? This map doesn't have a zone file." first.

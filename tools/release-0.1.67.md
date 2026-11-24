@@ -1,6 +1,6 @@
 # World of Surf 0.1.67 delivery
 
-Published 25 Nov 2026, completing at **13:27:28 UTC** (worldofsurf-67) from the Linux PC, one sealed candidate, no rebuild,
+Published 24 Nov 2026 (UTC; 25 Nov in Lex's time zone), completing at **13:27:28 UTC** (worldofsurf-67) from the Linux PC, one sealed candidate, no rebuild,
 after Lex's bhop_canals backlog ("keep going to all is fixed ... make hl2_cubelight 1 default ... the world cascade
 shadows seems to get soft sometimes"; "do it, don't wait for me"), carrying worldofsurf-a3's P1796-P1799. Page:
 <https://proto.bar/ftesurf>.
@@ -53,3 +53,6 @@ one lobby from 13:29Z; at 13:38Z Lex said "push update, I want to play", so it w
   social API at startup, not repeated; the API answers).
 - Lex's dev install: client/server/plugins/progs from the stage at 13:37Z (`tools/install-dev0167.sh`,
   `.pre0167-20261124T133730Z`), after his game closed.
+
+Correction (0.1.68 cut): the dates first written here, in the PATCHNOTES heading and in the v0.1.67 tag message said
+25 Nov; the UTC date was 24 Nov (the tag is left as pushed).

@@ -1,6 +1,6 @@
 # lextest.md — things waiting on a human
 
-## 0.1.67 release -- PUBLISHED 25 Nov 13:27Z, lobbies on its progs 13:40Z; your dev install has it (P1772, P1781-P1785
+## 0.1.67 release -- PUBLISHED 24 Nov 13:27Z, lobbies on its progs 13:40Z; your dev install has it (P1772, P1781-P1785
 ## + a3's P1796-P1799)
 1. Save 32: the world-cast wall shadow is one sharp edge all the way, no soft cut-off.
 2. Save 29: the ground and table sunlit, the overhang's shadow where Momentum's is.
