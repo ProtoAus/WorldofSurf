@@ -103,10 +103,11 @@ STATES = ('shown', 'held', 'rejected', 'removed')
 # public replays (surfd's KSF, Momentum and World of Surf runs) nearest in length, and the one its runid names; their
 # motion is their player's (BACKLOG P1640 "Human replays passed off as TAS").
 PUB_KINDS = {'run': 'World of Surf', 'ksf': 'KSF', 'momentum': 'Momentum'}   # surfd replays.kind; never 'evidence'
-PUB_CANDIDATES, PUB_PER_PLAYER = 8, 2   # nearest in length per upload; per player (beside the one the runid names)
+PUB_CANDIDATES, PUB_PER_PLAYER = 8, 2   # files read per upload, nearest in length; per player (beside the runid's)
 PUB_BYTES = 2 * MAX_REC                 # a larger replay file (a long lobby run with its input rows) is not read
-PUB_BUDGET = 10.0                       # s reading them (Pi: 6.9 MB in 1.2 s, 2x under CPUQuota); then the rest go unread,
-                                        # no hold: nearest first (a re-headed replay has its original's length)
+PUB_BUDGET = 6.0                        # s reading them (Pi: 6.9 MB in 1.2 s, 2x under CPUQuota), then the rest go unread:
+                                        # nearest first (a re-headed replay has its original's length), no hold; nginx
+                                        # gives the whole upload 150 s (review 1)
 PUB_LEAF = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}\.rec')
 PUB_MAP = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}')   # surfd._MAPNAME_OK
 PUB_RUNID = re.compile(r'(?:ksf|mom)-[0-9a-f]{8,64}')
@@ -595,44 +596,52 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         kinds = tuple(k for k in PUB_KINDS if k in replay_dirs)
         if not kinds: return []
         lo, hi = end - max(30, end // 10), end + max(30, end // 10)
-        sql = ('SELECT id, kind, map_dir, track, leg, leaf, player, name FROM replays WHERE map = ? AND track = ? AND leg = 0'
-               ' AND kind IN (%s) AND ABS(tickrate - ?) < 0.01 AND player != ? AND %%s ORDER BY ABS(ticks - ?), id LIMIT ?'
-               % ','.join('?' * len(kinds)))
+        cols = 'id, kind, map_dir, track, leg, leaf, player, name, tier, style'
+        where = ('map = ? AND track = ? AND leg = 0 AND kind IN (%s) AND ABS(tickrate - ?) < 0.01 AND player != ?'
+                 % ','.join('?' * len(kinds)))
         head = (mapname, track) + kinds + (1 / TICK, sid)
-        named = read_surfd(sql % 'runid = ?', head + (runid, end, 2)) if PUB_RUNID.fullmatch(runid) else []
-        out, per, seen = list(named), {}, {r['id'] for r in named}
-        for r in read_surfd(sql % 'ticks BETWEEN ? AND ?', head + (lo, hi, end, PUB_CANDIDATES * 4)):
-            if len(out) >= len(named) + PUB_CANDIDATES: break
-            if r['id'] in seen or per.get(r['player'], 0) >= PUB_PER_PLAYER: continue
-            per[r['player']] = per.get(r['player'], 0) + 1
-            out.append(r)
-        return out
+        named = read_surfd('SELECT %s FROM replays WHERE %s AND runid = ? ORDER BY id LIMIT 2' % (cols, where),
+                           head + (runid,)) if PUB_RUNID.fullmatch(runid) else []
+        # the per-player cap before the limit (review 1: one grinder's 32 nearest rows hid the rest), and three rows a
+        # file to read so missing or oversized files do not use up the count (public_copy stops at PUB_CANDIDATES)
+        near = read_surfd('SELECT %s FROM (SELECT %s, ticks, ROW_NUMBER() OVER (PARTITION BY player ORDER BY ABS(ticks - ?), id)'
+                          ' AS rk FROM replays WHERE %s AND ticks BETWEEN ? AND ?) WHERE rk <= ? ORDER BY ABS(ticks - ?), id LIMIT ?'
+                          % (cols, cols, where), (end,) + head + (lo, hi, PUB_PER_PLAYER, end, PUB_CANDIDATES * 3))
+        seen = {r['id'] for r in named}
+        return [dict(r, named=True) for r in named] + [dict(r, named=False) for r in near if r['id'] not in seen]
 
     def public_copy(series, trail, mask, rows):
         """copy_of over `rows` (public_replays), each file read and turned into a motion signature only when its turn
         comes, one at a time; a file missing, too big or unreadable is passed over. Out of time: the rest go unread."""
-        t0 = time.monotonic()
+        t0, read, skipped = time.monotonic(), [0], []
 
         def sigs():
             for r in rows:
-                if time.monotonic() - t0 > PUB_BUDGET: return
+                if time.monotonic() - t0 > PUB_BUDGET or (read[0] >= PUB_CANDIDATES and not r['named']): return
                 p = pub_file(replay_dirs, r)
-                if p is None: continue
+                body = None
                 try:
-                    with open(p, 'rb') as fh: body = fh.read(PUB_BYTES + 1)
-                    if len(body) > PUB_BYTES or not body.startswith(b'FTESURF-REC '): continue
+                    if p is not None:
+                        with open(p, 'rb') as fh: body = fh.read(PUB_BYTES + 1)
+                    if body is None or len(body) > PUB_BYTES or not body.startswith(b'FTESURF-REC '):
+                        skipped.append(r['id'])
+                        continue
+                    read[0] += 1
                     run = tp.read(text=body.decode('utf-8', 'replace'))
-                    del body
+                    body = None
                     if run.end is None or len(run.samples) < 3: continue
                     pos = array('f')
                     vel = motion_series(run, None, pos)
-                    del run
-                except Exception:   # one unreadable replay is not the uploader's fault
-                    app.logger.exception('tasupd: replay %s did not read', r['id'])
+                    run = None
+                except Exception as e:   # one unreadable replay is not the uploader's fault
+                    skipped.append(r['id'])
+                    app.logger.warning('tasupd: replay %s did not read (%s)', r['id'], type(e).__name__)
                     continue
-                yield {'id': r['id'], 'kind': r['kind'], 'name': r['name'], 'state': 'public',
-                       'sig': zlib.compress(vel.tobytes() + pos.tobytes(), 1)}
-        return copy_of(series, trail, mask, sigs(), budget=PUB_BUDGET + 5, late=None)
+                yield dict(r, state='public', sig=zlib.compress(vel.tobytes() + pos.tobytes(), 1))
+        got = copy_of(series, trail, mask, sigs(), budget=PUB_BUDGET + 2, late=None)
+        if skipped: app.logger.warning('tasupd: %d public replay file(s) not read (missing, too big or bad): %s',
+                                       len(skipped), ' '.join(map(str, skipped[:10])))
+        return got
 
     def accounts_of(steamids):
         """{steamid: (name, banned)} for the ones World of Surf knows; raises Unavailable."""
@@ -904,9 +913,13 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
             with connect(store) as db: db.execute('SELECT COUNT(*) FROM runs').fetchone()
             read_surfd('SELECT steamid, name, banned_at FROM accounts LIMIT 1')
             read_surfd('SELECT map, track, leg, style, millis FROM runs LIMIT 1')
+            if replay_dirs:   # P1798 (review 1): a root this service cannot list would turn the copy check off unseen
+                read_surfd('SELECT id, kind, map_dir, leaf, runid, tier, style FROM replays LIMIT 1')
+                bad = [k for k, d in sorted(replay_dirs.items()) if not (os.path.isdir(d) and os.access(d, os.R_OK | os.X_OK))]
+                if bad: raise Unavailable('replay folders cannot be read: %s' % ', '.join(bad))
         except (sqlite3.Error, Unavailable) as e:
             return jsonify(ok=0, why=str(e) if isinstance(e, Unavailable) else type(e).__name__), 503
-        return jsonify(ok=1, store=1, accounts=1)
+        return jsonify(ok=1, store=1, accounts=1, **({'replays': len(replay_dirs)} if replay_dirs else {}))
 
     @app.get(base + '/api/board')
     def board_api():
@@ -1483,6 +1496,9 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                 pub_why = pub_why and 'public replays: ' + pub_why
             except Unavailable as e:
                 pub, pub_why = None, 'not compared with the public replays: %s' % e
+            if pub is not None and ('tas' in (pub['style'] or '').lower() or (pub['tier'] or '').startswith('banned')):
+                # another bot's motion may converge (held, as an upload's copy is), and a banned row is not named
+                pub_why, pub = 'the motion of public replay %d (another player\'s): the owner decides whose it is' % pub['id'], None
             if pub is None:
                 with connect(store) as db:
                     seen = db.execute('SELECT COALESCE(MAX(id), 0) FROM runs').fetchone()[0]
@@ -1494,7 +1510,6 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
             return refuse('That is the motion of %s\'s %s run on this course (replay %d): it is its player\'s, not an'
                           ' upload.' % (pub['name'] or 'another player', PUB_KINDS[pub['kind']], pub['id']), 409)
         if copy is not None and not isinstance(copy, str): return copy
-        if pub_why: copy = pub_why if copy is None else copy   # held for the owner, as a close copy is
         record, record_why = None, None
         try: record = course_record(mapname, track)
         except Unavailable as e: record_why = str(e)
@@ -1505,7 +1520,7 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
             with connect(store) as db, writing(db):
                 again = copied(db, seen, owns)
                 if again is not None and not isinstance(again, str): return again
-                for why in (copy, again):
+                for why in (copy, again, pub_why):   # pub_why: P1798, held for the owner as a close copy is
                     if isinstance(why, str):
                         state = 'held'
                         reasons = reasons + [{'level': tp.HOLD, 't': None, 'what': why}]

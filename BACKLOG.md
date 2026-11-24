@@ -410,7 +410,7 @@ once the reload clock is rebased -- scratchpad p1716_rebase.py), giving a "re-si
   one-row edit of it does not.
 - tools/tasplaus.py: map push/booster volumes and stage legs still HOLD (surf_classics/sodacity boosters).
 - P1798 compares each upload with the course's public replays, but only the 8 nearest in length (+ the one its
-  runid names) within 10 s, files up to 16 MB: a copy of a replay that is neither near in length (cut short) nor
+  runid names) within 6 s, files up to 16 MB: a copy of a replay that is neither near in length (cut short) nor
   named, or of a larger lobby file, is not caught; the comparison is reread from disk on every upload (no cached
   signature). Falsifier: a public replay cut to 80% of its ticks and uploaded is refused.
 - tasupd limits not covered by unit tests: the two-at-once Steam confirmation slot (503), IPv6 /64 rate keys and

@@ -1635,15 +1635,17 @@ class PublicReplays(Service):
         super().setUp()
         d = Path(self.tmp.name)
         self.roots = {k: d / ('rep_' + k) for k in ('run', 'ksf', 'momentum')}
+        for r in self.roots.values(): r.mkdir()
         with contextlib.closing(sqlite3.connect(self.accounts)) as db, db:
             db.execute('CREATE TABLE replays (id INTEGER PRIMARY KEY, map TEXT, map_dir TEXT, track INTEGER, leg INTEGER, leaf TEXT,'
                        ' tier TEXT, style TEXT, player TEXT, name TEXT, ticks INTEGER, tickrate REAL, runid TEXT, kind TEXT)')
+        self.end = svc.load_tasplaus().read(text=rec().decode()).end
         self.app = svc.create_app(self.store, self.accounts, self.zdirs, BASE, http=self.fake_http, clock=self.clock,
                                   replay_dirs={k: str(v) for k, v in self.roots.items()})
         self.rid = 100
 
     def public(self, body, kind='ksf', player='76561198057416875', name='agent flwrs', ticks=None, runid='', leaf=None,
-               track=0, tickrate=66.66666666666667, write=True):
+               track=0, tickrate=66.66666666666667, write=True, style='clean', tier='ksf'):
         """A surfd replays row and its file; ticks default to the file's own length."""
         self.rid += 1
         tp = svc.load_tasplaus()
@@ -1653,8 +1655,8 @@ class PublicReplays(Service):
             f = self.roots[kind] / 'synth' / ('main' if track == 0 else 'bonus_%d' % track) / leaf
             f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(body)
         with contextlib.closing(sqlite3.connect(self.accounts)) as db, db:
-            db.execute("INSERT INTO replays VALUES (?, 'synth', 'synth', ?, 0, ?, ?, 'clean', ?, ?, ?, ?, ?, ?)",
-                       (self.rid, track, leaf, kind, player, name, ticks, tickrate, runid, kind))
+            db.execute("INSERT INTO replays VALUES (?, 'synth', 'synth', ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                       (self.rid, track, leaf, tier, style, player, name, ticks, tickrate, runid, kind))
         return self.rid
 
     def test_importer_lines_alone_are_no_refusal(self):
@@ -1680,7 +1682,7 @@ class PublicReplays(Service):
         moved = [(t, [o[0] + 500.0, o[1] - 20.0, o[2] + 3.0], v) for t, o, v in rows]   # the same motion elsewhere
         for kind, label in (('momentum', 'Momentum'), ('run', 'World of Surf')):
             with self.subTest(kind=kind):
-                self.setUp()
+                self.tearDown(); self.setUp()
                 self.public(rec(), kind=kind, name='Bob')
                 c, _ = self.sign_in(ALICE)
                 r = self.upload(c, rec(moved, fin))
@@ -1709,6 +1711,57 @@ class PublicReplays(Service):
         self.public(rec(*variant(vw=3.0)))
         c, _ = self.sign_in(ALICE)
         self.assertEqual(self.upload(c, rec()).get_json().get('state'), 'shown')
+
+    def test_one_players_many_rows_do_not_hide_the_copied_one(self):
+        """Review 1: the per-player cap applies before the limit, and rows whose file is gone do not use up the reads."""
+        for i in range(40):
+            self.public(rec(), player='76561198000000099', ticks=self.end, write=False)   # a grinder's archive, files gone
+        for i in range(20):
+            self.public(rec(), player='7656119800000%04d' % (200 + i), ticks=self.end, write=False)
+        rid = self.public(rec(), name='Carol', ticks=self.end + 5)
+        c, _ = self.sign_in(ALICE)
+        r = self.upload(c, rec())
+        self.assertEqual(r.status_code, 409, r.get_json())
+        self.assertIn('(replay %d)' % rid, r.get_json()['error'])
+
+    def test_files_read_stop_at_the_candidate_count(self):
+        others = [self.public(rec(*variant(vw=2.5 + i * 0.25)), player='7656119800000%04d' % (300 + i)) for i in range(svc.PUB_CANDIDATES)]
+        self.public(rec(), name='Dave', ticks=self.end + 25)   # farther than the 8 already read: not compared
+        c, _ = self.sign_in(ALICE)
+        self.assertEqual(self.upload(c, rec()).get_json().get('state'), 'shown')
+        self.assertEqual(len(others), svc.PUB_CANDIDATES)
+
+    def test_another_bots_lobby_run_is_held_not_refused(self):
+        rid = self.public(rec(), kind='run', style='tas', name='Bot')
+        c, _ = self.sign_in(ALICE)
+        r = self.upload(c, rec())
+        self.assertEqual((r.status_code, r.get_json().get('state')), (200, 'held'), r.get_json())
+        self.assertIn('public replay %d' % rid, json.dumps(r.get_json()['reasons']))
+        self.assertNotIn('Bot', json.dumps(r.get_json()))
+
+    def test_a_replay_that_fails_to_read_is_logged_and_passed_over(self):
+        self.public(rec())
+        real, calls = svc.motion_series, []
+        def flaky(run, *a):
+            calls.append(1)
+            if len(calls) == 2: raise ValueError('bad replay')   # 1 the upload's own, 2 the replay's
+            return real(run, *a)
+        svc.motion_series = flaky
+        try:
+            with self.assertLogs(self.app.logger, 'WARNING') as logs:
+                r = self.upload(self.sign_in(ALICE)[0], rec())
+        finally:
+            svc.motion_series = real
+        self.assertEqual(r.get_json().get('state'), 'shown', r.get_json())
+        self.assertIn('did not read (ValueError)', '\n'.join(logs.output))
+
+    def test_health_reads_both_stores(self):   # and the replay folders (review 1)
+        self.assertEqual(self.app.test_client().get('/tasup/api/health').get_json(), {'ok': 1, 'store': 1, 'accounts': 1, 'replays': 3})
+
+    def test_health_says_when_a_replay_folder_cannot_be_read(self):
+        self.roots['momentum'].rmdir()
+        r = self.app.test_client().get('/tasup/api/health')
+        self.assertEqual((r.status_code, r.get_json()['why']), (503, 'replay folders cannot be read: momentum'))
 
     def test_surfd_unreadable_holds(self):
         with contextlib.closing(sqlite3.connect(self.accounts)) as db, db: db.execute('DROP TABLE replays')
