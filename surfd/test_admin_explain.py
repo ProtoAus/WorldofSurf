@@ -42,6 +42,21 @@ class Explain(unittest.TestCase):
             self.assertLess(e['look'], 2, reason)
         self.assertEqual(admin.explain_verdict('REFUSE', 'something new')['short'], 'Checker could not replay it')
 
+    def test_review_1_misfiles(self):
+        # A malformed record is "does not add up" (look 1), not the category its keyword names.
+        for reason, short in (('malformed `hold` accounting', 'Recording does not add up'),
+                              ('a malformed `ghost`', 'Recording does not add up'),
+                              ('a malformed v11 closing clock', 'Recording does not add up'),
+                              ('a malformed parked-clock trailer or unsupported park/clock counts', 'Recording does not add up'),
+                              ('a viewing-clock wall moving backwards', 'Watched mid-run; viewing time does not add up'),
+                              ('a different zone table', 'Map or zones changed since'),
+                              ('the same zones under different zone rules', 'Map or zones changed since'),
+                              ('the file states no zone table', 'Recorded by an older build'),
+                              ('a different mover (pmsrcver)', 'Movement code changed since'),
+                              ('a positive final frozen-clock exclusion', 'Timer was frozen'),
+                              ('an unreadable `entfile`', 'Map or zones changed since')):
+            self.assertEqual(admin.explain_verdict('REFUSE', reason)['short'], short, reason)
+
     def test_prop_skew_is_said(self):
         e = admin.explain_verdict('HOLD', 'state: 1 packet(s) differ, first at row 5; lobby lacked 2 prop model file(s): a, b')
         self.assertIn('missing 2 prop model file(s)', e['text'])

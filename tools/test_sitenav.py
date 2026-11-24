@@ -69,6 +69,36 @@ class SiteNav(unittest.TestCase):
             fh.write('<html><body><header class="nav"><nav class="nav-in"><a href="./">Overview</a></nav></header>')
         self.assertEqual(self.nav.run(self.tmp, check=True), 1)
 
+    def test_a_misindented_closer_eats_nothing(self):
+        # Review 1: the closer had to repeat the opener's indent, so a match ran on to the next block's closer and the
+        # rewrite deleted everything between (here <main> and the footer's opener).
+        self.copy_tree()
+        path = os.path.join(self.tmp, 'src/release/site/zoning.html')
+        with open(path, encoding='utf-8') as fh:
+            text = fh.read()
+        # The header's opener indented two spaces, its closer left at column 0: the old pattern's next "  <!-- /sitenav -->"
+        # was the tail of the footer's (four-space) closer.
+        text = text.replace('<!-- sitenav:header page=zoning base=./ -->', '  <!-- sitenav:header page=zoning base=./ -->')
+        with open(path, 'w', encoding='utf-8') as fh:
+            fh.write(text)
+        self.nav.run(self.tmp, check=False)
+        with open(path, encoding='utf-8') as fh:
+            after = fh.read()
+        self.assertIn('<main class="compact zoning">', after)
+        self.assertIn('<!-- sitenav:footer base=./ -->', after)
+        self.assertEqual(after.count('<header class="nav">'), 1)
+
+    def test_an_unpaired_marker_is_refused(self):
+        self.copy_tree()
+        path = os.path.join(self.tmp, 'src/release/site/anticheat.html')
+        with open(path, encoding='utf-8') as fh:
+            text = fh.read()
+        with open(path, 'w', encoding='utf-8') as fh:
+            fh.write(text.replace('<!-- /sitenav -->', '', 1))
+        self.assertEqual(self.nav.run(self.tmp, check=False), 1)
+        with open(path, encoding='utf-8') as fh:
+            self.assertEqual(fh.read(), text.replace('<!-- /sitenav -->', '', 1))      # untouched
+
     def test_board_keeps_its_hash_hooks(self):
         out = self.nav.header({'page': 'board', 'base': '../'}, '')
         self.assertIn('<a data-tab="board" href="#">Leaderboard</a>', out)

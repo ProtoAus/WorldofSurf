@@ -739,42 +739,51 @@ def verifier_counts(raw):
 # run stands high, 0 = nothing to see. REFUSE is the checker's "cannot say", never a judgement on the run.
 _EXPLAIN = {
     "REFUSE": (
+        (r"(?=.*view)(?=.*(?:malformed|inconsistent|incomplete|overlapping|discontinuous|backwards|unmatched))", 1,
+         "Watched mid-run; viewing time does not add up",
+         "The player watched a replay or spectated during the run, and the recorded viewing time is incomplete or "
+         "does not add up, so the checker stops. Usually harmless; if the run stands high on a board, watch it."),
+        (r"entfile|entity lump", 1, "Map or zones changed since",
+         "The map's entity fix on the server is not the one the run was played with (updated since), "
+         "so a replay would not be the same course. Re-check after it matches, or review by eye."),
+        (r"malformed|invalid|truncated|unreadable|inconsistent|incomplete|duplicate|overlapping|discontinuous"
+         r"|backwards|unmatched|outside body|contradicts|second `pause`|with no `pause`|with no `in`|inaccurate"
+         r"|inside an open window|start tick is not", 1,
+         "Recording does not add up",
+         "Parts of the recording contradict each other, so the checker stops. Usually a cut-off file or a "
+         "recorder bug; if the run stands high on a board, watch it before trusting it."),
         (r"cold rewind|save-state resume or retry|stage restart", 0, "Used retry or a save",
          "The player went back to a saved spot during the run (retry, loading a save, or restarting a stage). "
          "The checker can only replay a run played straight through, so it skips these. Normal play."),
         (r"`pause` no `session` answers", 0, "Parked, never resumed",
          "The run was parked to finish later, and the recording stops before it was picked up again."),
-        (r"parked-wall|parkclock", 0, "Parked, finished later",
+        (r"parked-wall|parkclock|parked-clock", 0, "Parked, finished later",
          "The run was parked and finished in a later session. The real time spent away counts on the clock, "
          "and the checker cannot replay that yet."),
-        (r"non-counted/kept|v11 closing clock", 0, "Timer kind not replayable yet",
+        (r"non-counted/kept|closing clock", 0, "Timer kind not replayable yet",
          "The run's timer ended in a mode the checker cannot add up yet (a run kept through a hold or a pause, "
          "or one timed by the older sampled clock). Skipped, not judged."),
-        (r"frozen timer|excluded-clock|`hold`", 0, "Timer was frozen",
+        (r"frozen|excluded-clock|`hold`", 0, "Timer was frozen",
          "Part of the run happened with the timer frozen (a save-lock hold or a pinned spot). "
          "The checker cannot replay frozen time yet."),
-        (r"(?:malformed|inconsistent|incomplete|overlapping|discontinuous|backwards|unmatched).*view", 1,
-         "Watched mid-run; viewing time does not add up",
-         "The player watched a replay or spectated during the run, and the recorded viewing time is incomplete or "
-         "does not add up, so the checker stops. Usually harmless; if the run stands high on a board, watch it."),
         (r"viewing|spec window|spec edge|ghost window|ghost edge|`spec`|`ghost`", 0, "Watched or spectated mid-run",
          "The player watched a replay, spectated or used ghost mode while the run was going. "
          "The checker cannot replay that stretch yet."),
+        (r"^the file states no zone", 0, "Recorded by an older build",
+         "The recording predates zone pins, so the checker cannot tell which zones it was timed on."),
+        (r"different map|zone pin|zone table|zone rules", 1, "Map or zones changed since",
+         "The map or its zones on the server are not the ones the run was played on (updated since), "
+         "so a replay would not be the same course. Re-check after the run's own map is back, or review by eye."),
+        (r"different mover|pmsrcver", 0, "Movement code changed since",
+         "The server's movement code is a different version from the one the run was played on, "
+         "so a replay would not match. Re-check after the server matches, or review by eye."),
         (r"^not exact|no `zseed`|no input trace|no movetickrate|below FTESURF-REC|unsupported|no verifier hooks"
-         r"|recorder before|QC build", 0, "Recorded by an older build",
+         r"|recorder before|QC build|states no", 0, "Recorded by an older build",
          "The recording comes from a game or server build older than the checker supports, "
          "so it lacks something a replay needs."),
         (r"^unfinished", 0, "Not finished", "The recording has no finish, so there is no time to check."),
-        (r"different map|entity lump|entfile|zone pin|start tick", 1, "Map or zones changed since",
-         "The map or its zones on the server are not the ones the run was played on (updated since), "
-         "so a replay would not be the same course. Re-check after the run's own map is back, or review by eye."),
         (r"no map loaded|cannot read|cannot bind", 0, "Checker could not open it",
          "The checker could not load the map or read the file this time. Re-check queues it again."),
-        (r"malformed|invalid|truncated|unreadable|inconsistent|duplicate|overlapping|discontinuous|backwards"
-         r"|unmatched|outside body|contradicts|second `pause`|with no `pause`|with no `in`", 1,
-         "Recording does not add up",
-         "Parts of the recording contradict each other, so the checker stops. Usually a cut-off file or a "
-         "recorder bug; if the run stands high on a board, watch it before trusting it."),
     ),
     "HOLD": (
         (r"^state:", 2, "Replay drifted from the recording",

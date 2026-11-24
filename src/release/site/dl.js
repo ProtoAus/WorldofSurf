@@ -60,10 +60,11 @@
     }, function () { return null; });
   }
 
-  // A button that downloads on click and reports progress in its own label. Asking again for the same file
-  // returns the same element, so a list that redraws keeps a running download.
+  // A button that downloads on click and reports progress in its own label. Asking again for the same file and
+  // class returns the same element, so a list that redraws keeps a running download; another class (the zoning
+  // page's recent list beside its rows) gets its own, or appending it would move it out of the other list.
   function button(kind, map, label, cls) {
-    var key = kind + ':' + map;
+    var key = kind + ':' + map + ':' + (cls || '');
     if (made[key]) { return made[key]; }
     var b = made[key] = document.createElement('button'), running = false;
     b.type = 'button';

@@ -54,10 +54,13 @@ BOARD_HOOKS = {'home': ('dl', '../'), 'board': ('board', '#'), 'people': ('peopl
 SCAN = ('src/release/page.template.html', 'src/release/site', 'surfd/web', 'surfd/templates', 'surfd/tasupd.py')
 NO_MENU = {'surfd/templates/_admin_style.html'}
 
+# The body may not cross another marker, and the closer's indent is free (the block is rewritten at the opener's):
+# a mis-indented closer must not let a match run on and eat the page up to the next block's end.
 HTML_BLOCK = re.compile(r'(?P<indent>[ \t]*)<!-- sitenav:(?P<kind>header|footer|admin)(?P<args>[^>]*?)-->\n'
-                        r'(?P<body>.*?)(?P=indent)<!-- /sitenav -->', re.S)
+                        r'(?P<body>(?:(?!<!-- /?sitenav).)*?)[ \t]*<!-- /sitenav -->', re.S)
 PY_BLOCK = re.compile(r'(?P<indent>[ \t]*)# sitenav:(?P<kind>python)(?P<args>[^\n]*)\n'
-                      r'(?P<body>.*?)(?P=indent)# /sitenav', re.S)
+                      r'(?P<body>(?:(?!# /?sitenav).)*?)[ \t]*# /sitenav', re.S)
+MARKERS = re.compile(r'<!-- (/?)sitenav\b|# (/?)sitenav\b')
 MENU = re.compile(r'<nav\b|SITE_NAV\s*=')
 
 
@@ -168,12 +171,16 @@ def files(root):
 
 
 def run(root, check):
-    stale, unblocked = [], []
+    stale, unblocked, broken = [], [], []
     for rel in files(root):
         path = os.path.join(root, rel)
         with open(path, encoding='utf-8', newline='') as fh:
             text = fh.read()
         blocks = len(HTML_BLOCK.findall(text)) + len(PY_BLOCK.findall(text))
+        marks = [bool(m.group(1) or m.group(2)) for m in MARKERS.finditer(text)]
+        if len(marks) != 2 * blocks or marks != [False, True] * blocks:
+            broken.append(rel)              # an unpaired or nested marker: never rewrite around it
+            continue
         if not blocks:
             if rel not in NO_MENU and MENU.search(text):
                 unblocked.append(rel)
@@ -184,11 +191,13 @@ def run(root, check):
             if not check:
                 with open(path, 'w', encoding='utf-8', newline='') as fh:
                     fh.write(new)
+    for rel in broken:
+        print('BROKEN    %s has an unpaired or nested sitenav marker; fix it by hand (nothing written)' % rel)
     for rel in unblocked:
         print('NO BLOCK  %s has a menu but no sitenav block' % rel)
     for rel in stale:
         print(('STALE     ' if check else 'rewrote   ') + rel)
-    return 1 if unblocked or (check and stale) else 0
+    return 1 if unblocked or broken or (check and stale) else 0
 
 
 def main(argv=None):
