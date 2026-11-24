@@ -53,7 +53,9 @@ Every account is refused until granted. The zone admins (Proto, Markbeaton54 on 
    that can fail without touching a shared file, first, so a refused picture never changes a zone file. Then under
    zonepub's own lock (`publish.lock` beside its store, as zonepub_publish.locked takes it; opened read-only, since
    the unit cannot write that directory and flock needs no write access; 30 s, then "try again") and the content
-   lease: an earlier attempt's record with no uploads row (it crashed with its zones live) is undone first; zone
+   lease: an earlier attempt's record with no uploads row (it crashed with its zones live) is undone first, unless
+   zonepub's history (its store beside the lock, read-only) has a publication of that map since the record was
+   written: then the files are that publish's (an identical publish is a noop row) and are left; zone
    files already in zonepub's two dirs are copied to `<store>/zones-aside/` (private, never served); the
    `upload_zones` row is written; the zones; the pictures into `ftesurf-site/media/uploads/`; the BSP linked into
    `game/momentum/maps/` last (never over a file); the `uploads` row. If the pictures or the link fail, the old zone
@@ -69,9 +71,9 @@ download it from the Pi. Uploaded zones are not in zonepub's history (the zoning
 ## The store
 
 `mapupd.db`: roles, nonces, sessions, uploads, and (P1799) `upload_zones(map, sha, aside)`: the SHA-256 of the zone
-file the upload wrote ('' none) and a JSON list, one entry per zone dir it wrote (`dir`; `file`, its copy in
-`zones-aside/` of what it replaced there, and that copy's `sha`, both '' for none). Written before the first zone
-write; a row with no `uploads` row is an attempt that crashed (the next finish of that name undoes it) or a remove
+file the upload wrote ('' none), a JSON list, one entry per zone dir it wrote (`dir`; `file`, its copy in
+`zones-aside/` of what it replaced there, and that copy's `sha`, both '' for none), and `at`, when. Written before
+the first zone write; a row with no `uploads` row is an attempt that crashed (the next finish of that name undoes it) or a remove
 left part done (a re-run continues). A table of its own, not columns on `uploads`: `init` is the migration (CREATE
 ... IF NOT EXISTS, additive) and runs while the old release still serves (`--upgrade-from`), which inserts 12 values
 into `uploads`. The service and `remove` also create it. An upload from before P1799 has no row. `list` shows how
@@ -83,13 +85,15 @@ many zone files each upload replaced.
         --maps /srv/nvme/ftesurf-server/game/momentum/maps --zone-dir /srv/nvme/ftesurf-server/game/ftesurf/maps/zones/local \
         --zone-dir /srv/nvme/ftesurf-site/zones --media /srv/nvme/ftesurf-site/media --list /srv/nvme/surfd/data/mapwatch/mapdl.txt
 
-Under zonepub's lock, the BSP to `maps/.old/<name>.removed-<time>.bsp`, then the zones; then pictures and table rows;
-the rows last (the tick heals only maps still in the library), so a failed remove can simply be run again. Zones
-(P1799): only the ones the upload placed, per recorded dir. A file still the upload's (its SHA-256) is copied to
-`zones-aside/` and either replaced by what the upload displaced (checked against its SHA-256) or taken out. A dir not
-given with `--zone-dir`, a file gone or changed since (a zone_edit Publish), a missing copy, or a read or write that
-fails is left and stays in `upload_zones` (the output names the copy of what it replaced); a re-run with the record
-alone continues. An upload that brought no zones, or one from before P1799 (who brought which files is not
-recorded), leaves them all. The command prints what it did per file. Old zones an upload replaced stay in
+All of it under zonepub's lock, the rows read there too (a finish of the same name cannot slip between the read and
+the writes): the BSP to `maps/.old/<name>.removed-<time>.bsp`, the zones (the record updated at once), pictures and
+table rows, the uploads row last (the tick heals only maps still in the library). A failed remove can be run again:
+each step finds its own work done. Zones (P1799): only the ones the upload placed, per recorded dir. A file still
+the upload's (its SHA-256) is copied to `zones-aside/` and either replaced by what the upload displaced (checked
+against its SHA-256) or taken out; one already back as it was before the upload counts as done. A dir not given with
+`--zone-dir`, a file gone or changed since, a missing copy, or a read or write that fails is left and stays in
+`upload_zones` (the output names the copy of what it replaced), and the command exits 1. All are left when zonepub
+has published the map since the upload, or its history cannot be read; so is everything for an upload that brought
+no zones or one from before P1799 (who brought which files is not recorded). It prints what it did per file. Old zones an upload replaced stay in
 `zones-aside/` until a remove puts them back; there is no other command. A lobby on the map keeps it until its next
 change; R2's copy goes with r2mirror's next run.

@@ -1060,23 +1060,29 @@ float(string verb, string arg) MUp_Command =
 	return TRUE;
 };
 
-// P1799: the zone editor's Map upload tab (ui_mapupload_request; "-" back: refused). A server's csprogs can set it
-// too, so it only opens the window and picks that name's loose maps/ file, in a game this client hosts; Upload still
-// needs the admin's own press. Polled by m_draw.
+// P1799: the zone editor's Map upload tab (ui_mapupload_request; "-<why>" back: refused). A server's csprogs can set
+// it too, so it only opens the window and picks that name's loose maps/ file, in a game this client hosts; Upload
+// still needs the admin's own press. Polled by m_draw.
 void() MUp_PollRequest =
 {
-	local string want, f;
+	local string want, f, why;
 	local float i;
-	if (cvar_string("ui_mapupload_request") == "" || cvar_string("ui_mapupload_request") == "-") return;
+	if (cvar_string("ui_mapupload_request") == "" || substring(cvar_string("ui_mapupload_request"), 0, 1) == "-") return;
 	want = strzone(cvar_string("ui_mapupload_request"));
 	cvar_set("ui_mapupload_request", "");
-	// only from a game this client hosts and has fully joined (where the editor's tab is offered), never a demo: a
-	// value left by another csprogs at its shutdown, before a stuffed connect or in a demo is refused, not acted on
-	if (!MUp_StemOK(want) || clientstate() != 2 || strcmp(serverkey("constate"), "active") || isdemo() || !isserver()
-		|| ms_consent < FS_TERMS_VERSION)
+	// only from a game this client hosts (the loopback, as ZoneEdit_Hosting) and has fully joined, never a demo: a value
+	// left by another csprogs at its shutdown, before a stuffed connect or in a demo is refused, not acted on
+	why = "";
+	if (!MUp_StemOK(want)) why = "n";
+	else if (ms_consent < FS_TERMS_VERSION) why = "t";
+	else if (clientstate() != 2 || strcmp(serverkey("constate"), "active") || isdemo() || !isserver()
+		|| strstrofs(serverkey("ip"), "QLoopBack") != 0)
+		why = "h";
+	if (why != "")
 	{
-		print("map upload: the zone editor's request was refused (it opens the window only in a game you host)\n");
-		cvar_set("ui_mapupload_request", "-");          // the editor says so (ZoneEdit_Want)
+		print(sprintf("map upload: the zone editor's request was refused (%s)\n", (why == "n") ? "not a map name it takes"
+			: (why == "t") ? "the online terms are not accepted" : "it opens the window only in a game you host"));
+		cvar_set("ui_mapupload_request", strcat("-", why));     // the editor says so (ZoneEdit_Want)
 		strunzone(want);
 		return;
 	}

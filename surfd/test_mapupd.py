@@ -124,14 +124,26 @@ class Flow(unittest.TestCase):
         return self.cli(argv)
 
     def cli(self, argv):
+        """What a command printed; its exit status in self.rc, what it said on stderr in self.err."""
         old, sys.argv = sys.argv, argv
-        out = io.StringIO()
+        out, err = io.StringIO(), io.StringIO()
+        self.rc = 0
         try:
-            with mock.patch('sys.stdout', out):
+            with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
                 M.main()
+        except SystemExit as e:
+            self.rc = e.code
         finally:
             sys.argv = old
+        self.err = err.getvalue()
         return out.getvalue()
+
+    def zonepub(self, *rows):
+        """zonepub's store beside its lock, with publications (map, at)."""
+        with sqlite3.connect(self.lock.with_name('zones.sqlite3')) as z:
+            z.execute('CREATE TABLE IF NOT EXISTS publications(id INTEGER PRIMARY KEY, map TEXT, at INTEGER, kind TEXT)')
+            for name, at in rows:
+                z.execute("INSERT INTO publications(map, at, kind) VALUES(?,?,'noop')", (name, at))
 
     def record(self, name):
         with sqlite3.connect(self.store / 'mapupd.db') as db:
@@ -469,7 +481,9 @@ class Flow(unittest.TestCase):
             (d / 'surf_later.json').write_bytes(later)
             (d / 'surf_over.json').write_bytes(later)
         self.assertIn('the upload brought none', self.remove('surf_later'))
+        self.assertEqual(self.rc, 0)
         out = self.remove('surf_over')
+        self.assertEqual(self.rc, 1)                        # left recorded: not done
         self.assertIn('changed since the upload: left (it replaced nothing)', out)
         for d in self.zones:
             self.assertEqual((d / 'surf_later.json').read_bytes(), later)
@@ -546,11 +560,10 @@ class Flow(unittest.TestCase):
             self.assertIn('publishing zones right now', f['error'])
             self.assertEqual((self.zones[0] / 'surf_locked.json').read_bytes(), old)
             self.assertFalse((self.maps / 'surf_locked.bsp').exists())
-            err = io.StringIO()
-            with mock.patch('mapupd.zone_lock', lambda path, wait: orig(path, 0.2)), mock.patch('sys.stderr', err):
-                with self.assertRaises(SystemExit):
-                    self.remove('surf_held')
-            self.assertIn('publishing zones right now', err.getvalue())
+            with mock.patch('mapupd.zone_lock', lambda path, wait: orig(path, 0.2)):
+                self.remove('surf_held')
+            self.assertEqual(self.rc, 2)
+            self.assertIn('publishing zones right now', self.err)
             self.assertTrue((self.maps / 'surf_held.bsp').exists())     # nothing moved while it was held
             self.assertIsNotNone(self.record('surf_held'))
         b, f = self.upload('surf_locked', z=zone(128))      # released: it goes through
@@ -562,11 +575,14 @@ class Flow(unittest.TestCase):
             (d / 'surf_part.json').write_bytes(old)
         self.assertEqual(self.upload('surf_part', z=new)[1]['ok'], 1)
         out = self.remove('surf_part', zone_dirs=self.zones[:1])
+        self.assertEqual(self.rc, 1)
         self.assertIn('not handled (no --zone-dir for it; it replaced zones-aside/surf_part.replaced-', out)
         self.assertEqual((self.zones[0] / 'surf_part.json').read_bytes(), old)
         self.assertEqual((self.zones[1] / 'surf_part.json').read_bytes(), new)
         self.assertEqual([e['dir'] for e in self.record('surf_part')[1]], [str(self.zones[1].resolve())])
         out = self.remove('surf_part')                      # the re-run continues from the record
+        self.assertEqual(self.rc, 0)
+        self.assertIn('no BSP of it was in the library', out)
         self.assertEqual((self.zones[1] / 'surf_part.json').read_bytes(), old)
         self.assertIsNone(self.record('surf_part'))
 
@@ -580,17 +596,116 @@ class Flow(unittest.TestCase):
             out = self.remove('surf_ro')
         finally:
             os.chmod(self.zones[1], 0o700)
+        self.assertEqual(self.rc, 1)
         self.assertIn('cannot be written', out)
+        self.assertNotIn('copied to []', out)
         self.assertIn('still recorded', out)
         self.assertEqual((self.zones[0] / 'surf_ro.json').read_bytes(), old)
         self.assertEqual((self.zones[1] / 'surf_ro.json').read_bytes(), new)
         self.assertFalse((self.maps / 'surf_ro.bsp').exists())
         self.assertIn('put back as it was', self.remove('surf_ro'))     # no uploads row now: the record carries it
+        self.assertEqual(self.rc, 0)
         self.assertEqual((self.zones[1] / 'surf_ro.json').read_bytes(), old)
         self.assertIsNone(self.record('surf_ro'))
-        with self.assertRaises(SystemExit):
-            with mock.patch('sys.stderr', io.StringIO()):
-                self.remove('surf_ro')                      # nothing left: not an upload
+        self.remove('surf_ro')                              # nothing left: not an upload
+        self.assertEqual(self.rc, 2)
+        self.assertIn('not an upload', self.err)
+
+    # ---- round 2 ---------------------------------------------------------------------------------------------------
+    def test_remove_reads_its_rows_under_the_lock(self):
+        # a remove that left a dir recorded, re-run while a new upload of the name finishes just before it gets the
+        # lock: it must act on the new upload's rows, never on what it saw before (that moved the new BSP and wrote
+        # the old record over the new one)
+        o, a, b = zone(), zone(96), zone(128)
+        for d in self.zones:
+            (d / 'surf_race.json').write_bytes(o)
+        self.assertEqual(self.upload('surf_race', z=a)[1]['ok'], 1)
+        self.remove('surf_race', zone_dirs=self.zones[:1])
+        self.assertEqual(self.rc, 1)
+        orig, ran = M.zone_lock, []
+
+        def finish_first(path, wait):
+            if wait == 120 and not ran:                     # remove's call: the new upload slips in before it
+                ran.append(1)
+                self.assertEqual(self.upload('surf_race', z=b)[1]['ok'], 1)
+            return orig(path, wait)
+        with mock.patch('mapupd.zone_lock', finish_first):
+            self.remove('surf_race')
+        self.assertEqual(self.rc, 0)
+        for d in self.zones:
+            self.assertEqual((d / 'surf_race.json').read_bytes(), o)
+        self.assertIsNone(self.record('surf_race'))
+        with sqlite3.connect(self.store / 'mapupd.db') as db:
+            self.assertIsNone(db.execute("SELECT 1 FROM uploads WHERE map='surf_race'").fetchone())
+
+    def test_a_remove_that_died_can_be_run_again(self):
+        o, a = zone(), zone(96)
+        for d in self.zones:
+            (d / 'surf_died.json').write_bytes(o)
+        self.assertEqual(self.upload('surf_died', z=a)[1]['ok'], 1)
+        argv = ['mapupd.py', '--store', str(self.store), 'remove', '--map', 'surf_died', '--maps', str(self.maps),
+                '--list', str(self.list) + '.typo'] + sum((['--zone-dir', str(d)] for d in self.zones), [])
+        with self.assertRaises(FileNotFoundError):         # after the zones went back, before the rows
+            old, sys.argv = sys.argv, argv
+            try:
+                with mock.patch('sys.stdout', io.StringIO()):
+                    M.main()
+            finally:
+                sys.argv = old
+        for d in self.zones:
+            self.assertEqual((d / 'surf_died.json').read_bytes(), o)
+        out = self.remove('surf_died')
+        self.assertEqual(self.rc, 0)
+        self.assertIn('all handled already', out)
+        self.assertNotIn('surf_died', self.list.read_text())
+        self.assertIsNone(self.record('surf_died'))
+
+    def test_take_back_counts_a_dir_already_put_back_as_done(self):
+        # died between putting the files back and recording it: the files are the replaced ones, the copies gone
+        o, a = zone(), zone(96)
+        for d in self.zones:
+            (d / 'surf_done.json').write_bytes(o)
+        self.assertEqual(self.upload('surf_done', z=a)[1]['ok'], 1)
+        for d in self.zones:
+            (d / 'surf_done.json').write_bytes(o)
+        for k in self.aside():
+            (self.store / M.ASIDE / k).unlink()
+        out = self.remove('surf_done')
+        self.assertEqual(self.rc, 0)
+        self.assertEqual(out.count('already as it was before the upload'), 2)
+        self.assertIsNone(self.record('surf_done'))
+
+    def test_a_zonepub_publish_since_keeps_the_zones(self):
+        # a crashed attempt's zones, then the same zones published with zone_edit (zonepub records a noop row): a
+        # retry without zones keeps them, as begin says; so does remove
+        class Crash(BaseException):
+            pass
+        o, a = zone(), zone(96)
+        for d in self.zones:
+            (d / 'bhop_pub.json').write_bytes(o)
+        with mock.patch('mapupd.os.link', side_effect=Crash()):
+            with self.assertRaises(Crash):
+                self.upload('bhop_pub', z=a)
+        self.zonepub(('bhop_pub', self.now + 5))
+        self.now += 10
+        b, f = self.upload('bhop_pub')
+        self.assertIn('they stay as they are', b['note'])
+        self.assertEqual(f['ok'], 1, f)
+        for d in self.zones:
+            self.assertEqual((d / 'bhop_pub.json').read_bytes(), a)
+        # an upload whose zones were published again since: remove leaves them
+        self.assertEqual(self.upload('bhop_pub2', z=a)[1]['ok'], 1)
+        self.zonepub(('bhop_pub2', self.now))
+        out = self.remove('bhop_pub2')
+        self.assertEqual(self.rc, 1)
+        self.assertIn('published with zone_edit since', out)
+        for d in self.zones:
+            self.assertEqual((d / 'bhop_pub2.json').read_bytes(), a)
+        # a history that cannot be read decides nothing either
+        self.assertEqual(self.upload('bhop_pub3', z=a)[1]['ok'], 1)
+        self.lock.with_name('zones.sqlite3').write_bytes(b'not a database' * 100)
+        self.assertIn('cannot be read', self.remove('bhop_pub3'))
+        self.assertEqual((self.zones[0] / 'bhop_pub3.json').read_bytes(), a)
 
     def test_a_zone_copy_lobbies_read_first_is_warned(self):
         first = Path(self.tmp.name) / 'game' / 'ftesurf' / 'data' / 'maps' / 'zones' / 'local'

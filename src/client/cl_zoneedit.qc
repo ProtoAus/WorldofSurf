@@ -1972,13 +1972,17 @@ void() ZoneEdit_Open =
 // minute, or one whose map has not come up 10 s on, is dropped; so is one in a game of someone else's.
 void() ZoneEdit_Want =
 {
-	local string w, m;
+	local string w, m, why;
 	local float sp, age;
 
-	if (cvar_string("ui_mapupload_request") == "-")
-	{	// the menu refused this editor's Map upload request (MUp_PollRequest)
+	why = cvar_string("ui_mapupload_request");
+	if (substring(why, 0, 1) == "-")
+	{	// the menu refused this editor's Map upload request (MUp_PollRequest), and says why
+		why = (why == "-t") ? "the upload window needs the online terms accepted first (main menu)"
+		    : (why == "-n") ? "the upload window does not take this map's name"
+		    : "the Map upload tab opens the upload window only in a game you host; F8 opens it anywhere";
 		cvar_set("ui_mapupload_request", "");
-		ZoneEdit_Note("the Map upload tab opens the upload window only in a game you host; F8 opens it anywhere");
+		ZoneEdit_Note(why);
 	}
 	w = cvar_string("ui_zoneedit_want");
 	if (w == "")

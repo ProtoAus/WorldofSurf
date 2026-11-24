@@ -72,11 +72,12 @@ CREATE TABLE IF NOT EXISTS uploads(map TEXT PRIMARY KEY, steamid TEXT NOT NULL, 
  bsp_sha TEXT NOT NULL, kb INTEGER NOT NULL, mode TEXT NOT NULL, tier INTEGER NOT NULL, stages INTEGER NOT NULL,
  bonuses INTEGER NOT NULL, author TEXT NOT NULL, shot INTEGER NOT NULL, zone INTEGER NOT NULL);
 '''
-ZONES_SQL = 'CREATE TABLE IF NOT EXISTS upload_zones(map TEXT PRIMARY KEY, sha TEXT NOT NULL, aside TEXT NOT NULL)'
+ZONES_SQL = ('CREATE TABLE IF NOT EXISTS upload_zones(map TEXT PRIMARY KEY, sha TEXT NOT NULL, aside TEXT NOT NULL, '
+             'at INTEGER NOT NULL DEFAULT 0)')
 SQL += ZONES_SQL + ';\n'
 # P1799: sha = the zone file an upload wrote ('' none); aside = JSON [{dir, file, sha}], one per zone dir it wrote, file
-# the copy (in <store>/zones-aside) of what it replaced there ('' none). Written before the first zone write: a row with
-# no uploads row is an attempt that crashed or a remove left part done. A table, not uploads columns: the old release
+# the copy (in <store>/zones-aside) of what it replaced there ('' none); at, when it wrote them. Written before the first
+# zone write: a row with no uploads row is an attempt that crashed or a remove left part done. A table, not uploads columns: the old release
 # still serving during `init` (--upgrade-from) inserts 12 values into uploads. Pre-P1799 uploads have no row.
 ASIDE = 'zones-aside'
 # zonepub_publish.locked's flock (publish.lock beside zonepub's store): an upload's or remove's zone writes take it too
@@ -532,7 +533,12 @@ def take_back(store, name, zone_dirs, sha, entries, stamp):
             kept.append(e)
             said.append('%s cannot be read (%s): left (it replaced %s)' % (path, err, was))
             continue
-        if cur is None or hashlib.sha256(cur).hexdigest() != sha:
+        now_sha = hashlib.sha256(cur).hexdigest() if cur is not None else ''
+        if now_sha != sha:
+            if now_sha == e['sha']:     # already as before the upload (a remove that stopped after putting it back)
+                drop_aside(store, [e])
+                said.append('%s already as it was before the upload' % path)
+                continue
             kept.append(e)
             said.append('%s is %s since the upload: left (it replaced %s)' % (path, 'gone' if cur is None else 'changed', was))
             continue
@@ -547,8 +553,8 @@ def take_back(store, name, zone_dirs, sha, entries, stamp):
             zonepub_publish.put([path], [prev], MAX_ZONE)
         except Exception as err:
             kept.append(e)
-            said.append('%s cannot be written (%s): left (it replaced %s; the upload\'s own copied to %s)'
-                        % (path, err, was, aside_names(own)))
+            said.append('%s cannot be written (%s): left (it replaced %s%s)' % (
+                path, err, was, '; the upload\'s own copied to %s/%s' % (ASIDE, own[0]['file']) if own else ''))
             continue
         drop_aside(store, [e])          # back in place
         said.append('%s %s (the upload\'s own kept as %s/%s)' % (
@@ -556,13 +562,39 @@ def take_back(store, name, zone_dirs, sha, entries, stamp):
     return kept, said
 
 
-def set_record(db_path, name, sha=None, entries=None):
+def set_record(db_path, name, sha=None, entries=None, at=0):
     """upload_zones' row for `name` (entries None: deleted)."""
     with connect(db_path) as db, writing(db):
         if entries is None:
             db.execute('DELETE FROM upload_zones WHERE map=?', (name,))
         else:
-            db.execute('INSERT OR REPLACE INTO upload_zones VALUES(?,?,?)', (name, sha, json.dumps(entries)))
+            db.execute('INSERT OR REPLACE INTO upload_zones(map, sha, aside, at) VALUES(?,?,?,?)',
+                       (name, sha, json.dumps(entries), at))
+
+
+def published_since(zstore, name, at):
+    """Whether zonepub has a publication of `name` queued at or after `at` (any kind: an identical publish is a
+    noop row, and the file is then that publish's too), or None when its store cannot be read. No store at all:
+    zonepub never ran here."""
+    if not Path(zstore).exists():
+        return False
+    try:
+        with connect(zstore, readonly=True) as z:
+            return z.execute('SELECT 1 FROM publications WHERE map=? AND at>=? LIMIT 1', (name, at)).fetchone() is not None
+    except sqlite3.Error:
+        return None
+
+
+def undo_zones(store, zstore, name, zone_dirs, r, stamp):
+    """take_back for a record `r`, unless zonepub published the map since it was written (or that cannot be read):
+    then the files are that publish's, and every entry is kept. Returns (entries kept, what was done)."""
+    entries = json.loads(r['aside'])
+    pub = published_since(zstore, name, r['at'])
+    if pub is None:
+        return entries, ['left: zonepub\'s history cannot be read, so whose zone files these are cannot be told']
+    if pub:
+        return entries, ['left: %s was published with zone_edit since, so its zone files are that publish\'s' % name]
+    return take_back(store, name, zone_dirs, r['sha'], entries, stamp)
 
 
 def peer_key(addr):
@@ -582,6 +614,7 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
     zone_check = tuple(Path(p) for p in (zone_check if zone_check is not None else zone_dirs))
     media_dir = Path(media_dir) if media_dir else None
     zonepub_lock = zonepub_lock or os.environ.get('MAPUPD_ZONEPUB_LOCK') or ZONEPUB_LOCK
+    zonepub_store = Path(zonepub_lock).with_name('zones.sqlite3')      # zonepub_publish.locked's: beside its store
     if free_bytes is None:
         free_bytes = lambda: min(shutil.disk_usage(maps_dir).free, shutil.disk_usage(store).free)
     verifier = []
@@ -880,7 +913,7 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                         raise Refused('A zone file of that name on the server is not a plain zone file; tell Proto.')
                     aside = keep_aside(store, name, now, list(zip(zone_paths, olds)), 'replaced')
                     try:
-                        set_record(db_path, name, m['zone'][0], aside)     # before the first zone write
+                        set_record(db_path, name, m['zone'][0], aside, now)    # before the first zone write
                     except sqlite3.Error as e:
                         drop_aside(store, aside)
                         log('upload not recorded before its zones:', name, e)
@@ -919,8 +952,8 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                     with connect(db_path) as db, writing(db):
                         db.execute('INSERT OR REPLACE INTO uploads VALUES(:map,:steamid,:at,:bsp_sha,:kb,:mode,:tier,'
                                    ':stages,:bonuses,:author,:shot,:zone)', u)
-                        db.execute('INSERT OR REPLACE INTO upload_zones VALUES(?,?,?)',
-                                   (name, m['zone'][0] if zone_body is not None else '', json.dumps(aside)))
+                        db.execute('INSERT OR REPLACE INTO upload_zones(map, sha, aside, at) VALUES(?,?,?,?)',
+                                   (name, m['zone'][0] if zone_body is not None else '', json.dumps(aside), now))
                         drop_session(db, token)
                 except sqlite3.Error as e:
                     log('PUBLISHED BUT NOT RECORDED', name, e, '; zones replaced are in', ASIDE, aside_names(aside))
@@ -960,15 +993,17 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
         """A record with no uploads row is an earlier attempt that crashed (or a remove left part done): its zone writes
         are undone first, so this upload replaces what was there before it, not its file."""
         with connect(db_path, readonly=True) as db:
-            r = db.execute('SELECT sha, aside FROM upload_zones z WHERE map=? AND NOT EXISTS '
+            r = db.execute('SELECT sha, aside, at FROM upload_zones z WHERE map=? AND NOT EXISTS '
                            '(SELECT 1 FROM uploads u WHERE u.map=z.map)', (name,)).fetchone()
         if r is None:
             return
-        kept, said = take_back(store, name, zone_dirs, r['sha'], json.loads(r['aside']), now) if r['sha'] else ([], [])
+        kept, said = undo_zones(store, zonepub_store, name, zone_dirs, r, now) if r['sha'] else ([], [])
         log('earlier attempt at', name, 'undone:', '; '.join(said) or 'it wrote no zones')
-        if kept:
+        if kept:                    # the trail stays until this attempt's own record replaces it
             log('copies from it left in', ASIDE, aside_names(kept))
-        set_record(db_path, name)
+            set_record(db_path, name, r['sha'], kept, r['at'])
+        else:
+            set_record(db_path, name)
 
     def uploads():
         with connect(db_path, readonly=True) as db:
@@ -1087,53 +1122,57 @@ def main():
                 db.execute('INSERT OR IGNORE INTO roles VALUES(?)', (sid,))
         print('Granted the map role to the %d zone admins' % len(sids))
     elif args.command == 'remove':
-        # an upload taken back: the BSP aside, the zones it placed (P1799: what they replaced put back; zones it did not
-        # bring, or from before P1799, left), pictures and table rows, and its rows LAST, so a re-run continues (heal
-        # skips a map whose BSP is gone)
+        # an upload taken back, all under zonepub's lock (a finish of the same name waits, and cannot slip between the
+        # read and the writes): the BSP aside, the zones it placed (P1799: what they replaced put back; zones it did not
+        # bring, from before P1799, or published since, left) with the record updated at once, pictures and table rows,
+        # and the uploads row last. Every step can be run again (heal skips a map whose BSP is gone).
         name = args.map
         if not NAME.fullmatch(name):
             ap.error('Expected an uploaded map name')
-        with connect(db_path) as db, writing(db):
-            db.execute(ZONES_SQL)           # a store `init` has not brought up to date
-            up = db.execute('SELECT zone FROM uploads WHERE map=?', (name,)).fetchone()
-            zr = db.execute('SELECT sha, aside FROM upload_zones WHERE map=?', (name,)).fetchone()
-        if up is None and zr is None:
-            ap.error('%s is not an upload' % name)
         maps = Path(args.maps)
         old = maps / '.old'
         old.mkdir(exist_ok=True)
         stamp = int(time.time())
-        kept = []
+        kept, moved = [], None
         try:
             with zone_lock(args.zonepub_lock, 120), zonepub_publish.content_publication():
+                with connect(db_path) as db, writing(db):
+                    db.execute(ZONES_SQL)   # a store `init` has not brought up to date
+                    up = db.execute('SELECT zone FROM uploads WHERE map=?', (name,)).fetchone()
+                    zr = db.execute('SELECT sha, aside, at FROM upload_zones WHERE map=?', (name,)).fetchone()
+                if up is None and zr is None:
+                    raise Refused('%s is not an upload' % name)
                 if (maps / (name + '.bsp')).exists():
-                    os.replace(maps / (name + '.bsp'), old / ('%s.removed-%d.bsp' % (name, stamp)))
+                    moved = old / ('%s.removed-%d.bsp' % (name, stamp))
+                    os.replace(maps / (name + '.bsp'), moved)
                 if zr is None:
                     said = ['left as they are: ' + ('this upload is from before P1799, so which zone files it brought is '
                                                     'not recorded' if up['zone'] else 'the upload brought none')]
                 elif not zr['sha']:
                     said = ['left as they are: the upload brought none']
                 else:
-                    kept, said = take_back(args.store, name, [Path(d) for d in args.zone_dir or ()], zr['sha'],
-                                           json.loads(zr['aside']), stamp)
+                    kept, said = undo_zones(args.store, Path(args.zonepub_lock).with_name('zones.sqlite3'), name,
+                                            [Path(d) for d in args.zone_dir or ()], zr, stamp)
+                    with connect(db_path) as db, writing(db):   # progress, before anything else can fail
+                        db.execute('UPDATE upload_zones SET aside=? WHERE map=?', (json.dumps(kept), name))
+                if args.media:
+                    for f in (name + '.jpg', name + '-thumb.jpg'):
+                        (Path(args.media) / 'uploads' / f).unlink(missing_ok=True)
+                    drop_rows(Path(args.media) / 'mapmeta.txt', 'meta ' + name + ' ', meta=True)
+                if args.list:
+                    drop_rows(Path(args.list), 'dl ' + name + ' ')
+                with connect(db_path) as db, writing(db):
+                    if not kept:            # what was not acted on stays recorded, for a re-run
+                        db.execute('DELETE FROM upload_zones WHERE map=?', (name,))
+                    db.execute('DELETE FROM uploads WHERE map=?', (name,))
         except Refused as e:
             ap.error(str(e))
-        if args.media:
-            for f in (name + '.jpg', name + '-thumb.jpg'):
-                (Path(args.media) / 'uploads' / f).unlink(missing_ok=True)
-            drop_rows(Path(args.media) / 'mapmeta.txt', 'meta ' + name + ' ', meta=True)
-        if args.list:
-            drop_rows(Path(args.list), 'dl ' + name + ' ')
-        with connect(db_path) as db, writing(db):
-            if kept:                        # what was not acted on stays recorded, for a re-run
-                db.execute('UPDATE upload_zones SET aside=? WHERE map=?', (json.dumps(kept), name))
-            else:
-                db.execute('DELETE FROM upload_zones WHERE map=?', (name,))
-            db.execute('DELETE FROM uploads WHERE map=?', (name,))
-        print('Removed %s (its BSP is in %s); zones: %s' % (name, old, '; '.join(said) or 'none there'))
+        print('Removed %s (%s); zones: %s' % (name, 'its BSP is now %s' % moved if moved else 'no BSP of it was in the library',
+                                             '; '.join(said) or 'all handled already'))
         if kept:
             print('%d zone directories are still recorded for %s: run remove again once they can be handled.'
                   % (len(kept), name))
+            sys.exit(1)
     elif args.command == 'roles':
         with connect(db_path, readonly=True) as db:
             print(db.execute('SELECT COUNT(*) FROM roles').fetchone()[0], 'accounts hold the map role')
