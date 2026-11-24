@@ -64,7 +64,7 @@ class TasIndex(unittest.TestCase):
             rid = c.execute("INSERT INTO replays (map, map_dir, track, leg, leaf, tier, style, player, name, ticks, tickrate,"
                             " millis, flags, node, submitted, kind) VALUES (?, ?, ?, 0, ?, 'community', 'tas', ?, 'RecName',"
                             " ?, 66.6667, ?, 4718985, 'p27620', ?, 'run')",
-                            (mapname, mapname, track, '%07d_x_%d.rec' % (ticks, at), sid, ticks,
+                            (mapname, mapname, track, '%07d_%s_%d.rec' % (ticks, sid[-4:], at), sid, ticks,
                              int(round(ticks * 1000.0 / 66.6667)), at)).lastrowid
             if rejected:
                 c.execute("INSERT INTO reviews (replay_id, decision, at) VALUES (?, 'reject', ?)", (rid, at + 1))
@@ -141,7 +141,7 @@ class TasIndex(unittest.TestCase):
     def test_a_set_aside_lobby_row_blocks_filing(self):
         self.lobby(LEX, 'surf_y', 0, 700)
         with sqlite3.connect(self.db) as c:
-            c.execute("UPDATE runs SET tier = 'community@abc' WHERE player = ?", (LEX,))   # a reject parked it
+            c.execute("UPDATE runs SET tier = 'community^r7' WHERE player = ?", (LEX,))    # surfd set it aside
         self.upload(LEX, 'surf_y', 0, 600)
         self.assertEqual(self.sync()['kept_lobby'], 1)
         self.assertEqual(self.board('surf_y'), [])
@@ -174,6 +174,56 @@ class TasIndex(unittest.TestCase):
         self.assertEqual((n['removed'], n['refilled']), (1, 1))
         self.assertEqual(self.board('surf_y'), [(LEX, 'RecName', 9750, keep)])
         self.assertEqual(self.rows()[0][5], '')              # restand's row: no runid
+
+    def test_a_better_lobby_recording_wins_over_the_next_upload(self):
+        a = self.upload(LEX, 'surf_y', 0, 600)
+        self.sync()
+        keep = self.replay(LEX, 'surf_y', 0, 650)             # filed with no row: the upload's 600 stood
+        self.upload(LEX, 'surf_y', 0, 700)
+        self.set_state(a, 'removed')
+        n = self.sync()
+        self.assertEqual((n['removed'], n['refilled'], n['added'], n['kept_lobby']), (1, 1, 0, 1))
+        self.assertEqual(self.board('surf_y'), [(LEX, 'RecName', 9750, keep)])
+        self.assertEqual(self.sync()['kept_lobby'], 1)        # and it stays
+
+    def test_an_unrejected_recording_blocks_filing(self):
+        self.replay(LEX, 'surf_y', 0, 650)
+        self.replay(ROU, 'surf_y', 0, 650, rejected=True)
+        self.upload(LEX, 'surf_y', 0, 600)
+        self.upload(ROU, 'surf_y', 0, 600)
+        n = self.sync()
+        self.assertEqual((n['added'], n['kept_lobby']), (1, 1))
+        self.assertEqual(self.board('surf_y'), [(ROU, 'Rounin', 9000, 0)])
+
+    def test_a_ban_between_the_plan_and_the_lock(self):
+        self.upload(ROU, 'surf_z', 0, 1000)
+        real, calls = T.plan, []
+
+        def plan(db, key, *a, **kw):
+            if not calls:
+                calls.append(key)
+                with sqlite3.connect(self.db) as c:
+                    c.execute('UPDATE accounts SET banned_at = 9 WHERE steamid = ?', (ROU,))
+            return real(db, key, *a, **kw)
+        T.plan = plan
+        try:
+            self.sync()
+        finally:
+            T.plan = real
+        self.assertEqual(calls, [('surf_z', 0, ROU)])
+        self.assertEqual(self.rows(), [])
+
+    def test_withdraw_takes_a_banned_players_upload_row(self):
+        self.upload(ROU, 'surf_z', 0, 1000)
+        self.sync()
+        with sqlite3.connect(self.db) as c:
+            c.execute('UPDATE accounts SET banned_at = 9 WHERE steamid = ?', (ROU,))
+            A.ban_rows(c, ROU, True, S.TIERS_IMPORTED)
+        self.assertEqual(self.sync(withdraw=True)['removed'], 1)
+        with sqlite3.connect(self.db) as c:
+            c.execute('UPDATE accounts SET banned_at = 0 WHERE steamid = ?', (ROU,))
+            A.ban_rows(c, ROU, False, S.TIERS_IMPORTED)
+        self.assertEqual(self.rows(), [])
 
     def test_set_aside_upload_row_is_not_filed_again(self):
         rid = self.upload(ROU, 'surf_z', 0, 1000)
@@ -213,15 +263,14 @@ class TasIndex(unittest.TestCase):
         self.upload(ROU, 'surf_z', 0, 1000)
         rid = self.upload(LEX, 'surf_y', 0, 600)
         self.sync()
-        self.replay(LEX, 'surf_y', 0, 650)
         with sqlite3.connect(self.db) as c:                  # a stray: its course is in no store row
             c.execute("UPDATE runs SET map = 'surf_gone' WHERE runid = ?", ('tasup-%d' % rid,))
         n = self.sync()                                      # the store's own key is filed again; the stray stays
         self.assertEqual((n['removed'], n['added']), (0, 1))
         self.assertEqual(self.sync(full=True)['removed'], 1)
         n = self.sync(withdraw=True)
-        self.assertEqual((n['removed'], n['refilled'], n['added']), (2, 1, 0))
-        self.assertEqual([r[4] for r in self.rows()], ['p27620'])   # LEX's replay stands; no upload row is left
+        self.assertEqual((n['removed'], n['added']), (2, 0))
+        self.assertEqual(self.rows(), [])
 
     def test_cli_quiet(self):
         self.upload(ROU, 'surf_z', 0, 1000)

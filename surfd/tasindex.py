@@ -5,7 +5,8 @@
 tasupd (P1640) keeps uploads in its own store and showed them only on /tasup/board; the board's TAS tab (web and game)
 is surfd's community/tas rows. Each pass files a player's best shown upload on a course as one of those rows (node
 'tasup', runid 'tasup-<id>', TF_TAS, rep 0: surfd serves no tasupd file) -- only into an empty slot: a player with any
-TAS row of their own on that course (live or set aside by surfd) keeps it, and the upload stays on /tasup/board only.
+TAS row of their own on that course (live or set aside by surfd), or an unrejected lobby recording of it, keeps it, and
+the upload stays on /tasup/board only.
 A row of ours whose upload is no longer the player's best shown one is taken out, and the slot refilled from the
 player's best unrejected lobby replay, as surfd.restand does. Banned accounts are left to accounts.ban_rows; an upload
 whose row surfd set aside is not filed again. No state: the courses looked at are every (map, track, player) the
@@ -66,7 +67,7 @@ def ours(r):
     return r['node'] == NODE and RUNID_RE.match(r['runid'] or '') and r['replay_id'] == 0
 
 
-def plan(db, key, up, name):
+def plan(db, key, up, name, banned=False, withdraw=False):
     """[(action, arg)] for one course and player; `up` is the best shown upload or None."""
     want = None
     if up is not None:
@@ -78,8 +79,14 @@ def plan(db, key, up, name):
                       (key[0], key[1], STYLE, key[2])).fetchall()
     mine = [r for r in rows if ours(r)]
     theirs = [r for r in rows if not ours(r)]
+    if banned:                              # accounts.ban_rows parks and restores their rows; withdraw takes ours
+        return [('removed', r['rowid']) for r in mine] if want is None and withdraw else []
     if want is not None and any(r['runid'] == want['runid'] and r['tier'] != TIER for r in mine):
         return [('skipped', None)]          # surfd set this upload's row aside (a review): its call, not ours
+    # the player's best unrejected lobby recording: submit_run files a slower one with no row while ours stands
+    best = db.execute('SELECT p.* FROM replays p WHERE p.map = ? AND p.track = ? AND p.leg = 0 AND p.tier = ?'
+                      " AND p.style = ? AND p.player = ? AND p.kind = 'run' AND NOT " + REJECTED_SQL +
+                      ' ORDER BY p.millis, p.submitted, p.id LIMIT 1', (key[0], key[1], TIER, STYLE, key[2])).fetchone()
     out, freed = [], False
     for r in mine:
         if want is None or r['runid'] != want['runid']:
@@ -91,16 +98,12 @@ def plan(db, key, up, name):
             if any(cur[c] != want[c] for c in COLS):
                 out.append(('updated', want))
             return out
-        if not theirs:
+        if not theirs and best is None:
             return out + [('added', want)]
         out.append(('kept_lobby', None))
-    if freed and not any(r['tier'] == TIER for r in theirs):
-        best = db.execute('SELECT p.* FROM replays p WHERE p.map = ? AND p.track = ? AND p.leg = 0 AND p.tier = ?'
-                          " AND p.style = ? AND p.player = ? AND p.kind = 'run' AND NOT " + REJECTED_SQL +
-                          ' ORDER BY p.millis, p.submitted, p.id LIMIT 1', (key[0], key[1], TIER, STYLE, key[2])).fetchone()
-        if best is not None:                # surfd.restand's row for it
-            out.append(('refilled', {c: (best['id'] if c == 'replay_id' else '' if c == 'runid' else best[c])
-                                     for c in COLS}))
+    if freed and best is not None and not any(r['tier'] == TIER for r in theirs):
+        out.append(('refilled', {c: (best['id'] if c == 'replay_id' else '' if c == 'runid' else best[c])
+                                 for c in COLS}))   # surfd.restand's row for it
     return out
 
 
@@ -115,19 +118,23 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print):
         if full:
             keys |= {(r['map'], r['track'], r['player']) for r in db.execute(
                 'SELECT DISTINCT map, track, player FROM runs WHERE node = ? AND leg = 0 AND style = ?', (NODE, STYLE))}
-        accts, sids = {}, sorted({k[2] for k in keys})
-        for i in range(0, len(sids), 500):
-            part = sids[i:i + 500]
-            for r in db.execute('SELECT steamid, name, banned_at FROM accounts WHERE steamid IN (%s)'
-                                % ','.join('?' * len(part)), part):
-                accts[r['steamid']] = (r['name'] or '', bool(r['banned_at']))
+        accts = {}
+
+        def read_accounts(sids):
+            sids = sorted(sids)
+            for i in range(0, len(sids), 500):
+                part = sids[i:i + 500]
+                for r in db.execute('SELECT steamid, name, banned_at FROM accounts WHERE steamid IN (%s)'
+                                    % ','.join('?' * len(part)), part):
+                    accts[r['steamid']] = (r['name'] or '', bool(r['banned_at']))
 
         def course(key):
             sid = key[2]
-            if sid in accts and accts[sid][1]:
-                return []                   # banned: accounts.ban_rows parks and restores their rows
             up = best.get(key) if sid in accts else None    # tasupd's board shows no unknown account
-            return plan(db, key, up, accts.get(sid, ('',))[0] or 'Steam ' + sid[-4:])   # tasupd's who()
+            return plan(db, key, up, accts.get(sid, ('',))[0] or 'Steam ' + sid[-4:],   # tasupd's who()
+                        banned=sid in accts and accts[sid][1], withdraw=withdraw)
+
+        read_accounts({k[2] for k in keys})
 
         todo = []
         for key in sorted(keys):
@@ -140,6 +147,8 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print):
         if not todo:
             return n
         db.execute('BEGIN IMMEDIATE')
+        accts.clear()                       # a ban or rename since the first read
+        read_accounts({k[2] for k in todo})
         for key in todo:                    # planned again under the lock: surfd may have written since
             for a, arg in course(key):
                 if a == 'removed':
