@@ -290,7 +290,7 @@ void() Tint_Load =
 {
 	local string tok, key, cn, mdl, rc;
 	local vector org, c;
-	local float k, mi, seen;
+	local float k, mi, seen, animated;
 	tint_n = 0;
 	getentitytoken(0);
 	while ((tok = getentitytoken()) != "")
@@ -299,12 +299,17 @@ void() Tint_Load =
 			continue;
 		cn = mdl = rc = "";
 		org = '0 0 0';
+		animated = FALSE;
 		while ((key = getentitytoken()) != "" && key != "}")
 		{
 			tok = getentitytoken();
 			key = strtolower(key);
 			if (key == "classname")
 				cn = tok;
+			else if ((key == "setbodygroup" || key == "body") && stof(tok))
+				animated = TRUE;	// the client's copy draws body 0 (the engine does not hand CSQC the bodygroup)
+			else if ((key == "defaultanim" && tok != "") || (key == "playbackrate" && stof(tok) != 1 && tok != ""))
+				animated = TRUE;	// nor its playback rate
 			else if (key == "model")
 				mdl = tok;
 			else if (key == "rendercolor")
@@ -312,7 +317,7 @@ void() Tint_Load =
 			else if (key == "origin")
 				org = stov(tok);
 		}
-		if (substring(cn, 0, 5) != "prop_" || mdl == "" || rc == "" || tint_n >= TINT_MAX)
+		if (substring(cn, 0, 5) != "prop_" || mdl == "" || rc == "" || tint_n >= TINT_MAX || animated)
 			continue;
 		c = stov(rc);
 		if (c == '255 255 255' || c == '0 0 0')
