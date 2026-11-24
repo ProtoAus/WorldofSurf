@@ -567,8 +567,8 @@ void() Sun_MapLight =
 
 void() Sun_Draw =
 {
-	local vector eye, fwd;
-	local float dot, ga, target;
+	local vector eye, fwd, se, rt, up, d;
+	local float dot, ga, target, i;
 
 	if (!sun_have || !cvar("vbsp_sun"))
 		return;
@@ -582,15 +582,42 @@ void() Sun_Draw =
 		return;                 // behind the view: nothing of it is on screen
 	}
 	Sun_ProbeInit();
-	traceline(eye, eye + sun_dir * 32768, MOVE_NOMONSTERS, sun_probe);
-	// SURF_SKY does not come through a VBSP trace; the side's name does (cl_emit.qc's rain).
-	target = (trace_fraction >= 1 || substring(strtolower(trace_surfacename), 0, 4) == "sky/") ? 1 : 0;
-	if (target != sun_seen)
+	// P1804: the fraction of the disc's core that reaches the sky, in the world and then through the 3D skybox (its eye
+	// sky_camera + view / scale) -- Source fades the noz sprite by a pixel query (C_Sun's glow overlay), so hills, skybox
+	// geometry and solid props cover it part-way (Lex 25 Nov: "sun sprite should be blocked by 3d skybox geometry").
+	// Nine rays: the centre and eight at half the quad's radius.
+	rt = normalize(crossproduct(sun_dir, '0 0 1'));
+	if (rt == '0 0 0')
+		rt = '1 0 0';
+	up = normalize(crossproduct(rt, sun_dir));
+	se = eye;
+	if (vbsp_skyroom_have && vbsp_skyroom_scale > 0)
+		se = vbsp_skyroom_pos + eye * (1 / vbsp_skyroom_scale);
+	target = 0;
+	for (i = 0; i < 9; i = i + 1)
 	{
-		sun_seen = target;
-		dprint(sprintf("env_sun: %s\n", target ? "visible" : strcat("hidden by ", trace_surfacename)));
+		d = sun_dir;
+		if (i)
+			d = normalize(sun_dir + (rt * cos(i * 45 * M_PI / 180) + up * sin(i * 45 * M_PI / 180)) * (sun_size * 0.5 / 100));
+		traceline(eye, eye + d * 32768, MOVE_NOMONSTERS, sun_probe);
+		// SURF_SKY does not come through a VBSP trace; the side's name does (cl_emit.qc's rain).
+		if (trace_fraction < 1 && substring(strtolower(trace_surfacename), 0, 4) != "sky/")
+			continue;
+		if (se != eye)
+		{
+			traceline(se, se + d * 32768, MOVE_NOMONSTERS, sun_probe);
+			if (trace_fraction < 1 && substring(strtolower(trace_surfacename), 0, 4) != "sky/")
+				continue;
+		}
+		target = target + 1 / 9;
 	}
-	sun_vis = target ? min(1, sun_vis + frametime / 0.05) : max(0, sun_vis - frametime / 0.05);
+	target = (target > 0.99) ? 1 : target;
+	if ((target > 0) != sun_seen)
+	{
+		sun_seen = (target > 0);
+		dprint(sprintf("env_sun: %s\n", sun_seen ? "visible" : strcat("hidden by ", trace_surfacename)));
+	}
+	sun_vis = (sun_vis < target) ? min(target, sun_vis + frametime / 0.05) : max(target, sun_vis - frametime / 0.05);
 	if (sun_vis <= 0)
 		return;
 	Sun_Quad(sun_mat, eye, sun_size, sun_col, sun_vis);

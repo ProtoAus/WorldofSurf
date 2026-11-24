@@ -5697,7 +5697,8 @@ void() SmokeVol_Reset =
 float(vector lo, vector hi, float space, float width, float rot, float dens, string c1, string c2, string mat) SmokeVol_Add =
 {
 	local vector sz, k, a, b, p;
-	local float ix, iy, iz, mi, f;
+	local float ix, iy, iz, mi, f, vc;
+	local vector lt, cc;
 
 	if (space < 8) space = 8;
 	if (width <= 0) width = space * 1.5;
@@ -5719,17 +5720,26 @@ float(vector lo, vector hi, float space, float width, float rot, float dens, str
 	if (c2 == "") b = a;
 	sz = hi - lo;
 	k = [max(1, floor(sz_x / space + 0.5)), max(1, floor(sz_y / space + 0.5)), max(1, floor(sz_z / space + 0.5))];
+	vc = cvar("hl2_lt_vcache");	// each particle's own light, not the cached last sample (as the steam jets)
+	if (vc)
+		cvar_set("hl2_lt_vcache", "0");
 	for (ix = 0; ix < k_x; ix = ix + 1)
 	for (iy = 0; iy < k_y; iy = iy + 1)
 	for (iz = 0; iz < k_z; iz = iz + 1)
 	{
 		if (sv_n >= SV_MAX)
-			return TRUE;
+			break;
 		p = lo + [sz_x * (ix + 0.5) / k_x, sz_y * (iy + 0.5) / k_y, sz_z * (iz + 0.5) / k_z];
 		p = p + [random() - 0.5, random() - 0.5, random() - 0.5] * (space * 0.5);
 		f = random();
 		sv_org[sv_n] = p;
-		sv_col[sv_n] = a + (b - a) * f;
+		// P1803: lit by the world where it hangs (Lex 25 Nov save 38: the unlit colour glowed in a dark corridor where
+		// Momentum's barely shows); outdoors the basin's light keeps save 11's haze
+		lt = getlight(p) * (1 / 255);
+		if (lt == '0 0 0')
+			lt = '0.5 0.5 0.5';     // no answer (as cl_ropes.qc)
+		cc = a + (b - a) * f;
+		sv_col[sv_n] = [cc_x * min(lt_x, 1), cc_y * min(lt_y, 1), cc_z * min(lt_z, 1)];
 		sv_ang[sv_n] = random() * 360;
 		sv_rot[sv_n] = rot * (random() < 0.5 ? -1 : 1);
 		sv_alpha[sv_n] = bound(0, dens, 1);
@@ -5737,6 +5747,8 @@ float(vector lo, vector hi, float space, float width, float rot, float dens, str
 		sv_mat[sv_n] = mi;
 		sv_n = sv_n + 1;
 	}
+	if (vc)
+		cvar_set("hl2_lt_vcache", ftos(vc));
 	return TRUE;
 };
 
