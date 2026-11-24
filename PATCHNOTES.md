@@ -21,6 +21,15 @@
 
 ## next
 
+### P1764 Source maps adjust their brightness like Momentum
+- On Source maps lit in HDR (bhop_canals and many others) the picture brightens in dark places and darkens toward a bright sky, as Momentum does, within the map's own range. vbsp_autoexposure 0 turns it off.
+
+### P1763 Bumpy props catch the sun
+- Props with surface detail are lit by the sun per pixel: bhop_canals' corrugated metal ramp shows its ridges in the sunlight instead of a flat grey sheet.
+
+### P1762 Sharper, longer shadows on Source maps
+- With shadows on (r_shadows 2), Source maps use four shadow cascades: shadows near you are sharper and reach as far as the map asks (4000 units on bhop_canals). r_shadows_cascades 1 is the old single shadow map, a little faster.
+
 ### P1760 Prop shadows on Strata maps, and faster shadows on Source maps
 - With shadows on (r_shadows 2), props cast the sun's shadow on maps with Strata's cascaded sun, as they do in Momentum: on bhop_canals the pipes, planks and blocks shadow the ground.
 - On Source maps the shadow system no longer runs a lamp-shadow pass those maps cannot show: with shadows on, bhop_canals runs about twice as fast.

@@ -1,18 +1,12 @@
 # BACKLOG.md
 
 ## P1758-P1761 bhop_canals graphics vs Momentum -- what they leave (24 Nov, worldofsurf-67; root FTESurf-worktrees/canalsgfx-20261124-67)
-- Source receivers read one sun map: plugins/hl2 vmt/lightmapped, transition and vertexlit.glsl sample l_cubematrix only,
-  so r_shadows_cascades and r_shadows_propshadows are off on Source maps (P1760). Momentum/Strata's cascades reach
-  env_cascade_light maxshadowdistance (canals 4000) with sharp near cells; ours r_shadows_distance 1024 at r_shadows_res
-  2048 (4096 visibly crisper, a little GPU). Porting the atlas read (FAKESHADOWS_COUNT/CASCADE, l_fakeshadowmatrix) into
-  the three receivers is the real fix. Falsifier: canals save 8 at r_shadows_cascades 3 shows the rail's shadow on the mound.
-- Bumped models are lit by the sun per vertex: a VertexLitGeneric $bumpmap gets per-pixel relief only from the ambient cube
-  (P268 C); Source lights the sun per pixel through the normal map, so canals' metal_panel01a ramp (Lex save 5) reads flat
-  and sunless. Same for world displacements on cascade maps, where Strata adds the sun per pixel (save 8's ground relief).
-- HDR exposure: canals is HDR-only (LDR lighting lump empty) with an env_tonemap_controller at defaults, so Momentum runs
-  Source's auto-exposure in the 0.5-2.0 band: the barn (save 6) brightens, bright outdoor views darken a little, the sky
-  is scaled too. We draw at exposure 1 (vbsp_exposure 0 here; 1 would also hold 1, inside the band). Eye adaptation from
-  the frame's luminance is unbuilt; FTE's r_hdr_irisadaptation is a possible base.
+- DONE by P1762-P1764 (0.1.64): the vmt receivers and defaultwall read the sun cascades (r_shadows_cascades 4 on Source
+  maps, reach from env_cascade_light); a bumped VertexLitGeneric takes its sun per pixel; Source's HDR auto-exposure runs
+  on HDR-lit Source maps (r_autoexposure, target calibrated on canals save 7 vs Momentum). Left from those: world
+  displacements on cascade maps still get no per-pixel sun (Strata adds it: save 8's ground relief); the cascade depth
+  passes are not instanced (save 8 4.7 -> 6.1 ms); additive sprites, particles and UnlitTwoTexture shafts are not
+  exposure-scaled; the exposure is measured after scene gamma; one calibration point.
 - P1759 tint precision: colormod crosses the wire in 1/32 steps, so a dark tint is approximate (21 18 13 -> 24 16 16,
   pinkish); exact needs a protocol or CSQC path. Out-of-range rendercolor clamps (Source wraps bytes), as P1250.
 - P1760: casting Source models do not receive shadows (P1732), now including a cascade map's static props; under r_shadows
