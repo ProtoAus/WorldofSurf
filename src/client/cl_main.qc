@@ -219,6 +219,7 @@ void() CSQC_WorldLoaded =
 	Inv_SantaLoad();               // P1304: warm model/entity, never equip-time disk I/O
 	Sun_LoadForMap();               // Patch 874
 	Sun_MapLight();                 // P1723/P1724/P1725
+	Tint_Load();                    // P1769: tinted props drawn with their exact rendercolor
 	Ropes_LoadForMap();
 
 	// Build 66.  env_soundscape, out of the same lump and here for the same
@@ -1936,6 +1937,7 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
 
 	SaveEvent_Frame();          // input can run later; render events need it too
 	TimeScale_ViewSeats();
+	Sun_AutoExposureFrame();    // P1767: vbsp_autoexposure takes effect at once
 	scr = [vwidth, vheight];
 
 	// Build 13: the view lock, BEFORE the scene is set up.  Input frames run at

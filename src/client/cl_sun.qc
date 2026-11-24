@@ -257,6 +257,100 @@ float(float x) Sun_SRGB =
 	return 1.055 * pow(x, 1 / 2.4) - 0.055;
 };
 
+// P1769: a prop's rendercolor, exact.  The wire carries colormod in 1/32 steps, so P1759 sends bhop_canals' amber barn
+// shafts (21 18 13) as 24 16 16, a pink cast; the entity lump has the exact value, so the client puts it back on the
+// entity (deltalisten: the callback's colormod is drawn as a float).
+#define TINT_MAX 64
+float tint_mi[TINT_MAX];
+vector tint_org[TINT_MAX];
+vector tint_col[TINT_MAX];
+float tint_n;
+float(float isnew) Tint_Delta =
+{
+	local float k;
+	for (k = 0; k < tint_n; k = k + 1)
+		if (tint_mi[k] == self.modelindex && vlen(self.origin - tint_org[k]) < 4)
+		{
+			self.colormod = tint_col[k];
+			self.drawmask = MASK_ENGINE;
+			return TRUE;
+		}
+	return FALSE;	// not one of the map's tinted props: the engine draws it as sent
+};
+void() Tint_Load =
+{
+	local string tok, key, cn, mdl, rc;
+	local vector org, c;
+	local float k, mi, seen;
+	tint_n = 0;
+	getentitytoken(0);
+	while ((tok = getentitytoken()) != "")
+	{
+		if (tok != "{")
+			continue;
+		cn = mdl = rc = "";
+		org = '0 0 0';
+		while ((key = getentitytoken()) != "" && key != "}")
+		{
+			tok = getentitytoken();
+			key = strtolower(key);
+			if (key == "classname")
+				cn = tok;
+			else if (key == "model")
+				mdl = tok;
+			else if (key == "rendercolor")
+				rc = tok;
+			else if (key == "origin")
+				org = stov(tok);
+		}
+		if (substring(cn, 0, 5) != "prop_" || mdl == "" || rc == "" || tint_n >= TINT_MAX)
+			continue;
+		c = stov(rc);
+		if (c == '255 255 255' || c == '0 0 0')
+			continue;
+		mi = getmodelindex(mdl, TRUE);
+		if (!mi)
+			continue;	// not precached by the server: not on the wire
+		seen = FALSE;
+		for (k = 0; k < tint_n; k = k + 1)
+			if (tint_mi[k] == mi)
+				seen = TRUE;
+		tint_mi[tint_n] = mi;
+		tint_org[tint_n] = org;
+		tint_col[tint_n] = [bound(0, c_x, 255), bound(0, c_y, 255), bound(0, c_z, 255)] * (1 / 255);
+		tint_n = tint_n + 1;
+		if (!seen)
+			deltalisten(mdl, Tint_Delta, 0);
+	}
+};
+
+// P1767: the map's auto-exposure band and the vbsp_autoexposure value it was applied with, so a change takes effect at
+// once (Sun_AutoExposureFrame) rather than at the next map.
+float sun_aemin, sun_aemax, sun_aeapplied;
+void(float on) Sun_ApplyAutoExposure =
+{
+	if (!cvar_type("r_autoexposure"))
+		return;
+	if (on)
+	{
+		cvar_set("r_autoexposure_min", ftos(sun_aemin));
+		cvar_set("r_autoexposure_max", ftos(sun_aemax));
+		cvar_set("r_autoexposure", "1");
+	}
+	else
+		cvar_set("r_autoexposure", "0");
+	sun_aeapplied = on;
+};
+void() Sun_AutoExposureFrame =
+{
+	local float on;
+	if (!sun_aemax)
+		return;	// no map light read yet
+	on = (cvar("vbsp_autoexposure") != 0);
+	if (on != sun_aeapplied)
+		Sun_ApplyAutoExposure(on);
+};
+
 void() Sun_MapLight =
 {
 	local string tok, key, cn, inp, amb, ambhdr, lt, lthdr;
@@ -390,17 +484,9 @@ void() Sun_MapLight =
 	expo = hdr ? bound(emin, 1, emax) : 1;
 	// P1764: Source's auto-exposure in the map's band; it replaces the fixed test exposure.  The engine applies it only
 	// on a Source map drawn with its HDR lighting (the plugin's own choice), so no BSP read here.
-	if (cvar_type("r_autoexposure"))
-	{
-		if (autoexp)
-		{
-			cvar_set("r_autoexposure_min", ftos(emin));
-			cvar_set("r_autoexposure_max", ftos(emax));
-			cvar_set("r_autoexposure", "1");
-		}
-		else
-			cvar_set("r_autoexposure", "0");
-	}
+	sun_aemin = emin;
+	sun_aemax = emax;
+	Sun_ApplyAutoExposure(autoexp);
 	if (cvar("vbsp_exposure") && !(autoexp && hdr))
 	{
 		cvar_set("r_exposure", ftos(expo));
