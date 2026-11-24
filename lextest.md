@@ -1,5 +1,19 @@
 # lextest.md — things waiting on a human
 
+## P1796-P1799 TAS uploads, +jumpduck, map upload zones (worldofsurf-a3, 24 Nov) -- tasupd/mapupd need your root upgrade
+## (commands in the session); game + engine with the next release
+1. Key config, Movement: a "Jump + duck" row. Bind a key to it, start a run with it: you jump and stay ducked while
+   the key is held; the HUD key display lights jump and duck together.
+2. TAS menu, Upload tab in a local game: every TAS run is listed (other maps named, older/bot runs marked "(folder)"),
+   8 a page with Prev/Next; Open folder opens this map's runs folder in your file manager.
+3. Rounin's case: a TAS whose .rec keeps a KSF replay's header lines uploads at play.proto.bar/tasup (after the
+   tasupd upgrade); a KSF run re-headed is refused as that player's.
+4. F8 map upload with no zone file attached: "Are you sure? This map doesn't have a zone file." then Upload anyway.
+   Zone editor tab: loads the picked map (from maps/) with the zone editor open; the editor's Map upload tab comes back
+   with your typed name and picture kept, and offers the zone file you just saved.
+5. bhop_uncanny2 is now bhop_uncanny (same file, zones kept; R2 serves it gzipped). Your own install still has
+   bhop_uncanny2's local copies until you delete them.
+
 ## 0.1.66 release -- PUBLISHED 24 Nov 08:43Z, lobbies on its progs 08:46Z; your dev install has it (P1773-P1780)
 1. bhop_canals saves 22-25: walk/noclip toward the log -- its shadow should stay put, no fade-out and snap back.
 2. Save 21 and 29: the world-cast shadows are dark and neutral, no blue-green.

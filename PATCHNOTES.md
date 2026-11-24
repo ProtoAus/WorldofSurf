@@ -21,6 +21,21 @@
 
 ## next
 
+### P1799 Map uploads: zones optional, a Zone editor tab
+- Map admins can upload a map without a zone file: the upload window asks "Are you sure? This map doesn't have a zone file." first.
+- A map whose zones were already published can be uploaded under its own name; zones sent with the upload replace the server's, which are kept.
+- The upload window has a Zone editor tab that opens the picked map in your own game with the zone editor, and the zone editor has a Map upload tab back.
+
+### P1798 TAS uploads from bots built on KSF files
+- The TAS upload site takes a run whose file still carries a downloaded KSF or Momentum replay's header, as some TAS bots write it; a copy of someone's real run is still refused.
+
+### P1797 Every TAS run in the Upload tab
+- The TAS menu's Upload tab lists all your TAS runs on every map, a page at a time, including older runs and bot runs placed in data/runs.
+- An Open folder button opens the folder with your runs (in a game you host).
+
+### P1796 Jump + duck on one key
+- New bind +jumpduck: one key jumps and holds duck, for crouch-jumping at a run's start. It counts as one key press. Set it in Key config under Movement (Jump + duck).
+
 ## 0.1.66 2026-11-24
 
 ### P1780 Sunlit props on Strata maps
