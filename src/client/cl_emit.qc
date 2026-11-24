@@ -2462,6 +2462,7 @@ void() Emit_RegisterCvars =
 	registercvar("vbsp_emit_exposure", "-1", CVAR_ARCHIVE);
 	registercvar("vbsp_exposure", "0", CVAR_ARCHIVE);	// P1732 (test): 1 = r_exposure from the map's env_tonemap_controller (cl_sun.qc)
 	registercvar("_vbsp_exposure_set", "0");			// P1732: the game set r_exposure (outlives the CSQC VM)
+	registercvar("vbsp_autoexposure", "1", CVAR_ARCHIVE);	// P1764: Source's auto-exposure on a map lit in HDR (cl_sun.qc)
 	// func_precipitation's rain and snowfall (Emit_PrecipFrame).
 	registercvar("vbsp_emit_precip", "1", CVAR_ARCHIVE);
 	registercvar("vbsp_emit_embers",  "1", CVAR_ARCHIVE);

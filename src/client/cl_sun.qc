@@ -261,13 +261,14 @@ void() Sun_MapLight =
 {
 	local string tok, key, cn, inp, amb, ambhdr, lt, lthdr;
 	local float bloom, bat, d, p, y, havesc, havecsm, csmle, havele, epitch, ehaspitch, emin, emax, eminat, emaxat;
-	local float ambscale, ltscale, hascol, hdr, hdrk, expo;
+	local float ambscale, ltscale, hascol, hdr, hdrk, expo, csmdist, autoexp;
 	local vector eang, scdir, csmdir, ledir, thr, ecol, sccol, skyamb, skyambhdr, v;
 
 	bloom = 1;
 	bat = eminat = emaxat = -1;
 	emin = emax = 0;
 	havesc = havecsm = csmle = havele = FALSE;
+	csmdist = 0;
 	scdir = csmdir = ledir = sccol = skyamb = skyambhdr = '0 0 0';
 	getentitytoken(0);
 	while ((tok = getentitytoken()) != "")
@@ -294,6 +295,8 @@ void() Sun_MapLight =
 			}
 			else if (key == "uselightenvangles")
 				d = stof(tok);
+			else if (key == "maxshadowdistance" && !csmdist)
+				csmdist = stof(tok);	// P1762: env_cascade_light's reach (the first one's)
 			else if (key == "color")
 			{
 				ecol = stov(tok);
@@ -368,7 +371,8 @@ void() Sun_MapLight =
 	// asking reads the BSP header (Emit_MapHDR: the whole file, once per map and hl2_favour_ldr).  mapname, not
 	// serverkey("map"): that can still be "" or the previous map here (P948).
 	hdrk = 0;
-	if (cvar("vbsp_exposure") || skyamb != skyambhdr)
+	autoexp = (cvar("vbsp_autoexposure") && cvar_type("r_autoexposure"));	// P1764 (an older engine has no r_autoexposure)
+	if (cvar("vbsp_exposure") || autoexp || skyamb != skyambhdr)
 		hdrk = Emit_MapHDR(CL_WorldShortName());	// -1: not read (a map over EM_BSPREAD)
 	hdr = hdrk == 1;
 	if (hdr)
@@ -383,7 +387,19 @@ void() Sun_MapLight =
 	if (emin > emax)
 		emax = emin;
 	expo = hdr ? bound(emin, 1, emax) : 1;
-	if (cvar("vbsp_exposure"))
+	// P1764: Source's auto-exposure in the map's band on a map lit in HDR; it replaces the fixed test exposure.
+	if (cvar_type("r_autoexposure"))
+	{
+		if (autoexp && hdr)
+		{
+			cvar_set("r_autoexposure_min", ftos(emin));
+			cvar_set("r_autoexposure_max", ftos(emax));
+			cvar_set("r_autoexposure", "1");
+		}
+		else
+			cvar_set("r_autoexposure", "0");
+	}
+	if (cvar("vbsp_exposure") && !(autoexp && hdr))
 	{
 		cvar_set("r_exposure", ftos(expo));
 		cvar_set("_vbsp_exposure_set", "1");
@@ -413,8 +429,11 @@ void() Sun_MapLight =
 	if (havecsm && havele)
 		v = [Sun_SRGB(skyamb_x), Sun_SRGB(skyamb_y), Sun_SRGB(skyamb_z)];
 	cvar_set("r_shadows_sunfloor", sprintf("%g %g %g", v_x, v_y, v_z));
+	// P1762: a cascade map's shadows reach as far as its env_cascade_light says (canals 4000), else the engine default.
+	if (cvar_type("r_shadows_cascade_dist"))
+		cvar_set("r_shadows_cascade_dist", (havecsm && csmdist > 0) ? ftos(bound(512, csmdist, 8192)) : cvar_defstring("r_shadows_cascade_dist"));
 	dprint(sprintf("maplight: bloom %g; exposure %g (band %g..%g, %s lighting)%s\n", bloom, expo, emin, emax,
-		hdrk < 0 ? "unread" : hdr ? "HDR" : "LDR", cvar("vbsp_exposure") ? ", applied" : ", not applied"));
+		hdrk < 0 ? "unread" : hdr ? "HDR" : "LDR", (autoexp && hdr) ? ", auto" : cvar("vbsp_exposure") ? ", applied" : ", not applied"));
 	dprint(sprintf("maplight: shadows thrown %v (%s), colour %v, sun floor %v\n", thr,
 		havesc ? "shadow_control" : havecsm ? "env_cascade_light" : "engine default", sccol, v));
 };
