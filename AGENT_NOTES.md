@@ -3,6 +3,8 @@
 ## P1746/P1747 map upload and replay video: driving them from a test (23 Nov 2026, ftesurf-cb)
 - Console verbs (local console only; MP_ConsoleCommand refuses stuffed text): `ui_mapupload pick|shot|zone <path>`,
   `ui_mapupload send` (signs as the button does: off a lobby friends_sign needs no press), `ui_mapupload status`;
+  P1799: with no zone file attached `send` opens the "no zone file" box (status says `confirm 1`) and
+  `ui_mapupload anyway` is its Upload anyway (once per manifest);
   `ui_vidrec set <size> <fps> <ss> <blur> <hud> <water> <encoder>` (chip indices), `ui_vidrec start|status`.
 - A test menu pointed at a local service: fteqcc `-DMUP_BASE="http://127.0.0.1:18096/mapup/api/"`; a local
   mapupd from `create_app` with a fake surfd.db (accounts + keylinks) whose key is the test home's fskey.

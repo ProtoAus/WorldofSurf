@@ -766,6 +766,7 @@ void(vector p) ZoneEdit_DragStart =
 {
 	if (_cursor_position_x < p_x || _cursor_position_x >= p_x + ze_panel_s_x) return;
 	if (_cursor_position_y < p_y || _cursor_position_y >= p_y + 24 * ui_cv_scale) return;
+	if (is_2dpoint_in_bbox(_cursor_position, ze_tab_p, ze_tab_s)) return;     // P1799: the Map upload tab
 	ze_drag = TRUE; ze_positioned = TRUE;
 	ze_drag_offset = _cursor_position - p;
 };

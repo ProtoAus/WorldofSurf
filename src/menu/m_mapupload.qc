@@ -9,6 +9,10 @@
   asked for once it stops changing, so the press on Upload can sign at once: friends_sign op "mapupload" over the
   manifest's SHA-256, which on a lobby the engine signs only under a device's press (cl_receipt.c). Each file then
   goes as its own uri_postfile (the map gzipped), with uri_progress driving the bar.
+
+  P1799: zones are optional (with none attached a box asks first) and a name whose zones are already up is taken. The
+  window and the zone editor are tabs of each other: MUp_ZoneEditor and MUp_PollRequest, cl_zoneedit.qc's ZoneEdit_Want
+  and ZoneEdit_MapUpload.
 */
 #ifndef MUP_BASE   // a test build only (fteqcc -DMUP_BASE): a server must never choose where a proof goes
 #define MUP_BASE "https://play.proto.bar/mapup/api/"
@@ -52,6 +56,9 @@ float mup_state;                             // 0 editing, 1 begin, 2 a file, 3 
 float mup_req, mup_partreq, mup_partsdone;
 string mup_session, mup_left, mup_part, mup_note;
 float mup_totalkb, mup_donekb;
+float mup_confirm;                           // P1799: the "no zone file" box is up
+string mup_nozoneok;                         // ...the manifest its Upload anyway was pressed for
+float mup_zearm;                             // the Zone editor tab's second press, until this time, leaves a game
 
 string(string old, string v) MUp_Keep =
 {
@@ -184,11 +191,37 @@ void() MUp_ListShots =
 };
 
 void(string path) MUp_PickMap;
+// letters, digits, _ . and - (no ".."): a map file's own name as a path part
+float(string n) MUp_StemOK =
+{
+	local float i, c;
+	if (n == "" || strlen(n) > 64 || strstrofs(n, "..") >= 0) return FALSE;
+	for (i = 0; i < strlen(n); i = i + 1)
+	{
+		c = str2chr(n, i);
+		if (!((c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95 || c == 45 || c == 46))
+			return FALSE;
+	}
+	return TRUE;
+};
 void() MUp_ZoneFind =
 {
-	local string z;
-	z = strcat("data/maps/zones/local/", mup_name, ".json");
-	if (mup_name != "" && ui_file_exists(z))
+	local string z, stem;
+	z = "";
+	if (mup_name != "") z = strcat("data/maps/zones/local/", mup_name, ".json");
+	if (z != "" && !ui_file_exists(z))
+	{
+		// P1799: the zone editor saves under the name of the map it loaded, the file's own: an upload renamed from it
+		z = "";
+		stem = MUp_Stem(mup_bsp);
+		if (mup_bsp != "" && strcmp(stem, mup_name))
+		if (MUp_StemOK(stem))
+		{
+			z = strcat("data/maps/zones/local/", stem, ".json");
+			if (!ui_file_exists(z)) z = "";
+		}
+	}
+	if (z != "")
 	{
 		if (mup_zone == "" || substring(mup_zone, 0, 8) != "dropped/")
 		{
@@ -224,7 +257,8 @@ void(string path) MUp_PickMap =
 	if (mup_shot != "" && substring(mup_shot, 0, 8) != "dropped/") mup_shot = MUp_Keep(mup_shot, "");
 };
 // what the window may pick, whatever the console passes (ui_mapupload pick|shot|zone): maps/ or dropped/ maps, screenshots/
-// or dropped/ pictures, this name's local zone file or a dropped one -- never another data/ path a server can write
+// or dropped/ pictures, this name's (or, P1799, the map file's) local zone file or a dropped one -- never another data/
+// path a server can write
 float(string p, float kind) MUp_PathOK =
 {
 	local string e;
@@ -277,7 +311,9 @@ void() MUp_Open =
 	MUp_Init();
 	if (!mup_open) { mup_back = menu_screen; mup_wasopen = menu_active; }
 	mup_open = TRUE;
-	if (!MUp_Busy()) MUp_Rehash();
+	if (!MUp_Busy()) { MUp_Rehash(); MUp_ZoneFind(); }  // P1799: zones the editor saved meanwhile
+	cvar_set("ui_zoneedit_want", "");                   // a Zone editor press whose map never came up
+	mup_confirm = FALSE;
 	menu_screen = SCREEN_MAPUPLOAD;
 	cvar_set("ui_dropfiles", "1");
 	if (time - mup_listed_at > 5 || !buf_getsize(mup_maps)) MUp_ListMaps();
@@ -289,6 +325,7 @@ void() MUp_Hide =
 {
 	if (!mup_open) return;
 	mup_open = FALSE;
+	mup_confirm = FALSE;
 	cvar_set("ui_dropfiles", "0");
 	MUp_PicsFree();
 	if (mup_hfh) { fclose(mup_hfh - 1); mup_hfh = 0; }
@@ -428,7 +465,6 @@ string() MUp_Missing =
 	local float k;
 	if (mup_bsp == "") return "Choose a map: pick one from the list, Browse, or drop a .bsp on the window.";
 	if (!MUp_NameOK(mup_name)) return "The name must be surf_ or bhop_ then lowercase letters, digits, _ or -.";
-	if (mup_mode && !(mup_usezone && mup_zone != "")) return "A bhop map needs its zone file.";
 	if (!MUp_AuthorOK(strtrim(mup_author))) return "The author name may use letters, digits, spaces and _ . ' - only.";
 	for (k = 1; k <= 3; k = k + 1)
 		if (MUp_Want(k) != "")
@@ -482,14 +518,29 @@ void() MUp_CodeFrame =
 	}
 };
 
-// Upload's press, from Menu_InputEvent while the button is under the cursor: the one moment the engine signs
-void() MUp_Press =
+// Upload's press, from Menu_InputEvent while the button is under the cursor: the one moment the engine signs.
+// anyway: the "no zone file" box's Upload anyway (P1799), the same kind of press; without it a manifest with no zones
+// opens the box, once per manifest.
+void(float anyway) MUp_Press =
 {
 	local string proof, body;
 	if (!mup_open || (mup_state != 0 && mup_state != 5) || MUp_Missing() != "") return;
 	if (ms_consent < FS_TERMS_ONLINE) { MUp_Fail("Accept the online terms first (F2, Terms)."); return; }
 	if (!checkbuiltin(uri_postfile) || !checkbuiltin(friends_sign)) { MUp_Fail("This game is too old to upload maps: update it."); return; }
 	mup_msha = MUp_Keep(mup_msha, strtolower(digest_hex("SHA256", MUp_Manifest())));
+	if (!(mup_usezone && mup_zone != ""))
+	if (strcmp(mup_nozoneok, mup_msha))
+	{
+		if (!anyway)
+		{
+			mup_confirm = TRUE;
+			sui_text_unfocus();
+			print("map upload: no zone file attached: Upload anyway or Cancel in the window\n");
+			return;
+		}
+		mup_nozoneok = MUp_Keep(mup_nozoneok, mup_msha);
+	}
+	mup_confirm = FALSE;
 	if (strcmp(mup_noncefor, mup_msha) || time - mup_nonceat >= MUP_CODE_LIFE)
 	{
 		mup_note = MUp_Keep(mup_note, "Getting ready... press Upload again in a moment.");
@@ -544,7 +595,7 @@ void() MUp_NextPart =
 float(float reqid, float code, string body) MUp_Reply =
 {
 	local float root, ok;
-	local string err;
+	local string err, said;
 	if (!reqid) return FALSE;
 	if (reqid != mup_creq && reqid != mup_req && reqid != mup_partreq) return FALSE;
 	root = json_parse(body);
@@ -576,6 +627,13 @@ float(float reqid, float code, string body) MUp_Reply =
 	{
 		mup_session = MUp_Keep(mup_session, json_get_string(json_find_object_child(root, "session")));
 		mup_left = MUp_Keep(mup_left, json_get_string(json_find_object_child(root, "need")));
+		// P1799: zones of this name already on the server, said plainly while the files go
+		said = json_get_string(json_find_object_child(root, "note"));
+		if (said != "")
+		{
+			mup_note = MUp_Keep(mup_note, said);
+			print(sprintf("map upload: %s\n", said));
+		}
 		MUp_NextPart();
 	}
 	else if (reqid == mup_partreq && mup_state == 2)
@@ -752,12 +810,86 @@ void(vector p, float w, float hgt) MUp_DrawShots =
 	sui_scroll_view_end();
 };
 
+// P1799: Upload with no zone file attached asks first; the window under it is struck from sui's hit list (as
+// m_tournament.qc's pool dialog), and Upload anyway signs in MUp_Input on its press, like Upload.
+void(vector screensize) MUp_DrawConfirm =
+{
+	local vector p;
+	local float w, h, y;
+	local string more;
+	more = "Runs on it cannot be timed until zones are published for it (the zone editor's Publish saved). Zones "
+		"already on the server for this name stay as they are.";
+	if (mup_zone != "")
+		more = strcat(more, sprintf(" %s is here but not attached: Cancel, then click it under Zones.", MUp_Base(mup_zone)));
+	sui_fill('0 0 0', screensize, '0 0 0', 0.6, 0);
+	w = min(560, screensize_x - 48);
+	h = 150 + ui_para('0 0 0', w - 40, SZ_LABEL, 20, more, COL_DIM, FALSE);
+	p = [floor((screensize_x - w) * 0.5), floor((screensize_y - h) * 0.5)];
+	sui_style_panel(p, [w, h], 12, 1);
+	sui_text(p + '20 18 0', SZ_HEAD, "Are you sure?", COL_TEXT, 1, 0);
+	sui_text(p + '20 54 0', SZ_LABEL, "This map doesn't have a zone file.", SUI_THEME_WARN, 1, 0);
+	y = p_y + 84 + ui_para([p_x + 20, p_y + 84], w - 40, SZ_LABEL, 20, more, COL_DIM, TRUE);
+	ui_button("mup_anyway", [p_x + w - 20 - 150, y + 14], [150, 32], "Upload anyway", TRUE);
+	if (ui_button("mup_nozcancel", [p_x + w - 20 - 150 - 12 - 100, y + 14], [100, 32], "Cancel"))
+		mup_confirm = FALSE;
+};
+
+// P1799: the Zone editor tab: the chosen maps/ file in a game of the admin's own (ui_launch_local; `map` takes the first
+// maps/<name>.bsp in the search path, and nothing in dropped/), and zone_edit on it once it is up (ui_zoneedit_want).
+// Its zones save as data/maps/zones/local/<file's name>.json, which MUp_ZoneFind looks for.
+void() MUp_ZoneEditor =
+{
+	local string stem, cur;
+	if (MUp_Busy()) return;
+	if (mup_bsp == "") { mup_note = MUp_Keep(mup_note, "Choose a map first: the zone editor loads it in a game of your own."); return; }
+	if (substring(mup_bsp, 0, 8) == "dropped/")
+	{
+		mup_note = MUp_Keep(mup_note, sprintf("%s was dropped on the window, so the game cannot load it (it loads maps from "
+			"maps/ only): copy it into your ftesurf/maps folder, then pick it from the list.", MUp_Base(mup_bsp)));
+		return;
+	}
+	stem = MUp_Stem(mup_bsp);
+	if (!MUp_StemOK(stem)) { mup_note = MUp_Keep(mup_note, "That file's name is not one the game loads as a map."); return; }
+	cur = (clientstate() == 2) ? serverkey("map") : "";
+	if (clientstate() == 2 && isserver() && !isdemo() && !strcmp(cur, stem))
+	{	// already on it, in a game this client hosts: back to it, and the editor opens there
+		cvar_set("ui_zoneedit_want", stem);
+		MUp_Hide();
+		m_close();
+		return;
+	}
+	if (clientstate() == 2 && time > mup_zearm)
+	{	// leaving a game takes a second press
+		mup_zearm = time + 5;
+		mup_note = MUp_Keep(mup_note, sprintf("Zone editor loads %s in a game of your own: %s. Press Zone editor again to go.",
+			stem, isserver() ? "this game ends (unsaved zone edits are lost)" : "you leave this server"));
+		return;
+	}
+	mup_zearm = 0;
+	if (strcmp(stem, mup_name) && mup_name != "")
+		print(sprintf("map upload: the zone editor saves zones as %s.json; this window finds them for %s too\n", stem, mup_name));
+	mup_note = MUp_Keep(mup_note, sprintf("Loading %s for the zone editor...", stem));
+	cvar_set("ui_zoneedit_want", stem);
+	ui_launch_local(stem);
+};
+
+// the two tools' tabs, beside Close: this window, and the zone editor
+void(vector p, float w) MUp_DrawTabs =
+{
+	local float x;
+	x = p_x + w - 16 - 90 - 14 - ui_chip_w("Zone editor") - 6 - ui_chip_w("Map upload");
+	x = x + ui_chip([x, p_y + 16], "mup_tabup", "Map upload", TRUE) + 6;
+	ui_chip([x, p_y + 16], "mup_tabze", "Zone editor", FALSE);
+	if (sui_is_released("mup_tabze")) MUp_ZoneEditor();
+};
+
 void(vector screensize) MUp_Draw =
 {
 	local vector p, q;
-	local float w, h, colw, frac;
+	local float w, h, colw, frac, acts;
 	local string why, label;
 	local vector pr;
+	acts = _action_elements_index;
 	MUp_HashFrame();
 	MUp_CodeFrame();
 	// an answer that never comes: a request out 90 s, or a file sent and its reply a minute late
@@ -780,6 +912,7 @@ void(vector screensize) MUp_Draw =
 		MUp_Close();
 		return;
 	}
+	MUp_DrawTabs(p, w);
 	colw = floor((w - 18 * 2 - 24) * 0.42);
 	q = p + '18 82 0';
 	MUp_DrawMaps(q, colw);
@@ -820,20 +953,44 @@ void(vector screensize) MUp_Draw =
 		mup_state = 0;
 		mup_bsp = MUp_Keep(mup_bsp, ""); mup_name = MUp_Keep(mup_name, ""); mup_shot = MUp_Keep(mup_shot, "");
 		mup_zone = MUp_Keep(mup_zone, ""); mup_note = MUp_Keep(mup_note, "");
+		mup_nozoneok = MUp_Keep(mup_nozoneok, "");
 		MUp_ListMaps();
 	}
 	if (mup_note != "")
 		ui_para([p_x + 18, q_y + 32], w - 36, SZ_LABEL, 20, mup_note,
 			(mup_state == 5) ? SUI_THEME_BAD : (mup_state == 4) ? SUI_THEME_GOOD : COL_DIM, TRUE);
+	// the box goes when it no longer fits what is chosen (a zone attached or dropped, the upload under way)
+	if (mup_confirm)
+	if ((mup_usezone && mup_zone != "") || (mup_state != 0 && mup_state != 5) || why != "")
+		mup_confirm = FALSE;
+	if (mup_confirm)
+	{
+		_action_elements_index = acts;
+		MUp_DrawConfirm(screensize);
+	}
 };
 
 // Menu_InputEvent's hook: Upload signs on the press itself (a release is not a device's press to the engine)
 float(float evtype, float scanx) MUp_Input =
 {
 	if (!mup_open) return FALSE;
+	if (mup_confirm)
+	{	// P1799: the box takes the press and Escape; the window under it takes nothing
+		if (evtype == IE_KEYDOWN && scanx == K_MOUSE1 && sui_is_hovered("mup_anyway"))
+		{
+			MUp_Press(TRUE);
+			return FALSE;
+		}
+		if (evtype == IE_KEYDOWN && scanx == K_ESCAPE)
+		{
+			mup_confirm = FALSE;
+			return TRUE;
+		}
+		return FALSE;
+	}
 	if (evtype == IE_KEYDOWN && scanx == K_MOUSE1 && sui_is_hovered("mup_upload") && mup_state != 4)
 	{
-		MUp_Press();
+		MUp_Press(FALSE);
 		return FALSE;               // sui still sees the click (the button draws pressed)
 	}
 	if (evtype == IE_KEYDOWN && scanx == K_ESCAPE && sui_text_focus())
@@ -849,8 +1006,9 @@ float(float evtype, float scanx) MUp_Input =
 	return FALSE;
 };
 
-// ui_mapupload pick|shot|zone <gamedir path>, send, status: the console's way through the window (tests; the
-// console is the player's own, MP_ConsoleCommand refuses a server's). send signs as the button does.
+// ui_mapupload pick|shot|zone <gamedir path>, send, anyway, status: the console's way through the window (tests; the
+// console is the player's own, MP_ConsoleCommand refuses a server's). send signs as the button does; with no zone file
+// it opens the box, and anyway is the box's Upload anyway.
 float(string verb, string arg) MUp_Command =
 {
 	if (!mup_open) MUp_Open();
@@ -863,15 +1021,71 @@ float(string verb, string arg) MUp_Command =
 	if (verb == "pick") { MUp_PickMap(arg); return TRUE; }
 	if (verb == "shot") { mup_shot = MUp_Keep(mup_shot, arg); return TRUE; }
 	if (verb == "zone") { mup_zone = MUp_Keep(mup_zone, arg); mup_usezone = (arg != ""); return TRUE; }
-	if (verb == "send") { MUp_Press(); return TRUE; }
+	if (verb == "send") { MUp_Press(FALSE); return TRUE; }
+	if (verb == "anyway")
+	{
+		if (mup_confirm) MUp_Press(TRUE);
+		else print("map upload: no box to answer\n");
+		return TRUE;
+	}
 	if (verb == "status")
 	{
 		print(sprintf("map upload: state %g name %s map %s shot %s zone %s(%g)\n", mup_state, mup_name, mup_bsp, mup_shot,
 			mup_zone, mup_usezone));
-		print(sprintf("map upload: missing \"%s\" code %s note \"%s\"\n", MUp_Missing(),
-			(!strcmp(mup_noncefor, mup_msha) && mup_msha != "") ? "ready" : "none", mup_note));
+		print(sprintf("map upload: missing \"%s\" code %s confirm %g note \"%s\"\n", MUp_Missing(),
+			(!strcmp(mup_noncefor, mup_msha) && mup_msha != "") ? "ready" : "none", mup_confirm, mup_note));
 		return TRUE;
 	}
-	print("ui_mapupload [pick|shot|zone <path>|send|status]\n");
+	print("ui_mapupload [pick|shot|zone <path>|send|anyway|status]\n");
 	return TRUE;
+};
+
+// P1799: the zone editor's Map upload tab (ui_mapupload_request). A server's csprogs can set it too, so it only opens
+// the window and picks that name's loose maps/ file, where an upload may start (MUp_Official); Upload still needs the
+// admin's own press. Polled by m_draw.
+void() MUp_PollRequest =
+{
+	local string want, f;
+	local float i;
+	if (cvar_string("ui_mapupload_request") == "") return;
+	want = strzone(cvar_string("ui_mapupload_request"));
+	cvar_set("ui_mapupload_request", "");
+	if (!MUp_StemOK(want) || ms_consent < FS_TERMS_VERSION || !MUp_Official())
+	{
+		print("map upload: the zone editor's request was refused (upload from the main menu, a game you host, or our lobbies)\n");
+		strunzone(want);
+		return;
+	}
+	MUp_Open();
+	if (!menu_active) m_open();
+	if (MUp_Busy()) { strunzone(want); return; }
+	MUp_ListMaps();
+	f = "";
+	for (i = 0; i < buf_getsize(mup_maps); i = i + 1)
+		if (substring(bufstr_get(mup_maps, i), 0, 5) == "maps/")
+		if (!strcmp(MUp_Stem(bufstr_get(mup_maps, i)), want))
+		{
+			f = bufstr_get(mup_maps, i);
+			break;
+		}
+	if (f != "")
+	{
+		MUp_PickMap(f);
+		mup_note = MUp_Keep(mup_note, sprintf("Map: %s, from the zone editor. %s", f, (mup_zone != "")
+			? "Click its zone file under Zones to attach it." : "No saved zone file for it here yet (the editor's Save zones)."));
+	}
+	else
+	{	// loaded from a package or a download: the name, and its zones, still help
+		MUp_Rehash();
+		mup_bsp = MUp_Keep(mup_bsp, "");
+		mup_name = MUp_Keep(mup_name, MUp_CleanName(want));
+		mup_namecur = strlen(mup_name);
+		MUp_ZoneFind();
+		MUp_ListShots();
+		mup_note = MUp_Keep(mup_note, sprintf("maps/%s.bsp is not a loose file here (it came in a package or a download): "
+			"Browse to the .bsp or drop it on the window.", want));
+	}
+	mup_confirm = FALSE;
+	if (mup_state >= 4) mup_state = 0;
+	strunzone(want);
 };

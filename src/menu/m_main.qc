@@ -157,6 +157,7 @@ void() MUp_Hide;
 float(float evtype, float scanx) MUp_Input;
 float(string verb, string arg) MUp_Command;
 float() MUp_Busy;
+void() MUp_PollRequest;     // P1799: the zone editor's Map upload tab
 #define SCREEN_VIDREC 15        // P1747: record the open replay as a video (m_vidrec.qc)
 void(vector screensize) MVR_Draw;
 void() MVR_Frame;
@@ -8791,6 +8792,11 @@ void() m_init =
 	registercommand("ui_board");
 	registercvar("ui_board_request", "", 0);
 	cvar_set("ui_board_request", "");
+	// P1799: the zone editor and the map upload window ask for each other (m_mapupload.qc, cl_zoneedit.qc)
+	registercvar("ui_mapupload_request", "", 0);
+	cvar_set("ui_mapupload_request", "");
+	registercvar("ui_zoneedit_want", "", 0);
+	cvar_set("ui_zoneedit_want", "");
 	// Patch 498.  THE KEYBOARD CANNOT REACH A TEXT FIELD: sui moves its cursor by
 	// hit test, so with the mouse parked off a field no key this VM consumes can
 	// focus one -- and sui_text_input_focused, the flag that suppresses the WASD
@@ -8941,6 +8947,7 @@ void(vector screensize) m_draw =
 	MH_Poll();
 	MP_Frame();                     // Patch 789: the menu's pictures
 	Mlb_Poll();
+	MUp_PollRequest();              // P1799: the zone editor's Map upload tab, with the menu closed too
 	// Warm the catalogue on boot, even before the picker is opened. Mdl_Ask
 	// owns consent, in-flight and one-minute refresh guards.
 	Mdl_Ask();
