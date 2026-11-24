@@ -59,6 +59,7 @@ float mup_totalkb, mup_donekb;
 float mup_confirm;                           // P1799: the "no zone file" box is up
 string mup_nozoneok;                         // ...the manifest its Upload anyway was pressed for
 float mup_zearm;                             // the Zone editor tab's second press, until this time, leaves a game
+string mup_zonetime;                         // when the local zone file MUp_ZoneFind found was saved
 
 string(string old, string v) MUp_Keep =
 {
@@ -206,21 +207,31 @@ float(string n) MUp_StemOK =
 };
 void() MUp_ZoneFind =
 {
-	local string z, stem;
-	z = "";
-	if (mup_name != "") z = strcat("data/maps/zones/local/", mup_name, ".json");
-	if (z != "" && !ui_file_exists(z))
+	local string z, s, stem, tz, ts;
+	z = s = tz = ts = "";
+	if (mup_name != "")
 	{
-		// P1799: the zone editor saves under the name of the map it loaded, the file's own: an upload renamed from it
-		z = "";
-		stem = MUp_Stem(mup_bsp);
-		if (mup_bsp != "" && strcmp(stem, mup_name))
-		if (MUp_StemOK(stem))
-		{
-			z = strcat("data/maps/zones/local/", stem, ".json");
-			if (!ui_file_exists(z)) z = "";
-		}
+		z = strcat("data/maps/zones/local/", mup_name, ".json");
+		if (!ui_file_exists(z)) z = "";
 	}
+	// P1799: the zone editor saves under the name of the map it loaded, the file's own, so an upload renamed from it
+	// has two candidates: the newer wins (a new build of a zoned map: the editor's save, not the old name's zones)
+	stem = MUp_Stem(mup_bsp);
+	if (mup_bsp != "" && strcmp(stem, mup_name))
+	if (MUp_StemOK(stem))
+	{
+		s = strcat("data/maps/zones/local/", stem, ".json");
+		if (!ui_file_exists(s)) s = "";
+	}
+	if (z != "") tz = Mdl_Mtime(z);
+	if (s != "") ts = Mdl_Mtime(s);
+	if (s != "")
+	if (z == "" || strcmp(ts, tz) > 0)
+	{
+		z = s;
+		tz = ts;
+	}
+	mup_zonetime = MUp_Keep(mup_zonetime, tz);
 	if (z != "")
 	{
 		if (mup_zone == "" || substring(mup_zone, 0, 8) != "dropped/")
@@ -250,6 +261,7 @@ void(string path) MUp_PickMap =
 	n = MUp_CleanName(MUp_Stem(path));
 	mup_name = MUp_Keep(mup_name, n);
 	mup_namecur = strlen(mup_name);
+	mup_zearm = 0;
 	mup_mode = (substring(n, 0, 5) == "bhop_");
 	MUp_ZoneFind();
 	MUp_ListShots();
@@ -274,9 +286,10 @@ string mup_zonesumfor, mup_zonesum;
 string(string p) MUp_ZoneSummary =
 {
 	local float fh, root, tracks, stages, bonuses;
-	local string body;
-	if (!strcmp(p, mup_zonesumfor)) return mup_zonesum;
-	mup_zonesumfor = MUp_Keep(mup_zonesumfor, p);
+	local string body, key;
+	key = strcat(p, "|", mup_sha3, "|", mup_zonetime);     // a file saved again reads again
+	if (!strcmp(key, mup_zonesumfor)) return mup_zonesum;
+	mup_zonesumfor = MUp_Keep(mup_zonesumfor, key);
 	mup_zonesum = MUp_Keep(mup_zonesum, "does not read as a zone file");
 	fh = fopen(p, MUP_READNL);
 	if (fh < 0) return mup_zonesum;
@@ -326,6 +339,7 @@ void() MUp_Hide =
 	if (!mup_open) return;
 	mup_open = FALSE;
 	mup_confirm = FALSE;
+	mup_zearm = 0;
 	cvar_set("ui_dropfiles", "0");
 	MUp_PicsFree();
 	if (mup_hfh) { fclose(mup_hfh - 1); mup_hfh = 0; }
@@ -749,6 +763,7 @@ void(vector p, float w) MUp_DrawDetails =
 // under the picture grid: who made it, and the zone file
 void(vector p, float w) MUp_DrawExtras =
 {
+	local string saved;
 	sui_text(p, SZ_LABEL, "Author", COL_DIM, 1, 0);
 	ui_field("mup_author", p + '70 -6 0', [w - 70, 28], mup_author, mup_authorcur, "the mapper (optional)");
 	if (strlen(mup_author) > 40) mup_author = substring(mup_author, 0, 40);
@@ -756,8 +771,9 @@ void(vector p, float w) MUp_DrawExtras =
 	sui_text(p, SZ_LABEL, "Zones", COL_DIM, 1, 0);
 	if (mup_zone != "")
 	{
-		ui_chip([p_x + 70, p_y - 5], "mup_zonechip", mup_usezone ? sprintf("Attached: %s (%s)", MUp_Base(mup_zone), MUp_ZoneSummary(mup_zone))
-			: sprintf("Click to attach %s (%s)", MUp_Base(mup_zone), MUp_ZoneSummary(mup_zone)), mup_usezone);
+		saved = (substring(mup_zone, 0, 5) == "data/" && mup_zonetime != "") ? sprintf(", saved %s", substring(mup_zonetime, 0, 16)) : "";
+		ui_chip([p_x + 70, p_y - 5], "mup_zonechip", mup_usezone ? sprintf("Attached: %s (%s%s)", MUp_Base(mup_zone), MUp_ZoneSummary(mup_zone), saved)
+			: sprintf("Click to attach %s (%s%s)", MUp_Base(mup_zone), MUp_ZoneSummary(mup_zone), saved), mup_usezone);
 		if (sui_is_released("mup_zonechip")) mup_usezone = !mup_usezone;
 	}
 	else
@@ -817,8 +833,8 @@ void(vector screensize) MUp_DrawConfirm =
 	local vector p;
 	local float w, h, y;
 	local string more;
-	more = "Runs on it cannot be timed until zones are published for it (the zone editor's Publish saved). Zones "
-		"already on the server for this name stay as they are.";
+	more = "Runs on it can only be timed if the map has its own zone triggers, until zones are published for it (the "
+		"zone editor's Publish saved). Zones already on the server for this name stay as they are.";
 	if (mup_zone != "")
 		more = strcat(more, sprintf(" %s is here but not attached: Cancel, then click it under Zones.", MUp_Base(mup_zone)));
 	sui_fill('0 0 0', screensize, '0 0 0', 0.6, 0);
@@ -837,50 +853,54 @@ void(vector screensize) MUp_DrawConfirm =
 // P1799: the Zone editor tab: the chosen maps/ file in a game of the admin's own (ui_launch_local; `map` takes the first
 // maps/<name>.bsp in the search path, and nothing in dropped/), and zone_edit on it once it is up (ui_zoneedit_want).
 // Its zones save as data/maps/zones/local/<file's name>.json, which MUp_ZoneFind looks for.
-void() MUp_ZoneEditor =
+// TRUE when the window went (the caller's draw stops there, as after Close)
+float() MUp_ZoneEditor =
 {
 	local string stem, cur;
-	if (MUp_Busy()) return;
-	if (mup_bsp == "") { mup_note = MUp_Keep(mup_note, "Choose a map first: the zone editor loads it in a game of your own."); return; }
+	if (MUp_Busy()) { mup_note = MUp_Keep(mup_note, "Wait for this upload to finish before opening the zone editor."); return FALSE; }
+	if (mup_bsp == "") { mup_note = MUp_Keep(mup_note, "Choose a map first: the zone editor loads it in a game of your own."); return FALSE; }
 	if (substring(mup_bsp, 0, 8) == "dropped/")
 	{
 		mup_note = MUp_Keep(mup_note, sprintf("%s was dropped on the window, so the game cannot load it (it loads maps from "
 			"maps/ only): copy it into your ftesurf/maps folder, then pick it from the list.", MUp_Base(mup_bsp)));
-		return;
+		return FALSE;
 	}
 	stem = MUp_Stem(mup_bsp);
-	if (!MUp_StemOK(stem)) { mup_note = MUp_Keep(mup_note, "That file's name is not one the game loads as a map."); return; }
+	if (!MUp_StemOK(stem)) { mup_note = MUp_Keep(mup_note, "That file's name is not one the game loads as a map."); return FALSE; }
 	cur = (clientstate() == 2) ? serverkey("map") : "";
 	if (clientstate() == 2 && isserver() && !isdemo() && !strcmp(cur, stem))
 	{	// already on it, in a game this client hosts: back to it, and the editor opens there
-		cvar_set("ui_zoneedit_want", stem);
+		cvar_set("ui_zoneedit_want", sprintf("%s %.1f", stem, gettime(0)));     // the name, and when (it expires)
 		MUp_Hide();
 		m_close();
-		return;
+		return TRUE;
 	}
 	if (clientstate() == 2 && time > mup_zearm)
 	{	// leaving a game takes a second press
 		mup_zearm = time + 5;
 		mup_note = MUp_Keep(mup_note, sprintf("Zone editor loads %s in a game of your own: %s. Press Zone editor again to go.",
 			stem, isserver() ? "this game ends (unsaved zone edits are lost)" : "you leave this server"));
-		return;
+		return FALSE;
 	}
 	mup_zearm = 0;
 	if (strcmp(stem, mup_name) && mup_name != "")
 		print(sprintf("map upload: the zone editor saves zones as %s.json; this window finds them for %s too\n", stem, mup_name));
 	mup_note = MUp_Keep(mup_note, sprintf("Loading %s for the zone editor...", stem));
-	cvar_set("ui_zoneedit_want", stem);
+	cvar_set("ui_zoneedit_want", sprintf("%s %.1f", stem, gettime(0)));
+	ui_eventfog_target("");         // as the picker's Play: no Story fog request carried in
 	ui_launch_local(stem);
+	return !mup_open;               // offline it starts at once (m_close hid the window)
 };
 
-// the two tools' tabs, beside Close: this window, and the zone editor
-void(vector p, float w) MUp_DrawTabs =
+// the two tools' tabs, beside Close: this window, and the zone editor. TRUE when the window went.
+float(vector p, float w) MUp_DrawTabs =
 {
 	local float x;
 	x = p_x + w - 16 - 90 - 14 - ui_chip_w("Zone editor") - 6 - ui_chip_w("Map upload");
 	x = x + ui_chip([x, p_y + 16], "mup_tabup", "Map upload", TRUE) + 6;
 	ui_chip([x, p_y + 16], "mup_tabze", "Zone editor", FALSE);
-	if (sui_is_released("mup_tabze")) MUp_ZoneEditor();
+	if (sui_is_released("mup_tabze")) return MUp_ZoneEditor();
+	return FALSE;
 };
 
 void(vector screensize) MUp_Draw =
@@ -912,7 +932,7 @@ void(vector screensize) MUp_Draw =
 		MUp_Close();
 		return;
 	}
-	MUp_DrawTabs(p, w);
+	if (MUp_DrawTabs(p, w)) return;
 	colw = floor((w - 18 * 2 - 24) * 0.42);
 	q = p + '18 82 0';
 	MUp_DrawMaps(q, colw);
@@ -1040,19 +1060,23 @@ float(string verb, string arg) MUp_Command =
 	return TRUE;
 };
 
-// P1799: the zone editor's Map upload tab (ui_mapupload_request). A server's csprogs can set it too, so it only opens
-// the window and picks that name's loose maps/ file, where an upload may start (MUp_Official); Upload still needs the
-// admin's own press. Polled by m_draw.
+// P1799: the zone editor's Map upload tab (ui_mapupload_request; "-" back: refused). A server's csprogs can set it
+// too, so it only opens the window and picks that name's loose maps/ file, in a game this client hosts; Upload still
+// needs the admin's own press. Polled by m_draw.
 void() MUp_PollRequest =
 {
 	local string want, f;
 	local float i;
-	if (cvar_string("ui_mapupload_request") == "") return;
+	if (cvar_string("ui_mapupload_request") == "" || cvar_string("ui_mapupload_request") == "-") return;
 	want = strzone(cvar_string("ui_mapupload_request"));
 	cvar_set("ui_mapupload_request", "");
-	if (!MUp_StemOK(want) || ms_consent < FS_TERMS_VERSION || !MUp_Official())
+	// only from a game this client hosts and has fully joined (where the editor's tab is offered), never a demo: a
+	// value left by another csprogs at its shutdown, before a stuffed connect or in a demo is refused, not acted on
+	if (!MUp_StemOK(want) || clientstate() != 2 || strcmp(serverkey("constate"), "active") || isdemo() || !isserver()
+		|| ms_consent < FS_TERMS_VERSION)
 	{
-		print("map upload: the zone editor's request was refused (upload from the main menu, a game you host, or our lobbies)\n");
+		print("map upload: the zone editor's request was refused (it opens the window only in a game you host)\n");
+		cvar_set("ui_mapupload_request", "-");          // the editor says so (ZoneEdit_Want)
 		strunzone(want);
 		return;
 	}
@@ -1070,9 +1094,16 @@ void() MUp_PollRequest =
 		}
 	if (f != "")
 	{
-		MUp_PickMap(f);
-		mup_note = MUp_Keep(mup_note, sprintf("Map: %s, from the zone editor. %s", f, (mup_zone != "")
-			? "Click its zone file under Zones to attach it." : "No saved zone file for it here yet (the editor's Save zones)."));
+		if (strcmp(f, mup_bsp)) MUp_PickMap(f);
+		else
+		{	// already the chosen map: the admin's name and picture stay; the files are read again
+			MUp_Rehash();
+			MUp_ZoneFind();
+			MUp_ListShots();
+		}
+		mup_note = MUp_Keep(mup_note, sprintf("Map: %s, from the zone editor. %s", f, (mup_zone == "")
+			? "No saved zone file for it here yet (the editor's Save zones)." : mup_usezone ? "Its zone file is attached."
+			: "Click its zone file under Zones to attach it."));
 	}
 	else
 	{	// loaded from a package or a download: the name, and its zones, still help

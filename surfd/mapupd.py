@@ -944,8 +944,8 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
         elif held:
             u['zones_note'] = ' It uses the zones already on the server.'
         else:
-            u['zones_note'] = (' It has no zones yet: lobbies cannot time it until zones are published (zone editor, '
-                               'Publish saved).')
+            u['zones_note'] = (' It has no zone file: runs on it can only be timed if the map has its own zone '
+                               'triggers, until zones are published (zone editor, Publish saved).')
         return u
 
     def undo(name, aside):

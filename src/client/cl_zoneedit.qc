@@ -1967,22 +1967,40 @@ void() ZoneEdit_Open =
 };
 
 // P1799: the map upload window (menu F8, m_mapupload.qc) and this editor are tabs of each other. Want opens the editor
-// on the map the window's Zone editor tab loaded (ui_zoneedit_want), only in a game this client hosts; it opens nothing
-// else, so WHO MAY WRITE A FILE still holds. Elsewhere the request waits; the menu clears it when its window opens.
+// on the map the window's Zone editor tab loaded (ui_zoneedit_want: "<map> <gettime(0)>", one clock in both VMs), only
+// in a game this client hosts; it opens nothing else, so WHO MAY WRITE A FILE still holds. A request older than a
+// minute, or one whose map has not come up 10 s on, is dropped; so is one in a game of someone else's.
 void() ZoneEdit_Want =
 {
-	local string w;
+	local string w, m;
+	local float sp, age;
 
+	if (cvar_string("ui_mapupload_request") == "-")
+	{	// the menu refused this editor's Map upload request (MUp_PollRequest)
+		cvar_set("ui_mapupload_request", "");
+		ZoneEdit_Note("the Map upload tab opens the upload window only in a game you host; F8 opens it anywhere");
+	}
 	w = cvar_string("ui_zoneedit_want");
 	if (w == "")
 		return;
-	if (!ZoneEdit_Hosting())
+	sp = strstrofs(w, " ", 0);
+	m = (sp > 0) ? substring(w, 0, sp) : "";
+	age = (sp > 0) ? gettime(0) - stof(substring(w, sp + 1, -1)) : 999;
+	if (age > 60 || age < -5)
+	{
+		cvar_set("ui_zoneedit_want", "");
 		return;
-	if (strcmp(w, serverkey("map")) || strcmp(zone_mapname, serverkey("map")))
-		return;                     // not this map, or its zones not read yet
+	}
+	if (!ZoneEdit_Hosting() || strcmp(m, serverkey("map")))
+	{	// not a game of our own, or another map: the one asked for did not come up
+		if (age > 10) cvar_set("ui_zoneedit_want", "");
+		return;
+	}
+	if (strcmp(zone_mapname, serverkey("map")))
+		return;                     // its zones not read yet
 	if (ui_ze_state)
 	{	// already open on it (the window's tab from this editor): done, or closing it later would open it again
-		if (!strcmp(ze_map, w)) cvar_set("ui_zoneedit_want", "");
+		if (!strcmp(ze_map, m)) cvar_set("ui_zoneedit_want", "");
 		return;
 	}
 	if (ZoneEdit_Blocker() != "")

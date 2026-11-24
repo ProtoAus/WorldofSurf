@@ -386,7 +386,7 @@ class Flow(unittest.TestCase):
         b, f = self.upload('bhop_nozone', mode='bhop')
         self.assertEqual((b['need'], b['zones'], b['note']), ('bsp', 0, ''))
         self.assertEqual(f['ok'], 1, f)
-        self.assertIn('no zones yet', f['note'])
+        self.assertIn('has no zone file: runs on it can only be timed if the map has its own zone triggers', f['note'])
         self.assertTrue((self.maps / 'bhop_nozone.bsp').is_file())
         self.assertEqual({r['map']: r['mode'] for r in mapmanifest.read_list(self.list)}['bhop_nozone'], 'bhop')
         self.assertFalse(any((d / 'bhop_nozone.json').exists() for d in self.zones))
