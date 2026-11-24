@@ -109,3 +109,9 @@ change; R2's copy goes with r2mirror's next run.
   can act on it; one whose file was changed by a later publish can only be cleared by hand (DELETE FROM upload_zones).
 - A crashed attempt's record that reconcile kept (zone_edit published since) is replaced by the next attempt's own;
   the copies it named stay in zones-aside/ and are logged, not recorded.
+
+## Installed
+P1799 INSTALLED 25 Nov 2026 (Lex's root run, `--upgrade-from 99171e80`, source /srv/nvme/ftesurf-ops/mapupd-src-a0cf6968, the
+installer copied to /root/install_mapupd-a0cf6968.py): release /opt/ftesurf-mapupd/a0cf6968 (99171e80 kept as unit.prev's).
+Checked live: X-Mapupd-Source a0cf6968, both units active. Next upgrade: --upgrade-from a0cf69682ea08fd2b9bdab3adc4f8468f8e734fb.
+

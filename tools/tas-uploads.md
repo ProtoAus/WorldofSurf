@@ -268,3 +268,10 @@ for the next surfd generation.
 4. Optional: a short public "make your own bot" page describing the `tas demo` row format.
 
 Lex, 20 Nov: Steam-linked uploaders only (answered the open question above).
+
+## P1798: uploads judged by motion, not importer header lines (Lex 24 Nov, Rounin's sandtrap b4)
+INSTALLED 25 Nov 2026 (Lex's root run, `--upgrade-from 45aab35b`, source /srv/nvme/ftesurf-ops/tasupd-src-a0cf6968, the
+installer copied to /root/install_tasupd-a0cf6968.py): release /opt/ftesurf-tasupd/a0cf6968 (45aab35b kept as unit.prev's;
+b61c53ef removed). Checked live: X-Tasupd-Source a0cf6968, /tasup/api/health {"ok":1,"replays":3} (the service lists the
+three replay roots in its sandbox), unit carries TASUPD_REPLAYS. Next upgrade: --upgrade-from a0cf69682ea08fd2b9bdab3adc4f8468f8e734fb.
+
