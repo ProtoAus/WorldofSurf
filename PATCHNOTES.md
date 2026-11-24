@@ -21,6 +21,8 @@
 
 ## next
 
+## 0.1.64 2026-11-24
+
 ### P1764 Source maps adjust their brightness like Momentum
 - On Source maps lit in HDR (bhop_canals and many others) the picture brightens in dark places and darkens toward a bright sky, as Momentum does, within the map's own range. vbsp_autoexposure 0 turns it off.
 

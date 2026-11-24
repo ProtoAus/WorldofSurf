@@ -1,5 +1,13 @@
 # lextest.md — things waiting on a human
 
+## 0.1.64 release -- PUBLISHED 24 Nov 01:50Z, lobbies on its progs 01:53Z; your dev install has it (P1762-P1764)
+1. The launcher offers 0.1.64; after updating, the corner reads World of Surf 0.1.64.
+2. bhop_canals save 6 (the barn): over a second or two the room brightens to about Momentum's level; save 7 (bright
+   view) settles a touch darker. r_autoexposure_current shows the value; vbsp_autoexposure 0 turns it off.
+3. Save 5: the corrugated ramp shows its ridges lit from the sun side (it is still walk-through: P1761, BACKLOG).
+4. Save 8 with r_shadows 2: the pipe's shadow is sharp and shadows reach much further. r_shadows_cascades 1 is the old
+   single map (about 1.5 ms faster there) if the frame rate matters more.
+
 ## P1758-P1760 bhop_canals graphics (worldofsurf-67, 24 Nov) -- dev install patch-1760 (exe f17450f0) 23 Nov 18:40Z; lobby
 ## qwprogs 4b6c2c15 (P1759/P1760) LIVE 18:38Z; local games and the sky/shadows for players with the next release
 1. bhop_canals save 7: the sky is a smooth grey overcast with the sun breaking through, like Momentum's (no contour
