@@ -7,6 +7,14 @@
   displacements on cascade maps still get no per-pixel sun (Strata adds it: save 8's ground relief); the cascade depth
   passes are not instanced (save 8 4.7 -> 6.1 ms); additive sprites, particles and UnlitTwoTexture shafts are not
   exposure-scaled; the exposure is measured after scene gamma; one calibration point.
+- P1765-P1771 (0.1.65, Lex's saves 11-20): world casting on cascade maps, cascade blend + 4096 atlas, alpha-tested
+  casters, selfillum, named HDR cubemaps, shaft fog + exact tint, live vbsp_autoexposure. LEFT: func_smokevolume (save
+  11's basin haze: 12 on canals, particle/particle_noisesphere, Color1/Color2, Density, spacing/width) unimplemented;
+  the white/black street lamp lamppost03a (save 20) -- Strata's .vhv alpha holds each vertex's direct sun (r=0.89 with
+  N.L), which we drop, and the white is not explained; the barn auto-exposes to 2.0 where Momentum stays darker (its HDR
+  sky/sun patches outshine our clamped readback); prop_dynamic outside the PVS is not sent, so its shadow can pop;
+  canals' oak_tree01 resolves to CS:S's model (mount order) and loses its HL2 bake; the ramp's corrugation softer than
+  Momentum's.
 - P1759 tint precision: colormod crosses the wire in 1/32 steps, so a dark tint is approximate (21 18 13 -> 24 16 16,
   pinkish); exact needs a protocol or CSQC path. Out-of-range rendercolor clamps (Source wraps bytes), as P1250.
 - P1760: casting Source models do not receive shadows (P1732), now including a cascade map's static props; under r_shadows

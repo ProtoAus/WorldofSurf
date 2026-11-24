@@ -21,6 +21,27 @@
 
 ## next
 
+### P1771 Glass reflects on Strata maps
+- Windows and other reflective surfaces on maps like bhop_canals reflect the sky again: their own reflection images were black placeholders and the real ones are now used.
+
+### P1770 Pale trees are dark again
+- Trees, railings and other props whose material turns self-glow off no longer draw a pale, unlit copy over themselves (bhop_canals' oaks and bridge railings).
+
+### P1769 Barn light shafts look right
+- Light shafts no longer glow white from far away in fog, and keep their amber colour instead of turning pink.
+
+### P1768 Bushes cast branch shadows
+- With shadows on, bushes, fences and other see-through textures cast the shadow of their branches and bars, not a solid square.
+
+### P1767 vbsp_autoexposure switches at once
+- Setting vbsp_autoexposure 0 or 1 takes effect immediately instead of on the next map.
+
+### P1766 Shadows stop switching off in front of you
+- Shadows no longer disappear at a line ahead of you as you move: the shadow cascades blend into each other, are twice as sharp, and props keep their shadow as they fade out in the distance.
+
+### P1765 Sharp world shadows on Strata maps
+- On maps with Strata's sun shadows (bhop_canals) walls, pillars and buildings cast sharp sun shadows like Momentum, shadows reach their full length, and props shadow themselves. r_shadows_worldcast 0 turns the world's part off.
+
 ## 0.1.64 2026-11-24
 
 ### P1764 Source maps adjust their brightness like Momentum
