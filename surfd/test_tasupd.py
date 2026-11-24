@@ -1690,9 +1690,11 @@ class CourseFinder(Service):
     def test_every_page_carries_the_site_nav(self):
         for path in ('/tasup/', '/tasup/board?map=surf_sandtrap2'):
             h = self.app.test_client().get(path).get_data(as_text=True)
-            self.assertIn('href="https://proto.bar/ftesurf/board/">Leaderboard</a>', h)
-            self.assertIn('href="https://proto.bar/ftesurf/zoning.html">Zoning</a>', h)
+            self.assertIn('href="https://proto.bar/worldofsurf/board/">Leaderboard</a>', h)
+            self.assertIn('href="https://proto.bar/worldofsurf/zoning.html">Zoning</a>', h)
             self.assertIn('<a href="/tasup/" aria-current="page">TAS uploads</a>', h)
+            self.assertIn('href="https://play.proto.bar/admin/">Log in</a>', h)     # P1820: the site's two pills
+            self.assertIn('href="https://proto.bar/worldofsurf/#download">Download</a>', h)
 
     def test_the_finder_lists_the_known_maps(self):
         h = self.app.test_client().get('/tasup/').get_data(as_text=True)

@@ -1,5 +1,13 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## P1820 admin half -- READY for the next generation (worldofsurf-47, 25 Nov; Lex's site list)
+surfd/admin.py (runs list SQL ~10x faster, same rows: 88 state/search/page combos identical to gen1745's on the Pi's
+surfd.db.bak-pre1710, worst 2.55 s -> 0.19 s; key_for 0.55 -> 0.07 s; `reason` + `why` = explain_verdict on each row and
+verdict), templates/_admin_style.html, admin*.html (site look, sitenav admin menu, tooltips), ADDED
+templates/_admin_brand.html (generation.json ship_added) and surfd/test_admin_explain.py; test_admin.py,
+test_verifier_counts.py changed. No schema change. reportd's copy of the three templates goes live without a generation
+(AGENT_NOTES "P1820 site pages and tabs"). The board/watch web files publish ahead with publish_board.py.
+
 ## 24 Nov 2026: P1806 tasindex LIVE 18:37:22Z; tasupd d8c49533 STAGED for Lex's root upgrade (worldofsurf-8b)
 tasindex (no root, no surfd generation): /srv/nvme/ftesurf-ops/tasindex/d8c4953325c9c4bc844a921eb09eed8c6e39714b/tasindex.py
 (sha256 158af723...), proto user units ftesurf-tasindex.{service,timer} (every 5 min; NOT crontab, so the generation kits'

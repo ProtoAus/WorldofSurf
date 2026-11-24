@@ -4,14 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>FTESurf admin</title>
+<title>World of Surf admin</title>
 {% include "_admin_style.html" %}
 </head>
 <body>
 <header>
-  <h1>FTESurf admin</h1>
+  <!-- sitenav:admin page=fleet nav=0 -->
+  <a class="brand" href="/admin/" aria-label="World of Surf admin">{% include "_admin_brand.html" %}<span class="tag">Admin</span></a>
+  <!-- /sitenav -->
   {% if have_runs or have_bans %}
-  <nav class="nav"><a href="/admin/" aria-current="page">Fleet</a><a href="/admin/maps">Maps</a><a href="/admin/runs">Runs</a><a href="/admin/top10">Top 10</a><a href="/admin/accounts">Accounts</a><a href="/admin/reports">Reports</a><a href="https://proto.bar/worldofsurf/">Site</a></nav>
+  <!-- sitenav:admin page=fleet brand=0 -->
+  <nav class="nav" aria-label="Admin"><a href="/admin/" aria-current="page">Fleet</a><a href="/admin/maps">Maps</a><a href="/admin/runs">Runs</a><a href="/admin/top10">Top 10</a><a href="/admin/accounts">Accounts</a><a href="/admin/reports">Reports</a><a class="site-link" href="https://proto.bar/worldofsurf/">Site &#8599;</a></nav>
+  <!-- /sitenav -->
   {% endif %}
   <span class="muted" id="clock">&mdash;</span>
   <span class="spacer"></span>
@@ -23,7 +27,7 @@
 
 <main>
   {% if not have_rcon %}
-  <div class="card" style="margin-bottom:1rem;border-color:#6b552b;background:#2a2419">
+  <div class="card" style="margin-bottom:1rem;border-color:rgba(240,210,90,.45);background:#1a170c">
     <strong>Game-server controls are unavailable.</strong>
     <p class="note">SURFD_RCON_PASSWORD is not set in surfd.env, so this panel can
     show systemd state and the directory table but cannot reach the servers
@@ -193,7 +197,7 @@ function renderDisk(d) {
   const line = `${gb(d.free)} free of ${gb(d.total)} (${d.used_pct}% used) on ${esc(d.path)}`;
   if (!d.warn) { box.innerHTML = `<p class="note">Data drive: ${line}.</p>`; return; }
   const sizes = Object.entries(d.sizes || {}).map(([k, v]) => `${esc(k)} ${gb(v)}`).join(", ");
-  box.innerHTML = `<div class="card" style="margin-bottom:1rem;border-color:#6b2b30;background:#2a1a1c">
+  box.innerHTML = `<div class="card" style="margin-bottom:1rem;border-color:rgba(255,122,112,.5);background:#1c0f0e">
     <strong>The data drive is filling up: ${line}.</strong>
     <p class="note">This warns under ${gb(d.floor)}. Run evidence is never deleted
     (run_evidence_days 0); data/ holds ${sizes || "-"}.</p></div>`;

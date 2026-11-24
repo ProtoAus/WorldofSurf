@@ -12,16 +12,26 @@
 <script src="watch.js" defer></script>
 </head>
 <body class="wpage">
+<!-- sitenav:header page=watch base=../ -->
 <header class="nav">
-  <div class="nav-in">
-    <a class="brand" href="../"><span>WORLD OF</span><b>SURF</b></a>
-    <nav class="links">
-      <a id="wback" href="./">Back to the run</a>
-    </nav>
-  </div>
+  <nav class="nav-in" aria-label="Site">
+    <a class="brand" href="../" aria-label="World of Surf home"><span>World of</span><b>Surf</b></a>
+    <div class="links">
+      <a href="../">Overview</a>
+      <a href="../board/">Leaderboard</a>
+      <a href="../board/#who=">Players</a>
+      <a href="../zoning.html">Zoning</a>
+      <a href="../anticheat.html">Anti-Cheat</a>
+      <a href="https://play.proto.bar/tasup/">TAS uploads</a>
+    </div>
+    <a class="pill" href="../#download">Download</a>
+    <a class="pill pill-quiet" href="https://play.proto.bar/admin/">Log in</a>
+  </nav>
 </header>
+<!-- /sitenav -->
 
 <main class="wwrap">
+  <a id="wback" class="wback" href="./">&larr; Back to the run</a>
   <div class="whead">
     <h1 id="wtitle">Watch a run</h1>
     <div id="wtime" class="wtime"></div>

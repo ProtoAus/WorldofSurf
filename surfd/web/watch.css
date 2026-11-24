@@ -1,5 +1,7 @@
 /* The 3D run viewer (watch.html); board.css supplies the palette and header. */
 .wwrap { max-width: 1280px; margin: 0 auto; padding: 20px 22px 64px; }
+.wback { display: inline-block; font-size: 13px; color: var(--dim); text-decoration: none; margin-bottom: 8px; }
+.wback:hover { color: var(--text); }
 .whead { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
 .whead h1 { font-family: var(--display); font-weight: 400; font-size: 34px; letter-spacing: .02em; margin: 0; }
 .wtime { font-family: var(--mono); font-size: 20px; color: var(--gold); }

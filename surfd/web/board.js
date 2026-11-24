@@ -575,6 +575,12 @@
       : 'This map is not installed on the servers — the times below are '
         + 'imported, and you cannot play it here yet.';
     note.hidden = !!body.have;
+    // Downloads: the BSP whenever the servers hold it, the zones once it has them (`have`).
+    var get = '../get.html?map=' + encodeURIComponent(body.disp);
+    $('mapdl').href = get + '&get=map';
+    $('mapdl').hidden = !body.bsp;
+    $('zonedl').href = get + '&get=zones';
+    $('zonedl').hidden = !body.have;
     var full = hashFor(v.map, v.track, v.leg, v.style, v.tier);
     if (location.hash !== full && history.replaceState) {
       history.replaceState(null, '', full);
@@ -624,6 +630,7 @@
     var tas = 'https://play.proto.bar/tasup/board?map=' + encodeURIComponent(String(h.m || '').toLowerCase());
     if (/^[0-9]+$/.test(String(h.t)) && !Number(h.l)) { tas += '&track=' + Number(h.t); }
     $('maptas').href = tas;
+    $('mapdl').hidden = $('zonedl').hidden = true;
     var seq = ++state.seq;
     get(mapQuery(h, 0)).then(function (body) {
       if (seq !== state.seq) { return; }

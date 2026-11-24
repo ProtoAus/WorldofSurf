@@ -758,7 +758,7 @@ class Session(Base):
         app_dir = os.path.join(root, "app")
         os.makedirs(os.path.join(app_dir, "templates"))
         for rel in ("reportd.py", "reportd_wsgi.py", "templates/reportd_reports.html",
-                    "templates/_admin_style.html"):
+                    "templates/_admin_style.html", "templates/_admin_brand.html"):
             shutil.copyfile(os.path.join(HERE, rel), os.path.join(app_dir, rel))
         with open(os.path.join(root, "surfd.env"), "w") as fh:
             fh.write(ENV)

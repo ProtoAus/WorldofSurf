@@ -191,9 +191,11 @@ _ERRORS_SQL = """(SELECT COUNT(*) FROM verdicts n WHERE n.replay_id = p.id
 # ignore all of it.
 KEY_MARGIN = 300          # s between a run's submit and its .rcpt landing
 KEY_UNJUDGED_FLAGS = 136  # surfd TF_SEGMENT | TF_SHADOW: the segmented board
+# P1820: CROSS JOIN fixes the join order -- receipts outer (2.5k rows), replays by replays_runid -- where
+# sqlite chose to scan all 85k replays (most of them imported); same rows, 0.6 s -> 0.05 s on the Pi.
 _KEY_CAND = """SELECT r.runid, r.pub, q.player, r.signed_at, q.id AS rid
       FROM receipts r
-      JOIN replays q ON q.runid = r.runid AND q.kind IN ('run', 'evidence')
+      CROSS JOIN replays q ON q.runid = r.runid AND q.kind IN ('run', 'evidence')
        AND q.player <> ''
       LEFT JOIN pubkeys d ON d.pub = r.pub AND d.player = q.player
      WHERE r.sig = 1 AND r.pub <> '' AND COALESCE(d.decision, '') <> 'reject'"""
@@ -201,7 +203,7 @@ _KEY_FIRST = """(SELECT * FROM (SELECT pub, player, signed_at, rid, ROW_NUMBER()
        OVER (PARTITION BY %s ORDER BY signed_at, runid) AS n
        FROM (""" + _KEY_CAND + """)) WHERE n = 1)"""
 _KEY_SIGNED = """(SELECT q.player, MIN(r.signed_at) AS signed_at FROM receipts r
-       JOIN replays q ON q.runid = r.runid AND q.kind IN ('run', 'evidence')
+       CROSS JOIN replays q ON q.runid = r.runid AND q.kind IN ('run', 'evidence')
         AND q.player <> ''
       WHERE r.sig = 1 AND r.pub <> '' GROUP BY q.player)"""
 _KEY_JOIN = """
@@ -309,11 +311,14 @@ def unsigned_why(k):
 
 # One row per replay with its latest CURRENT (at >= submitted) review and
 # non-ERROR verdict, the pair surfd.VER_SQL reads; `error` = the latest current
-# attempt printed no verdict.  The ? is the ERROR cap.
+# attempt printed no verdict.  The ? is the ERROR cap.  P1820: the `+` on leg and
+# replay_id keeps the evidence EXISTS on runs_run; on runs_board's leg range it read
+# every stage row of the map (4.1M runs have replay_id 0): 2.2 s -> 0.2 s a page.
 def _runs_base(keys):
     return """
 SELECT p.id, p.kind, p.map, p.map_dir, p.track, p.leg, p.tier, p.style, p.name,
        p.millis AS ms, p.flags, p.submitted, p.checked, p.recheck_at, v.verdict,
+       v.reason,
        COALESCE(e.verdict = 'ERROR', 0) AS error,
        COALESCE(v.reason LIKE '%stage rows not posted in this recording%', 0)
            AS stage_note,
@@ -323,7 +328,7 @@ SELECT p.id, p.kind, p.map, p.map_dir, p.track, p.leg, p.tier, p.style, p.name,
             THEN EXISTS (SELECT 1 FROM runs r WHERE r.replay_id = p.id
                    AND r.tier IN ('ranked', 'community'))
             ELSE EXISTS (SELECT 1 FROM runs r WHERE r.map = p.map
-                   AND r.track = p.track AND r.leg > 0 AND r.replay_id = 0
+                   AND r.track = p.track AND +r.leg > 0 AND +r.replay_id = 0
                    AND r.player = p.player AND r.runid = p.runid
                    AND r.tier IN ('ranked', 'community')) END AS standing,
        """ + (_KEY_COLS if keys else _NO_KEY_COLS) + """
@@ -727,6 +732,103 @@ def verifier_counts(raw):
         return value
     except (ValueError, TypeError, RecursionError):
         return None
+
+
+# P1820 (Lex: "refused with weird notes I don't quite understand"): pm_verify's reason (engine sv_ccmds.c,
+# RECSIM_REFUSE / the HOLD `why`) in plain words. First match wins. `look`: 2 = watch it, 1 = worth a look when the
+# run stands high, 0 = nothing to see. REFUSE is the checker's "cannot say", never a judgement on the run.
+_EXPLAIN = {
+    "REFUSE": (
+        (r"cold rewind|save-state resume or retry|stage restart", 0, "Used retry or a save",
+         "The player went back to a saved spot during the run (retry, loading a save, or restarting a stage). "
+         "The checker can only replay a run played straight through, so it skips these. Normal play."),
+        (r"`pause` no `session` answers", 0, "Parked, never resumed",
+         "The run was parked to finish later, and the recording stops before it was picked up again."),
+        (r"parked-wall|parkclock", 0, "Parked, finished later",
+         "The run was parked and finished in a later session. The real time spent away counts on the clock, "
+         "and the checker cannot replay that yet."),
+        (r"non-counted/kept|v11 closing clock", 0, "Timer kind not replayable yet",
+         "The run's timer ended in a mode the checker cannot add up yet (a run kept through a hold or a pause, "
+         "or one timed by the older sampled clock). Skipped, not judged."),
+        (r"frozen timer|excluded-clock|`hold`", 0, "Timer was frozen",
+         "Part of the run happened with the timer frozen (a save-lock hold or a pinned spot). "
+         "The checker cannot replay frozen time yet."),
+        (r"(?:malformed|inconsistent|incomplete|overlapping|discontinuous|backwards|unmatched).*view", 1,
+         "Watched mid-run; viewing time does not add up",
+         "The player watched a replay or spectated during the run, and the recorded viewing time is incomplete or "
+         "does not add up, so the checker stops. Usually harmless; if the run stands high on a board, watch it."),
+        (r"viewing|spec window|spec edge|ghost window|ghost edge|`spec`|`ghost`", 0, "Watched or spectated mid-run",
+         "The player watched a replay, spectated or used ghost mode while the run was going. "
+         "The checker cannot replay that stretch yet."),
+        (r"^not exact|no `zseed`|no input trace|no movetickrate|below FTESURF-REC|unsupported|no verifier hooks"
+         r"|recorder before|QC build", 0, "Recorded by an older build",
+         "The recording comes from a game or server build older than the checker supports, "
+         "so it lacks something a replay needs."),
+        (r"^unfinished", 0, "Not finished", "The recording has no finish, so there is no time to check."),
+        (r"different map|entity lump|entfile|zone pin|start tick", 1, "Map or zones changed since",
+         "The map or its zones on the server are not the ones the run was played on (updated since), "
+         "so a replay would not be the same course. Re-check after the run's own map is back, or review by eye."),
+        (r"no map loaded|cannot read|cannot bind", 0, "Checker could not open it",
+         "The checker could not load the map or read the file this time. Re-check queues it again."),
+        (r"malformed|invalid|truncated|unreadable|inconsistent|duplicate|overlapping|discontinuous|backwards"
+         r"|unmatched|outside body|contradicts|second `pause`|with no `pause`|with no `in`", 1,
+         "Recording does not add up",
+         "Parts of the recording contradict each other, so the checker stops. Usually a cut-off file or a "
+         "recorder bug; if the run stands high on a board, watch it before trusting it."),
+    ),
+    "HOLD": (
+        (r"^state:", 2, "Replay drifted from the recording",
+         "Replaying the player's inputs gave a different position or speed than the server recorded. "
+         "This is the main sign of edited inputs, but map or prop differences cause it too. Watch it."),
+        (r"^counts:", 2, "Mouse input does not match the device",
+         "The recorded view turned by mouse counts the device never sent. Watch it."),
+        (r"^physents:", 2, "Moving parts disagree",
+         "Doors, platforms or other moving parts ended up differently in the replay than in the recording."),
+        (r"^portals:", 2, "Teleports disagree", "Teleports or portals did not match between the replay and the recording."),
+        (r"^ticks:", 2, "Time does not match the zones",
+         "The replay crosses the zones at a different time than the recording claims."),
+        (r"^finish at row", 2, "Finished in the wrong place", "The replay reaches the end zone earlier than the recording ends."),
+        (r"no finish", 2, "Never finishes in the replay", "Replaying the inputs never reaches the end zone."),
+        (r"cancel zone", 2, "Crossed a cancel zone", "The replay passes through a zone that cancels a run."),
+        (r"^session|parks the clock|resumes", 2, "Resume does not match the park",
+         "A later session does not start from where the parked one stopped."),
+        (r"^ghost|^spec:", 2, "Ghost or spectate timing disagrees",
+         "Input or edges inside a ghost or spectate window do not match the recording."),
+        (r"", 2, "Replay disagrees with the recording",
+         "Replaying the run did not reproduce what the server recorded. Watch it."),
+    ),
+}
+_PASS_TICKS = re.compile(r"^ticks ([0-9]+) rows ([0-9]+)")
+_PROP_SKEW = re.compile(r"lobby lacked ([0-9]+) prop model file")
+
+
+def explain_verdict(verdict, reason):
+    """{short, text, look} for one pm_verify verdict and its reason (P1820); None without a verdict."""
+    reason = reason or ""
+    if verdict == "PASS":
+        m = _PASS_TICKS.match(reason)
+        if "abandoned at tick" in reason:
+            return {"short": "Partial run replayed", "look": 0,
+                    "text": "The run was abandoned; the checker replayed it exactly up to where it stopped."}
+        return {"short": "Replayed exactly", "look": 0,
+                "text": "The checker replayed every input and got the same run and time"
+                        + (" (%s ticks)." % m.group(1) if m else ".")}
+    if verdict == "ERROR":
+        return {"short": "Checker error", "look": 0,
+                "text": "The checker failed on this file (a crash or a timeout) and printed no verdict. "
+                        "The sweep tries again a few times."}
+    for pattern, look, short, text in _EXPLAIN.get(verdict, ()):
+        if re.search(pattern, reason):
+            out = {"short": short, "look": look, "text": text}
+            skew = _PROP_SKEW.search(reason)
+            if skew:
+                out["text"] += (" The lobby was missing %s prop model file(s), which can cause this on its own."
+                                % skew.group(1))
+            return out
+    if verdict == "REFUSE":
+        return {"short": "Checker could not replay it", "look": 0,
+                "text": "The checker skips runs it cannot fully replay. That is not a judgement on the run."}
+    return None
 
 
 def clean_note(raw):
@@ -1839,6 +1941,7 @@ def build_blueprint(app, log, db_connect, lobby_ttl, client_identity=None,
                 out[k] = bool(out[k])
             out["legdir"] = leg_dir(row["track"], row["leg"])
             out["public"] = public_state(row["verdict"], row["decision"])
+            out["why"] = explain_verdict(row["verdict"], row["reason"])
             return out
 
         @bp.get("/runs")
@@ -1944,7 +2047,7 @@ def build_blueprint(app, log, db_connect, lobby_ttl, client_identity=None,
                 cols = {r[1] for r in conn.execute('PRAGMA table_info(verdicts)')}
                 extra = (", coalesce(substr(CAST(counts_metrics AS BLOB),1,%d),X'') AS counts_metrics" % (COUNTS_METRICS_MAX + 1)
                          if 'counts_metrics' in cols else '')
-                verdicts = [dict(v, current=v["at"] >= sub,
+                verdicts = [dict(v, current=v["at"] >= sub, why=explain_verdict(v["verdict"], v["reason"]),
                                  counts_metrics=verifier_counts(v['counts_metrics']) if extra else None)
                             for v in conn.execute(
                     "SELECT id, verdict, reason, ticks, engine, progs, at" + extra +

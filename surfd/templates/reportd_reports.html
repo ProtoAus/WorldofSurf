@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>FTESurf admin - reports</title>
+<title>Reports · World of Surf admin</title>
 {% include "_admin_style.html" %}
 <style>
   main.split { max-width:1800px; display:grid; gap:1rem; align-items:start;
@@ -14,26 +14,28 @@
     #detail { position:sticky; top:4.2rem; max-height:calc(100vh - 5.4rem); overflow:auto; }
   }
   th[data-sort] { cursor:pointer; user-select:none; white-space:nowrap; }
-  th[data-sort]:hover { color:#d8dde4; }
+  th[data-sort]:hover { color:var(--text); }
   th[aria-sort=ascending]::after { content:" \25B2"; }
   th[aria-sort=descending]::after { content:" \25BC"; }
-  tr.unseen td { font-weight:700; color:#e8edf4; }
-  tr.open td { background:#242932; }
+  tr.unseen td { font-weight:700; color:var(--text); }
+  tr.open td { background:var(--hover); }
   td.subj { min-width:14rem; }
   td.subj .muted { display:block; font-weight:400; white-space:nowrap; overflow:hidden;
                    text-overflow:ellipsis; max-width:24rem; }
-  .shot img { display:block; max-width:100%; height:auto; border:1px solid #262b33;
+  .shot img { display:block; max-width:100%; height:auto; border:1px solid var(--line);
               border-radius:6px; }
-  .body { white-space:pre-wrap; overflow-wrap:anywhere; background:#0f1114;
-          border:1px solid #262b33; border-radius:6px; padding:.6rem .7rem; font-size:.83rem; }
-  table.meta td:first-child { color:#8b94a2; white-space:nowrap; width:1%; }
+  .body { white-space:pre-wrap; overflow-wrap:anywhere; background:#0a0a0d;
+          border:1px solid var(--line); border-radius:6px; padding:.6rem .7rem; font-size:.83rem; }
+  table.meta td:first-child { color:var(--text-2); white-space:nowrap; width:1%; }
   table.meta td { overflow-wrap:anywhere; vertical-align:top; }
 </style>
 </head>
 <body>
 <header>
-  <h1>FTESurf admin</h1>
-  <nav class="nav"><a href="/admin/">Fleet</a><a href="/admin/maps">Maps</a><a href="/admin/runs">Runs</a><a href="/admin/top10">Top 10</a><a href="/admin/accounts">Accounts</a><a href="/admin/reports" aria-current="page">Reports <span class="pill info" id="navunseen" hidden></span></a><a href="https://proto.bar/worldofsurf/">Site</a></nav>
+  <!-- sitenav:admin page=reports -->
+  <a class="brand" href="/admin/" aria-label="World of Surf admin">{% include "_admin_brand.html" %}<span class="tag">Admin</span></a>
+  <nav class="nav" aria-label="Admin"><a href="/admin/">Fleet</a><a href="/admin/maps">Maps</a><a href="/admin/runs">Runs</a><a href="/admin/top10">Top 10</a><a href="/admin/accounts">Accounts</a><a href="/admin/reports" aria-current="page">Reports</a><a class="site-link" href="https://proto.bar/worldofsurf/">Site &#8599;</a></nav>
+  <!-- /sitenav -->
   <span class="spacer"></span>
   <form method="post" action="/admin/logout" style="margin:0">
     <input type="hidden" name="csrf" value="{{ csrf }}">

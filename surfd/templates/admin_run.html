@@ -4,13 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>FTESurf admin - replay {{ rid }}</title>
+<title>Replay {{ rid }} · World of Surf admin</title>
 {% include "_admin_style.html" %}
 </head>
 <body>
 <header>
-  <h1>FTESurf admin</h1>
-  <nav class="nav"><a href="/admin/">Fleet</a><a href="/admin/maps">Maps</a><a href="/admin/runs" aria-current="page">Runs</a><a href="/admin/top10">Top 10</a><a href="/admin/accounts">Accounts</a><a href="/admin/reports">Reports</a><a href="https://proto.bar/worldofsurf/">Site</a></nav>
+  <!-- sitenav:admin page=runs -->
+  <a class="brand" href="/admin/" aria-label="World of Surf admin">{% include "_admin_brand.html" %}<span class="tag">Admin</span></a>
+  <nav class="nav" aria-label="Admin"><a href="/admin/">Fleet</a><a href="/admin/maps">Maps</a><a href="/admin/runs" aria-current="page">Runs</a><a href="/admin/top10">Top 10</a><a href="/admin/accounts">Accounts</a><a href="/admin/reports">Reports</a><a class="site-link" href="https://proto.bar/worldofsurf/">Site &#8599;</a></nav>
+  <!-- /sitenav -->
   <span class="spacer"></span>
   <form method="post" action="/admin/logout" style="margin:0">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -19,12 +21,13 @@
 </header>
 
 <main class="stack">
-  <div><a href="/admin/runs">&larr; all runs</a></div>
+  <div><a href="/admin/runs">&larr; All runs</a></div>
 
   <div class="grid">
     <div class="card">
       <h2>Replay <span id="title"></span> <span id="public"></span>
         <span class="muted" style="font-weight:400" id="standing"></span></h2>
+      <div id="explain" class="explain" hidden></div>
       <dl id="details"><dt>&nbsp;</dt><dd class="empty">loading&hellip;</dd></dl>
     </div>
 
@@ -86,7 +89,9 @@
         <th>engine</th><th>progs</th><th>reason</th>
       </tr></thead><tbody></tbody></table>
     </div>
-    <p class="note">Grey rows predate the replay's current submission and no longer count.</p>
+    <p class="note">Each row is one attempt by the server's replay checker (newest first). Grey rows predate the
+      replay's current submission and no longer count. The plain-English line comes first; the checker's own words
+      are under it.</p>
   </details>
 
   <details class="card" id="rcptcard" hidden>
@@ -141,6 +146,16 @@ const TRACE_KEYS = ["trisoup", "rotboxes", "portalcsg"];   // the pin's trace cv
 const VERDICT_CLS = {PASS: "up", HOLD: "warn", ERROR: "down"};
 const DECISION_CLS = {approve: "up", reject: "down"};
 const PUBLIC_CLS = {verified: "up", hidden: "down"};
+// P1820: what each badge means, for the shared tooltip (_admin_style.html).
+const VERDICT_TIP = {
+  PASS: "The replay checker re-ran every input and got the same run and time. Shows as VERIFIED on the site.",
+  HOLD: "The replay ran but did not match the recording. Needs a human look: watch it, then Approve or Reject.",
+  REFUSE: "The checker could not replay this kind of run (retry, a save, a park, spectating, an old build...). It is not a judgement; the run stays on the board unverified.",
+  ERROR: "The checker failed on the file and printed no verdict; the sweep tries again."};
+const PUBLIC_TIP = {
+  verified: "Shown with the VERIFIED badge on the site (a replay pass or your approval).",
+  plain: "Shown on the site without a badge: not verified yet, or the checker could not replay it.",
+  hidden: "Hidden from the site by your Reject; the player's next best time stands."};
 const MARK_COLOUR = {cp: "#7fe0a0", stage: "#ffd79a", stagestart: "#ffd79a",
   split: "#9dc0ff", resume: "#ff9d9d", retry: "#ff9d9d", restart: "#ff9d9d",
   ghost: "#c59dff", warp: "#ffae57", portal: "#d38cff", spec: "#5fd3e0"};
@@ -270,10 +285,31 @@ function renderVerdictSummary(verdicts, history) {
               " predate this submission" + tail);
   }
 }
+// The current verdict in plain words, above the details (P1820).
+function renderExplain(verdicts) {
+  const box = document.getElementById("explain");
+  const cur = verdicts.find(v => v.current && v.verdict !== "ERROR") || verdicts.find(v => v.current);
+  box.replaceChildren();
+  box.className = "explain";
+  if (!cur || !cur.why) {
+    box.hidden = false;
+    box.append(el("b", "", "Not checked yet"), el("p", "", "The replay checker has not looked at this submission yet; the next sweep will."));
+    return;
+  }
+  box.hidden = false;
+  box.classList.add("look" + cur.why.look);
+  const head = el("b");
+  head.append(pill(cur.verdict, VERDICT_CLS[cur.verdict]), " " + cur.why.short);
+  box.append(head, el("p", "", cur.why.text),
+             el("div", "raw", "Checker said: " + (cur.reason || "-")));
+}
 function renderRun(j) {
   const r = j.run;
   document.getElementById("title").textContent = "#" + r.id;
-  document.getElementById("public").replaceChildren(pill(j.public, PUBLIC_CLS[j.public]));
+  const pub = pill(j.public, PUBLIC_CLS[j.public]);
+  pub.dataset.tip = PUBLIC_TIP[j.public] || "";
+  document.getElementById("public").replaceChildren(pub);
+  renderExplain(j.verdicts);
   const st = j.standing, stages = [];
   if (st.stages) stages.push(st.stages + " stage time" + (st.stages === 1 ? "" : "s") + " on the boards");
   if (st.stages_hidden) stages.push(st.stages_hidden + " hidden by the reject");
@@ -322,16 +358,27 @@ function renderRun(j) {
   tb.replaceChildren();
   for (const v of j.verdicts) {
     const tr = el("tr", v.current ? "" : "stale");
-    const vc = el("td"); vc.appendChild(pill(v.verdict, v.current ? VERDICT_CLS[v.verdict] : ""));
+    const vp = pill(v.verdict, v.current ? VERDICT_CLS[v.verdict] : "");
+    vp.dataset.tip = VERDICT_TIP[v.verdict] || "";
+    const vc = el("td"); vc.appendChild(vp);
     const eng = el("td", "mono", String(v.engine).slice(0, 10)); eng.title = v.engine;
     const prg = el("td", "mono", String(v.progs).slice(0, 10)); prg.title = v.progs;
-    const reason = el("td", "reason", v.reason);
+    const reason = el("td", "reason");
+    if (v.why) {
+      const head = el("div", "why look" + v.why.look, v.why.short);
+      head.dataset.tip = v.why.text;
+      reason.append(head);
+    }
+    reason.append(el("div", v.why ? "muted mono" : "", v.reason));
+    // The engine's mouse-count observation (Patch 1613): stored by newer verifiers only.
     const c = v.counts_metrics;
-    let countsText = "counts unavailable (no stored observation)";
-    if (c && c.state === "no_records") countsText = "counts: no records; ring/read agreement unmeasured";
-    else if (c) countsText = "counts: " + c.records + " records, " + c.disagree + " disagree" +
+    let countsText = "Mouse-count check: not stored for this attempt";
+    if (c && c.state === "no_records") countsText = "Mouse-count check: no mouse records to compare (unmeasured)";
+    else if (c) countsText = "Mouse-count check: " + c.records + " records, " + c.disagree + " disagree" +
       (c.first_row !== undefined ? ", first at row " + c.first_row : "") + " (observation only)";
-    reason.append(el("div", "muted", countsText));
+    const counts = el("div", "muted", countsText);
+    counts.dataset.tip = "Compares the mouse counts the device sent with what the view read. An observation, not a verdict; older attempts did not store it.";
+    reason.append(counts);
     tr.append(el("td", "num mono", v.id), vc, el("td", "nowrap", fmtDate(v.at)),
               el("td", "num mono", v.ticks), eng, prg, reason);
     tb.appendChild(tr);

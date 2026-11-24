@@ -166,6 +166,7 @@ REVIEW_RULES = {"/admin/runs", "/admin/run/<int:rid>", "/admin/api/runs", "/admi
 ROW_KEYS = {"id", "kind", "stage_note", "map", "map_dir", "track", "leg", "legdir",
             "tier", "style",
             "name", "ms", "flags", "submitted", "checked", "recheck_at", "verdict",
+            "reason", "why",            # P1820: the verdict's words and admin.explain_verdict's
             "error", "pending", "decision", "public", "standing",
             "key_pub", "key_decision", "key_flag", "first_pub", "first_rid",
             "first_player", "first_player_rid", "first_signed_at", "sig_unknown"}

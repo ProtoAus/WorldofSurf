@@ -15,6 +15,8 @@
   var tierBox = document.getElementById('ztier');
   var data = null, zoned = null, checked = 0, liveFailed = false, tierMin = 0, timer = 0;
   var byMap = {}, recent = [], serverNow = 0, fetchedAt = 0;
+  var names = {};       // lower-case key -> the BSP's own name (board/api/maps), for the downloads
+  var DL = window.wosDownload;
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -77,6 +79,13 @@
     need.appendChild(el('small', null, 'zones'));
     need.title = 'Start and end, ' + (r.z - 2 - 2 * r.b) + ' stage or checkpoint zones, and a start and end per bonus';
     li.appendChild(need);
+    // P1820: the map to zone it, and its zones once published.
+    var dl = el('div', 'zdl'), map = names[r.n] || (byMap[r.n] && byMap[r.n].map) || r.n;
+    if (DL) {
+      dl.appendChild(DL.button('map', map, 'Map'));
+      if (isDone(r)) { dl.appendChild(DL.button('zones', map, 'Zones')); }
+    }
+    li.appendChild(dl);
     return li;
   }
 
@@ -125,6 +134,11 @@
       li.appendChild(el('b', null, h.map));
       li.appendChild(el('span', null, h.kind === 'rollback' ? 'rolled back, ' + ago(h.at)
                                                                 : (h.by ? h.by + ', ' : '') + ago(h.at)));
+      if (DL && h.kind !== 'rollback' && DL.NAME.test(h.map)) {
+        var b = DL.button('zones', h.map, 'Zones', 'dlbtn dlmini');
+        b.title = 'Save ' + h.map + '.json, the zones as published';
+        li.appendChild(b);
+      }
       ol.appendChild(li);
     });
     box.hidden = !recent.length;
@@ -154,7 +168,11 @@
       return r.json();
     }).then(function (doc) {
       var z = {};
-      (doc.maps || []).forEach(function (m) { if (m.have) { z[String(m.map).toLowerCase()] = 1; } });
+      (doc.maps || []).forEach(function (m) {
+        var k = String(m.map).toLowerCase();
+        names[k] = m.map;
+        if (m.have) { z[k] = 1; }
+      });
       zoned = z; checked = Date.now(); liveFailed = false;
     }).catch(function () {
       liveFailed = true;

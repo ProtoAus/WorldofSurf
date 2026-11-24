@@ -429,7 +429,7 @@ details ul { padding-left: 20px; margin: 0; }
 .zcheck { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 13px; cursor: pointer; }
 .zlist { list-style: none; margin: 14px 0 0; padding: 0; border-top: 1px solid var(--line); }
 .zrow {
-  display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  display: grid; grid-template-columns: 96px minmax(0, 1fr) auto auto; gap: 12px; align-items: center;
   padding: 7px 0; border-bottom: 1px solid var(--line);
 }
 .zthumb {
@@ -453,7 +453,31 @@ details ul { padding-left: 20px; margin: 0; }
 @media (max-width: 560px) {
   .zrow { grid-template-columns: 72px minmax(0, 1fr) auto; gap: 10px; }
   .zthumb { width: 72px; height: 40.5px; }
+  .zdl { grid-column: 2 / -1; flex-direction: row; }
 }
+
+/* ---- downloads (P1820, dl.js): the zoning rows and get.html ------------------------- */
+.zdl { display: flex; flex-direction: column; gap: 5px; align-items: stretch; min-width: 78px; }
+.dlbtn {
+  font: 600 12px var(--sans); color: var(--text); background: var(--card-2); border: 1px solid var(--line);
+  border-radius: 980px; padding: 5px 12px; cursor: pointer; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.dlbtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-2); }
+.dlbtn:disabled { color: var(--text-3); cursor: default; }
+.dlmini { margin-left: 6px; padding: 1px 8px; font-size: 11px; }
+button.pill { border: 0; font-family: var(--sans); cursor: pointer; font-variant-numeric: tabular-nums; }
+button.pill:disabled { opacity: .55; cursor: default; }
+.getmap .wrap { max-width: 760px; }
+.getmap h1 { font: 600 clamp(28px, 4.4vw, 44px)/1.1 var(--mono); letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.gback { display: inline-block; font-size: 14px; color: var(--text-2); margin-bottom: 18px; }
+.gshot { margin-top: 20px; width: 100%; border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line); }
+.gacts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+.gacts .pill { font-size: 15px; padding: 10px 20px; min-width: 150px; justify-content: center; }
+.gacts .pill + .pill { margin-left: 0; }
+.gnote { margin-top: 12px; color: var(--text-2); font-size: 14px; }
+.gabout { margin-top: 28px; color: var(--text-2); font-size: 14px; line-height: 1.6; display: grid; gap: 8px; }
+.gabout b { color: var(--text); }
 
 /* ---- footer --------------------------------------------------------------------- */
 footer { border-top: 1px solid var(--line); padding: 30px 0 64px; color: var(--text-3); font-size: 12px; line-height: 1.65; }

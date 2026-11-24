@@ -172,20 +172,20 @@ class Counts(unittest.TestCase):
         helper=text[text.index('function renderVerdictSummary('):text.index('function renderRun(')]
         js=r'''
 const j={verdicts:[JSON.parse(process.argv[2])]};
-class E {constructor(tag,cls,text){this.text=String(text??'');this.children=[];}
+class E {constructor(tag,cls,text){this.text=String(text??'');this.children=[];this.dataset={};}
 append(...items){this.children.push(...items);} appendChild(n){this.children.push(n);}
 replaceChildren(){this.children=[];} set innerHTML(v){throw Error('HTML sink');}}
 const table=new E();const document={querySelector:()=>table};
 const el=(t,c,s)=>new E(t,c,s),pill=(s)=>el('span','',s),fmtDate=()=> 'date';
-const VERDICT_CLS={};let summary;const summarise=(id,bad)=>{summary=bad;};
+const VERDICT_CLS={},VERDICT_TIP={};let summary;const summarise=(id,bad)=>{summary=bad;};
 '''+helper+block+r'''
 const flat=n=>typeof n==='string'?n:n.text+n.children.map(flat).join('');
 console.log(JSON.stringify({text:flat(tb),summary}));
 '''
         with tempfile.TemporaryDirectory() as tmp:
             p=os.path.join(tmp,'render.js');open(p,'w',encoding='utf-8').write(js)
-            for snap,phrase in ((None,'counts unavailable'),
-                                ({'version':1,'state':'no_records','records':0},'agreement unmeasured'),
+            for snap,phrase in ((None,'not stored for this attempt'),
+                                ({'version':1,'state':'no_records','records':0},'no mouse records to compare (unmeasured)'),
                                 ({'version':1,'state':'measured','records':8,'disagree':0},'8 records, 0 disagree'),
                                 ({'version':1,'state':'measured','records':8,'disagree':2,'first_row':0},'first at row 0')):
                 v=dict(id=1,verdict='PASS',current=True,engine='e',progs='p',at=1,ticks=100,

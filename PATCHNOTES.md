@@ -21,6 +21,12 @@
 
 ## next
 
+### P1820 Map downloads and a tidier website
+- Every map on the website leaderboard has Download map and Download zones buttons; files save under the map's own name.
+- The Zoning page has a Map button on every map still to zone, and a Zones button on each recently zoned one.
+- The TAS uploads page now looks like the rest of the site and has the same menu, including Download and Log in.
+- The 3D run viewer page has the site menu too.
+
 ### P1811 Brighter, truer reflections
 - Cubemap reflections on Source maps follow the exposure and add their light the way Source does: windows and metal reflect more of the sky.
 

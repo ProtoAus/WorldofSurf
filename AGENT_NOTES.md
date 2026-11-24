@@ -39,6 +39,19 @@
   the welcome line). The nested labwc takes the first free wayland-N: a peer's sway can be another number, and a
   peer pointing at "wayland-1" can open windows in yours -- give each rig its socket explicitly.
 
+## P1820 site pages and tabs (25 Nov 2026)
+Every site header, footer link row, admin menu and tasupd's SITE_NAV is a generated block (`<!-- sitenav:... -->` ...
+`<!-- /sitenav -->`, or `# sitenav:python` in tasupd.py). Add or rename a tab ONLY in tools/sitenav.py (PUBLIC / ADMIN),
+run `python3 tools/sitenav.py`, commit every file it names; `--check` (tools/test_sitenav.py) fails on a stale page or a
+page with a menu and no block. Lex, 25 Nov: "a bot will add a tab and it won't appear on all the pages" -- P1401 and P1700
+each hand-edited some copies. The pages still ship separately: src/release/site + page.template.html with a site publish
+(src/release/sitepage.ps1, or the next release), surfd/web with publish_board.py, admin templates with a surfd generation,
+reportd_reports.html + _admin_style.html + _admin_brand.html into /srv/nvme/ftesurf-ops/reportd/app/templates (HUP),
+tasupd.py with install_tasupd.py (root). The admin CSP loads no fonts or images: the wordmark is inline SVG
+(templates/_admin_brand.html; tasupd.py WORDMARK). Downloads: play.proto.bar/maps/<m>.bsp and
+/ftesurf/maps/zones/local/<m>.json 302 into R2 objects named by hash (both hops send ACAO *), so src/release/site/dl.js
+fetches and saves them under the map's name; the board's CSP (connect-src 'self') cannot, so its buttons open get.html.
+
 ## P1702 static web board (21 Nov 2026)
 nginx serves the board's page and seven assets (board.html/css/js, link.css, runview.js, watch.*) for /ftesurf/board/
 and /worldofsurf/board/ from /srv/nvme/ftesurf-site/board/current (src/release/ftesurf.nginx); every API/avatar/shot/

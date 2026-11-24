@@ -20,6 +20,7 @@
      hook: which one is current is a function of the hash, not of the markup.
      The Leaderboard href is a bare fragment so that leaving a profile is a hash
      change and not a page load. -->
+<!-- sitenav:header page=board base=../ -->
 <header class="nav">
   <nav class="nav-in" aria-label="Site">
     <a class="brand" href="../" aria-label="World of Surf home"><span>World of</span><b>Surf</b></a>
@@ -35,6 +36,7 @@
     <a class="pill pill-quiet" href="https://play.proto.bar/admin/">Log in</a>
   </nav>
 </header>
+<!-- /sitenav -->
 <div class="wrap">
 
   <header class="mast">
@@ -66,8 +68,12 @@
   <section id="map" hidden>
     <a class="back" href="#">&larr; All maps</a>
     <h2 id="title" class="maptitle"></h2>
-    <!-- P1700: this map's uploaded TAS runs; board.js sets the map (and the course, for a whole one). -->
-    <p><a id="maptas" class="button" href="https://play.proto.bar/tasup/">TAS uploads for this map</a></p>
+    <!-- P1700: this map's uploaded TAS runs; board.js sets the map (and the course, for a whole one).
+         The downloads open ../get.html, which saves the file under its own name (this page's CSP keeps
+         fetches same-origin, and the download hosts name their objects by hash). -->
+    <p class="mapacts"><a id="maptas" class="button" href="https://play.proto.bar/tasup/">TAS uploads for this map</a>
+      <a id="mapdl" class="button" href="../get.html" title="The map's .bsp, as the servers run it" hidden>Download map</a>
+      <a id="zonedl" class="button" href="../get.html" title="World of Surf's start, end and checkpoint zones for this map (.json)" hidden>Download zones</a></p>
     <!-- Decorative: the map's name is already the heading above it, so alt
          stays empty rather than repeating it to a screen reader. board.js
          removes it entirely for the 110 maps we hold no picture for. -->

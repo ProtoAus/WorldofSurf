@@ -256,6 +256,7 @@ operational constraints and recorded failed experiments, not optional background
 | Chat/votes/input | Chat and say; Map clock and votes; Pitfalls |
 | Menu/maps/downloads/imports | Imported runs and its browser/roster/download subsections; Zone files |
 | surfd/web/board import | Pi operations; public web surface; board freshness/top-up sections |
+| Site/admin tabs or a new page | P1820 site pages and tabs (tabs come from `tools/sitenav.py`; never hand-edit a menu) |
 | Any deployment | Pi operations in full; Build; relevant generated-data/ship-set notes |
 | Release/Linux | Linux build, test rig and release; ship set allowlist; Build; Pi operations |
 | Milk/renderer/audio | The milk visualizer; relevant Pitfalls; engine patch entries |

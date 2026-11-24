@@ -469,37 +469,60 @@ def zones_for(dirs, mapname):
     return None
 
 
+# P1820: the site's look (src/release/site/site.css): dark only, its header, pill buttons and palette.
 CSS = '''
-:root{--bg:#f6f7f9;--card:#fff;--ink:#14171c;--muted:#5b6370;--line:#dde1e7;--acc:#0b6bcb;--ok:#137a3a;--hold:#9a5b00;--bad:#b3261e}
-@media (prefers-color-scheme:dark){:root{--bg:#0f1216;--card:#171b21;--ink:#e8ebef;--muted:#9aa3ae;--line:#2a3039;--acc:#5aa9ff;--ok:#5cc983;--hold:#e0a54a;--bad:#ff7b72}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-main{max-width:920px;margin:0 auto;padding:24px 16px 48px}a{color:var(--acc)}
-.mark{font-weight:600;text-decoration:none;color:var(--ink)}.mark b{color:var(--acc)}
-h1{font-size:26px;margin:12px 0 4px}h2{font-size:18px;margin:28px 0 8px}.lede{color:var(--muted);margin:0 0 16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin:12px 0}
-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
-th{color:var(--muted);font-weight:500;font-size:13px}td.n{text-align:right}.wrap{overflow-x:auto}
-.b{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;border:1px solid currentColor;white-space:nowrap}
+:root{color-scheme:dark;--bg:#000;--card:#111116;--card2:#1a1a20;--ink:#f5f5f7;--muted:#a1a1a6;--faint:#6e6e73;
+--line:rgba(255,255,255,.09);--line2:rgba(255,255,255,.16);--acc:#59bfff;--acc2:#8fd4ff;--on:#00131f;
+--ok:#6edc82;--hold:#f0d25a;--bad:#ff7a70}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+main{max-width:960px;margin:0 auto;padding:36px 22px 64px}a{color:var(--acc);text-decoration:none}a:hover{color:var(--acc2)}
+h1{font-size:clamp(30px,4.4vw,44px);letter-spacing:-.03em;line-height:1.08;margin:6px 0 10px}h2{font-size:19px;letter-spacing:-.02em;margin:32px 0 10px}
+.lede{color:var(--muted);margin:0 0 18px;max-width:70ch}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin:12px 0}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--faint);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.06em}td.n{text-align:right}.wrap{overflow-x:auto}
+.b{display:inline-block;padding:1px 9px;border-radius:999px;font-size:12px;border:1px solid currentColor;white-space:nowrap}
 td:last-child,td.n{white-space:nowrap}.stats{max-width:460px}
 .shown{color:var(--ok)}.held{color:var(--hold)}.rejected,.removed,.FAIL{color:var(--bad)}.HOLD{color:var(--hold)}.PASS{color:var(--ok)}
-.go,button{display:inline-block;background:var(--acc);color:#fff;border:0;border-radius:8px;padding:9px 16px;font:inherit;text-decoration:none;cursor:pointer}
-input[type=text],input[type=number]{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);max-width:100%}
+.go,button{display:inline-block;background:var(--acc);color:var(--on);border:0;border-radius:980px;padding:9px 18px;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
+.go:hover,button:hover{background:var(--acc2);color:var(--on)}
+input[type=text],input[type=number],input[type=file]{font:inherit;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card2);color:var(--ink);max-width:100%}
+input:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 form.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.fine{color:var(--muted);font-size:13px}
-ul.why{padding-left:18px}code{font-size:13px}button.link{background:none;color:var(--acc);padding:0}
-nav.site{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--card)}
-nav.site a{color:var(--muted);text-decoration:none;font-size:14px}nav.site a:hover{color:var(--ink)}
-nav.site a[aria-current]{color:var(--ink);font-weight:600}nav.site .mark{margin-right:10px;color:var(--ink);font-size:15px}
+ul.why{padding-left:18px}code{font-size:13px;background:var(--card2);padding:1px 6px;border-radius:6px}button.link{background:none;color:var(--acc);padding:0}
+header.nav{position:sticky;top:0;z-index:5;background:rgba(0,0,0,.78);border-bottom:1px solid var(--line);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px)}
+.nav-in{max-width:1080px;margin:0 auto;padding:0 22px;height:52px;display:flex;align-items:center;gap:26px}
+.brand{display:block;flex:none;color:var(--ink)}.brand svg{display:block;height:34px;width:auto}
+.links{display:flex;gap:24px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}
+.links a{color:var(--muted);font-size:13px;white-space:nowrap;padding:4px 0}.links a:hover,.links a[aria-current]{color:var(--ink)}
+.pill{flex:none;display:inline-flex;align-items:center;background:var(--acc);color:var(--on);font-weight:600;font-size:13px;border-radius:980px;padding:6px 14px;white-space:nowrap}
+.pill:hover{background:var(--acc2);color:var(--on)}.pill+.pill{margin-left:-14px}
+.pill-quiet{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1px var(--line2)}.pill-quiet:hover{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1px var(--muted)}
+@media (max-width:560px){.nav-in{gap:14px;padding:0 14px}.links{gap:14px}.links a:first-child{display:none}.pill+.pill{margin-left:-6px}}
 input[list]{min-width:260px}
-.mapcard{display:flex;flex-wrap:wrap;gap:16px;align-items:center}.mapcard img{width:240px;max-width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
-.mapname{font-size:24px;margin:0 0 4px}.chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.chip{padding:5px 12px;border:1px solid var(--line);border-radius:999px;text-decoration:none;color:var(--ink);font-size:14px}
-.chip[aria-current]{background:var(--acc);border-color:var(--acc);color:#fff}
+.mapcard{display:flex;flex-wrap:wrap;gap:16px;align-items:center}.mapcard img{width:240px;max-width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+.mapname{font-size:26px;letter-spacing:-.02em;margin:0 0 4px}.chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.chip{padding:5px 13px;border:1px solid var(--line2);border-radius:999px;text-decoration:none;color:var(--muted);font-size:13.5px;background:var(--card)}
+.chip:hover{color:var(--ink)}.chip[aria-current]{background:rgba(89,191,255,.16);border-color:var(--acc);color:var(--ink)}
 '''
 
-# P1700: the main site's pages (src/release/page.template.html's nav), this service's own entry marked
+# The board's Steam link page (P1700); its sign-in returns to the legacy prefix, so this stays /ftesurf/.
 SITE = 'https://proto.bar/ftesurf/'
-SITE_NAV = (('Overview', SITE), ('Leaderboard', SITE + 'board/'), ('Players', SITE + 'board/#who='),
-            ('Zoning', SITE + 'zoning.html'), ('Anti-Cheat', SITE + 'anticheat.html'), ('TAS uploads', None),
-            ('Download', SITE + '#download'))
+# P1820: the site's tabs, generated from tools/sitenav.py (run it; do not edit by hand).
+# sitenav:python base=https://proto.bar/worldofsurf/ page=tas
+SITE_NAV = (
+    ('Overview', 'https://proto.bar/worldofsurf/'),
+    ('Leaderboard', 'https://proto.bar/worldofsurf/board/'),
+    ('Players', 'https://proto.bar/worldofsurf/board/#who='),
+    ('Zoning', 'https://proto.bar/worldofsurf/zoning.html'),
+    ('Anti-Cheat', 'https://proto.bar/worldofsurf/anticheat.html'),
+    ('TAS uploads', None),
+)
+SITE_PILLS = (('Download', 'https://proto.bar/worldofsurf/#download'), ('Log in', 'https://play.proto.bar/admin/'))
+# /sitenav
+WORDMARK = ('<svg viewBox="150 18 420 282" role="img" aria-label="World of Surf">'
+            '<path fill="#f5f5f7" transform="translate(230.101389 85.138889) scale(0.086111 -0.086111)" d="M15 700H121L170 162H172L224 700H344L396 162H398L447 700H542L471 0H334L284 472H282L232 0H86ZM590 166V534Q590 618 633.0 664.0Q676 710 757 710Q838 710 881.0 664.0Q924 618 924 534V166Q924 82 881.0 36.0Q838 -10 757 -10Q676 -10 633.0 36.0Q590 82 590 166ZM814 159V541Q814 610 757 610Q700 610 700 541V159Q700 90 757 90Q814 90 814 159ZM998 700H1161Q1246 700 1285.0 660.5Q1324 621 1324 539V496Q1324 387 1252 358V356Q1292 344 1308.5 307.0Q1325 270 1325 208V85Q1325 55 1327.0 36.5Q1329 18 1337 0H1225Q1219 17 1217.0 32.0Q1215 47 1215 86V214Q1215 262 1199.5 281.0Q1184 300 1146 300H1108V0H998ZM1148 400Q1181 400 1197.5 417.0Q1214 434 1214 474V528Q1214 566 1200.5 583.0Q1187 600 1158 600H1108V400ZM1401 700H1511V100H1692V0H1401ZM1745 700H1913Q1995 700 2036.0 656.0Q2077 612 2077 527V173Q2077 88 2036.0 44.0Q1995 0 1913 0H1745ZM1911 100Q1938 100 1952.5 116.0Q1967 132 1967 168V532Q1967 568 1952.5 584.0Q1938 600 1911 600H1855V100ZM2303 166V534Q2303 618 2346.0 664.0Q2389 710 2470 710Q2551 710 2594.0 664.0Q2637 618 2637 534V166Q2637 82 2594.0 36.0Q2551 -10 2470 -10Q2389 -10 2346.0 36.0Q2303 82 2303 166ZM2527 159V541Q2527 610 2470 610Q2413 610 2413 541V159Q2413 90 2470 90Q2527 90 2527 159ZM2711 700H3002V600H2821V405H2963V305H2821V0H2711Z"/>'
+            '<path fill="#59bfff" transform="translate(162.245833 293.416667) scale(0.258333 -0.258333)" d="M22 166V206H126V158Q126 90 183 90Q211 90 225.5 106.5Q240 123 240 160Q240 204 220.0 237.5Q200 271 146 318Q78 378 51.0 426.5Q24 475 24 536Q24 619 66.0 664.5Q108 710 188 710Q267 710 307.5 664.5Q348 619 348 534V505H244V541Q244 577 230.0 593.5Q216 610 189 610Q134 610 134 543Q134 505 154.5 472.0Q175 439 229 392Q298 332 324.0 283.0Q350 234 350 168Q350 82 307.5 36.0Q265 -10 184 -10Q104 -10 63.0 35.5Q22 81 22 166ZM409 166V700H519V158Q519 122 533.5 106.0Q548 90 575 90Q602 90 616.5 106.0Q631 122 631 158V700H737V166Q737 81 695.0 35.5Q653 -10 573 -10Q493 -10 451.0 35.5Q409 81 409 166ZM815 700H978Q1063 700 1102.0 660.5Q1141 621 1141 539V496Q1141 387 1069 358V356Q1109 344 1125.5 307.0Q1142 270 1142 208V85Q1142 55 1144.0 36.5Q1146 18 1154 0H1042Q1036 17 1034.0 32.0Q1032 47 1032 86V214Q1032 262 1016.5 281.0Q1001 300 963 300H925V0H815ZM965 400Q998 400 1014.5 417.0Q1031 434 1031 474V528Q1031 566 1017.5 583.0Q1004 600 975 600H925V400ZM1218 700H1509V600H1328V405H1470V305H1328V0H1218Z"/>'
+            '</svg>')
 THUMB = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 
 LABEL = {'shown': 'physics checked', 'held': 'waiting for review', 'rejected': 'rejected', 'removed': 'removed'}
@@ -707,12 +730,16 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         return name or 'Steam ' + steamid[-4:]
 
     def page(title, inner, status=200, sid=None):
-        top = '<nav class="site" aria-label="Site"><a class="mark" href="%s">World of <b>Surf</b></a>%s</nav>' % (SITE, ''.join(
-            '<a href="%s/" aria-current="page">%s</a>' % (base, n) if u is None else '<a href="%s">%s</a>' % (u, n)
-            for n, u in SITE_NAV))
+        top = ('<header class="nav"><nav class="nav-in" aria-label="Site"><a class="brand" href="%s">%s</a>'
+               '<div class="links">%s</div>%s</nav></header>' % (
+                   SITE_NAV[0][1], WORDMARK, ''.join(
+                       '<a href="%s/" aria-current="page">%s</a>' % (base, n) if u is None else '<a href="%s">%s</a>' % (u, n)
+                       for n, u in SITE_NAV),
+                   ''.join('<a class="pill%s" href="%s">%s</a>' % (' pill-quiet' if i else '', u, n)
+                           for i, (n, u) in enumerate(SITE_PILLS))))
         doc = ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
                '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-               '<meta name="color-scheme" content="light dark">\n<title>%s - World of Surf</title>\n'
+               '<meta name="color-scheme" content="dark">\n<title>%s - World of Surf</title>\n'
                '<style>%s</style>\n</head>\n<body>\n%s\n<main>\n%s\n</main>\n</body>\n</html>\n'
                % (html.escape(title), CSS, top, inner))
         return Response(doc, status=status, mimetype='text/html')
