@@ -36,6 +36,24 @@
 ### P1796 Jump + duck on one key
 - New bind +jumpduck: one key jumps and holds duck, for crouch-jumping at a run's start. It counts as one key press. Set it in Key config under Movement (Jump + duck).
 
+### P1785 No colour banding
+- The 3D view is drawn in high precision and written to the screen with a fine, still dither, so dark gradients and soft glows no longer band (r_dither 0 turns it off). Blacks stay black.
+
+### P1784 Light shafts and glows follow the exposure
+- Light shafts, sprites and particles brighten and dim with the scene's auto-exposure, and the barn shafts on bhop_canals add light the way Source does, so they no longer show as a bright fan indoors.
+
+### P1783 Sunlit props catch the sun properly
+- On Strata maps, props without baked lighting take the real sun per pixel and are shaded by the sun shadows: bhop_canals' corrugated ramp shows its ridges like in Momentum.
+
+### P1782 Bump detail on props by default
+- Props with bump maps show their surface detail in shade by default (hl2_cubelight 1).
+
+### P1781 Sharp sunlight everywhere on Strata maps
+- On maps like bhop_canals the sun is drawn live under the shadow cascades instead of taken from the baked lightmaps: shadows stay sharp all the way, sunlit walls the bake had shaded light up, and bump maps on walls and ground catch the sun.
+
+### P1772 Smoke volumes
+- Smoke and haze volumes (func_smokevolume) are drawn the way Source draws them, like the haze over bhop_canals' basin (vbsp_smokevol 0 turns them off).
+
 ## 0.1.66 2026-11-24
 
 ### P1780 Sunlit props on Strata maps

@@ -1,4 +1,11 @@
 # The engine build this QuakeC requires.
+# P1772, P1781-P1785 (engine client/r_surf.c renderer.c, gl/gl_shadow.c gl_backend.c gl_rmain.c r_bishaders.h, shaders/glsl
+# defaultadditivesprite defaultgammacb; plugin hl2/mod_vbsp.c, glsl/vmt lightmapped transition vertexlit animated twotexture;
+# QC cl_emit.qc cl_sprites.qc; worldofsurf-67, Lex 24 Nov canals saves 29/32 + backlog): Strata's baked direct-sun page
+# swapped for the live sun under the cascades (style 0 indirect, r_shadows_sunlm/r_shadows_sundir); displacement normals;
+# hl2_cubelight 1; unbaked props' live sun per pixel; exposure on shafts/unlit sprites/additive sprites, UnlitTwoTexture
+# additive in linear light; func_smokevolume as Source's grid; r_dither 1 (float scene + still dither). Client-side:
+# reaches players with 0.1.67; lobbies take its csprogs. Record: ENGINE_PATCHES P1772, P1781-P1785.
 # P1796-P1799 (engine client/cl_input.c menu.c cl_receipt.c pr_csqc.c; QC cl_keycfg.qc cl_keys.qc cl_rewind.qc
 # cl_spectate.qc sui_sys.qc cl_tasupload.qc sv_tasautosurf.qc sv_timer.qc m_mapupload.qc m_main.qc cl_zoneedit.qc;
 # surfd tasupd.py mapupd.py; worldofsurf-a3, Lex 24 Nov): +jumpduck (one key jumps and holds duck, one press for the
@@ -836,7 +843,7 @@
 
 repo     https://github.com/ProtoAus/ftequakers
 branch   main
-commit   b50caef41
+commit   bd0111709
 # ^ The pin is the ENGINE_PATCHES.md work this QuakeC is written against, NOT the
 #   commit a shipped binary was built from -- those drift, deliberately: patches
 #   420-438 are all mod-side, so the engine source moved without any binary

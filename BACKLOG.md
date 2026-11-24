@@ -23,6 +23,14 @@
   shafts not exposure-scaled (brighter than Momentum's); on a v25 map a baked static prop's $vertexalpha/$vertexcolor
   unlit or animated surface reads the sun share as its alpha (gl_alias.c binds the bake to every surface); the
   hl2_cubelight cube (off) loses local lights on v25; a dark room with nothing bright still opens to 2.0.
+- P1772, P1781-P1785 (0.1.67, Lex's saves 29/32 + this backlog): Strata world sun page (sharp everywhere, save 29/32
+  as Momentum, shadow colour from VRAD's own indirect), displacement normals, hl2_cubelight 1, live prop sun (the ramp's
+  ridges), exposure on shafts/sprites (barn shafts invisible as Momentum's), smoke volumes, r_dither. LEFT: displacement
+  normals are not averaged across neighbouring displacements (creases possible at their borders); glass/translucent
+  faces do not cast into the cascades (the sun passes them where VRAD stopped it); other Strata maps' lighting layout 2
+  has no page (P1774's floor there); baked (VC) props' sun has no normal-map relief; additive sprites/particles and
+  alpha particles still blend in display values (vid_srgb 0: linear-light blending is a larger change); the walk-through
+  ramp (P1761 below) needs mover 17: dynamic props' .phy pieces as brushes (Patch 1713's vphysalt shape).
 - P1759 tint precision: colormod crosses the wire in 1/32 steps, so a dark tint is approximate (21 18 13 -> 24 16 16,
   pinkish); exact needs a protocol or CSQC path. Out-of-range rendercolor clamps (Source wraps bytes), as P1250.
 - P1760: casting Source models do not receive shadows (P1732), now including a cascade map's static props; under r_shadows
