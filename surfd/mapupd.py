@@ -8,6 +8,12 @@ part       one file, streamed to the spool (gzip allowed); its size and SHA-256 
 finish     checks the BSP (VBSP 17-21 or 25, lumps inside the file), the picture and the zones, then publishes: the
            library, the zone directories, the site's pictures, a row in the map list and in the map table.
 
+P1799 (Lex: "Allow uploading without zone ... Allow uploading of a map with the zone files already on the server"):
+zones are optional for every mode, and zone files already on the server no longer hold a name (zone_edit's Publish
+can put a map's zones up before the map). Attached zones replace them, the old files kept aside in the store
+(<store>/zones-aside, recorded in upload_zones) and put back if the publish fails; no attached zones leaves them be.
+`remove` takes back only the zones its upload placed, and puts back what they replaced.
+
 The two tables are other writers' files (mapwatch's list, mapmedia's table). A row they drop on a rewrite is put
 back by the minute tick (heal); every write is checked with the readers' own rules before it replaces the file.
 Refusals answer 200 with ok=0: the game's HTTP client keeps no body for any other status.
@@ -62,6 +68,15 @@ CREATE TABLE IF NOT EXISTS uploads(map TEXT PRIMARY KEY, steamid TEXT NOT NULL, 
  bsp_sha TEXT NOT NULL, kb INTEGER NOT NULL, mode TEXT NOT NULL, tier INTEGER NOT NULL, stages INTEGER NOT NULL,
  bonuses INTEGER NOT NULL, author TEXT NOT NULL, shot INTEGER NOT NULL, zone INTEGER NOT NULL);
 '''
+ZONES_SQL = 'CREATE TABLE IF NOT EXISTS upload_zones(map TEXT PRIMARY KEY, sha TEXT NOT NULL, aside TEXT NOT NULL)'
+SQL += ZONES_SQL + ';\n'
+# P1799: upload_zones is a table of its own, not columns on uploads: an older release still serving the store while
+# `init` of a newer one runs (install_mapupd.py --upgrade-from) inserts 12 values into uploads, and a 13th column would
+# fail its INSERT after its files were published. sha: the zone file this upload wrote ('' none); aside: JSON
+# [{"dir", "file", "sha"}], the files it replaced, kept in <store>/zones-aside. An upload published before P1799 has
+# no row here: uploads.zone says whether it wrote zones (and then nothing was there before it: names with zones
+# were refused).
+ASIDE = 'zones-aside'
 
 
 class Refused(Exception):
@@ -91,9 +106,11 @@ def writing(db):
 
 
 def initialize(store):
+    """A new store, or an older one brought up to date: every step is additive (CREATE ... IF NOT EXISTS)."""
     store = Path(store)
     store.mkdir(mode=0o700, parents=True, exist_ok=True)
     (store / 'spool').mkdir(mode=0o700, exist_ok=True)
+    (store / ASIDE).mkdir(mode=0o700, exist_ok=True)
     db = sqlite3.connect(store / 'mapupd.db')
     try:
         db.execute('PRAGMA journal_mode=WAL')
@@ -149,8 +166,6 @@ def parse_manifest(text):
         m[key] = int(got[key])
     if m['linear'] != (1 if m['stages'] == 0 else 0):
         raise Refused('A map is linear or has stages, not both.')
-    if m['mode'] == 'bhop' and m['zone'] is None:
-        raise Refused('A bhop map needs its zone file (the lobbies only offer zoned bhop maps).')
     m['author'] = '' if got['author'] == '-' else got['author']
     if m['author'] and not AUTHOR.fullmatch(m['author']):
         raise Refused('The author name has characters it cannot carry.')
@@ -350,14 +365,12 @@ def log(*words):
     print('mapupd:', *words, file=sys.stderr, flush=True)
 
 
-def taken(name, maps_dir, zone_dirs, list_path, media_dir):
-    """Why `name` cannot be a new map ("" when it can): a BSP, a zone file in any directory a lobby reads, or a row
-    either table already has."""
+def taken(name, maps_dir, list_path, media_dir):
+    """Why `name` cannot be a new map ("" when it can): a BSP, or a row either table already has. Zone files do not
+    hold a name (P1799): zone_edit's Publish (zonepub) writes only the zone directories, never the list or table, so
+    a name with published zones and no BSP is free."""
     if library_has(maps_dir, name):
         return '%s is already in the library. Uploads add new maps; give it a new name.' % name
-    for d in zone_dirs:
-        if (Path(d) / (name + '.json')).exists():
-            return '%s already has zones on the server; give the map a new name.' % name
     try:
         if list_path and name in {r['map'] for r in mapmanifest.read_list(list_path)}:
             return '%s is already in the map list; give it a new name.' % name
@@ -370,6 +383,90 @@ def taken(name, maps_dir, zone_dirs, list_path, media_dir):
     except OSError:
         pass
     return ''
+
+
+def zones_held(name, zone_dirs):
+    """The directories (of those given) holding a zone file of this name."""
+    return [d for d in zone_dirs if (Path(d) / (name + '.json')).exists()]
+
+
+def aside_dir(store):
+    d = Path(store) / ASIDE
+    d.mkdir(mode=0o700, exist_ok=True)
+    return d
+
+
+def keep_aside(store, name, stamp, files, label):
+    """Copies of zone files about to be replaced or taken out, in the store (private, never served): [(path, body)]
+    -> [{"dir", "file", "sha"}]. Every copy is on disk before the caller touches a zone file."""
+    out, d = [], aside_dir(store)
+    try:
+        for path, body in files:
+            fn = '%s.%s-%d.%d.%s.json' % (name, label, stamp, len(out), secrets.token_hex(3))
+            atomic_write(d / fn, body, 0o600)
+            out.append(dict(dir=zonepub_publish.key(Path(path).parent), file=fn, sha=hashlib.sha256(body).hexdigest()))
+    except BaseException:
+        drop_aside(store, out)
+        raise
+    return out
+
+
+def drop_aside(store, entries):
+    for e in entries:
+        (Path(store) / ASIDE / e['file']).unlink(missing_ok=True)
+
+
+def read_aside(store, entry):
+    """The bytes kept aside for `entry`, or None when the copy is gone or is not what was recorded."""
+    try:
+        body = (Path(store) / ASIDE / entry['file']).read_bytes()
+    except OSError:
+        return None
+    return body if hashlib.sha256(body).hexdigest() == entry['sha'] else None
+
+
+def remove_zones(store, name, zone_dirs, wrote, sha, aside, stamp):
+    """`remove`'s zones (P1799): only the ones its upload placed, and what they replaced put back. wrote: uploads.zone;
+    sha: upload_zones.sha (None: an upload from before P1799, whose zones -- when it wrote any -- had nothing under
+    them); aside: the files they replaced. A file changed since the upload (a zone_edit Publish) is left, and what is
+    taken out is kept aside too. The caller holds the content lease. Returns what was done, for the operator."""
+    if not zone_dirs:
+        return 'none touched (no --zone-dir)'
+    if sha == '' or (sha is None and not wrote):
+        return 'left as they are (the upload brought none)'
+    back = {e['dir']: e for e in aside}
+    paths, bodies, out, said, restored = [], [], [], [], []
+    for d in zone_dirs:
+        path = d / (name + '.json')
+        try:
+            cur = zonepub_publish.read_file(path, MAX_ZONE)
+        except ValueError:
+            said.append('%s is not a plain file: left' % path)
+            continue
+        if cur is None:
+            continue
+        if sha is not None and hashlib.sha256(cur).hexdigest() != sha:
+            said.append('%s changed since the upload (a later publish): left' % path)
+            continue
+        e = back.get(zonepub_publish.key(d))
+        prev = read_aside(store, e) if e else None
+        if e and prev is None:
+            said.append('the copy of what %s replaced (%s/%s) is missing or changed: taken out only' % (path, ASIDE,
+                                                                                                        e['file']))
+        paths.append(path)
+        bodies.append(prev)
+        out.append((path, cur))
+        if prev is not None:
+            restored.append(e)
+    kept = keep_aside(store, name, stamp, out, 'removed')
+    if paths:
+        zonepub_publish.put(paths, bodies, MAX_ZONE)
+    drop_aside(store, restored)         # back in place
+    for path, body in zip(paths, bodies):
+        said.append('%s %s' % (path, 'put back as it was before the upload' if body is not None else 'taken out'))
+    if kept:
+        said.append('the upload\'s own kept in %s/' % (Path(store) / ASIDE))
+    return '; '.join(said) or 'none there'
 
 
 def peer_key(addr):
@@ -396,6 +493,7 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
     inflight, inflight_lock = set(), threading.Lock()   # (token, part) being received: one stream a file
     with connect(db_path) as db:
         secret = db.execute("SELECT v FROM meta WHERE k='secret'").fetchone()['v']
+        db.execute(ZONES_SQL)       # P1799: a store `init` has not brought up to date yet (additive)
 
     def answer(**kw):
         return jsonify(ok=1, **kw)
@@ -502,7 +600,7 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                 raise Refused('Link your Steam account in Settings first.')
             if state != accounts.RANK_LINKED:
                 raise Refused('This Steam account cannot upload.')
-            why = taken(m['map'], maps_dir, zone_check, list_path, media_dir)
+            why = taken(m['map'], maps_dir, list_path, media_dir)
             if why:
                 raise Refused(why)
             if free_bytes() < 2 * m['bsp'][1] + FREE_FLOOR:
@@ -536,7 +634,14 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                            (token, sid, m['map'], manifest, now))
             log('begin', m['map'], 'by', sid[-4:], msha[:12])
             need = [k for k in ('bsp', 'shot', 'zone') if m[k]]
-            return answer(session=token, need=' '.join(need))
+            # P1799: zones already up for this name (published first, or Momentum's) are said plainly
+            held = zones_held(m['map'], zone_check)
+            note = ''
+            if held:
+                note = ('%s already has zones on the server: the zone file you attached takes their place (the old '
+                        'ones are kept).' if m['zone'] else '%s already has zones on the server: they stay as they '
+                        'are (this upload attaches none).') % m['map']
+            return answer(session=token, need=' '.join(need), zones=1 if held else 0, note=note)
         except Refused as e:
             return fail(str(e))
         except (UnicodeDecodeError, ValueError):
@@ -656,13 +761,27 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
         part = Path(maps_dir) / ('.mapupd.%s.bsp.part' % name)
         zone_paths = [d / (name + '.json') for d in zone_dirs] if zone_body is not None else []
         pictures = [media_dir / 'uploads' / f for f in (name + '.jpg', name + '-thumb.jpg')] if shot and media_dir else []
+        olds, aside = [], []
         with zonepub_publish.content_publication():
-            why = taken(name, maps_dir, zone_check, list_path, media_dir)
+            why = taken(name, maps_dir, list_path, media_dir)
             if why:
                 raise Refused(why)
-            # zones first: a map is never live without the zones it was sent with
+            # zones first: a map is never live without the zones it was sent with. P1799: zone files already there
+            # (zone_edit's Publish before the map) are copied aside first, and put back if anything after fails.
             if zone_paths:
-                zonepub_publish.put(zone_paths, [zone_body] * len(zone_paths), MAX_ZONE)
+                try:
+                    olds = [zonepub_publish.read_file(z, MAX_ZONE) for z in zone_paths]
+                except ValueError:
+                    raise Refused('A zone file of that name on the server is not a plain zone file; tell Proto.')
+                aside = keep_aside(store, name, now, [(z, b) for z, b in zip(zone_paths, olds) if b is not None],
+                                   'replaced')
+                try:
+                    zonepub_publish.put(zone_paths, [zone_body] * len(zone_paths), MAX_ZONE)
+                except zonepub_publish.PartialPublish:
+                    raise                   # put() could not restore them: the copies stay for an operator
+                except BaseException:
+                    drop_aside(store, aside)    # put() restored the old files itself
+                    raise
             try:
                 if pictures:
                     make_pictures(shot, media_dir / 'uploads', name)
@@ -674,8 +793,16 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                 os.chmod(part, 0o644)       # nginx (www-data) serves the library
                 os.link(part, final)        # never over a file that arrived meanwhile
             except BaseException:
-                for z in zone_paths + pictures:     # taken() saw no zones of this name: they are this upload's
-                    z.unlink(missing_ok=True)
+                for p in pictures:          # taken() saw no BSP of this name: its pictures are this upload's
+                    p.unlink(missing_ok=True)
+                if zone_paths:
+                    # what was there before, byte for byte (None: there was none, so it goes)
+                    try:
+                        zonepub_publish.put(zone_paths, olds, MAX_ZONE)
+                    except Exception as e:
+                        log('ZONES NOT PUT BACK', name, e, '; copies kept in', ASIDE, [a['file'] for a in aside])
+                        raise zonepub_publish.PartialPublish('zones not put back: %s' % e) from e
+                    drop_aside(store, aside)
                 raise
             finally:
                 part.unlink(missing_ok=True)
@@ -686,6 +813,8 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             with connect(db_path) as db, writing(db):
                 db.execute('INSERT OR REPLACE INTO uploads VALUES(:map,:steamid,:at,:bsp_sha,:kb,:mode,:tier,:stages,'
                            ':bonuses,:author,:shot,:zone)', u)
+                db.execute('INSERT OR REPLACE INTO upload_zones VALUES(?,?,?)',
+                           (name, m['zone'][0] if zone_body is not None else '', json.dumps(aside)))
                 drop_session(db, token)
         except sqlite3.Error as e:
             log('PUBLISHED BUT NOT RECORDED', name, e)
@@ -694,7 +823,15 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             heal(now)
         except Exception as e:      # the map is live and recorded: the minute tick heals the rows instead
             log('heal after publish failed:', e)
-        log('published', name, m['bsp'][0][:12], 'by', row['steamid'][-4:])
+        log('published', name, m['bsp'][0][:12], 'by', row['steamid'][-4:], 'zones replaced %d' % len(aside))
+        if zone_body is not None:
+            u['zones_note'] = (' Its zones replaced the ones already on the server (those are kept; Proto can put them '
+                               'back).' if aside else ' Its zones are live with it.')
+        elif zones_held(name, zone_check):
+            u['zones_note'] = ' It uses the zones already on the server.'
+        else:
+            u['zones_note'] = (' It has no zones yet: lobbies cannot time it until zones are published (zone editor, '
+                               'Publish saved).')
         return u
 
     def uploads():
@@ -747,12 +884,13 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             finally:
                 state_lock.release()
             return answer(published=1, map=u['map'], note='%s is live: lobbies can load it now, and everyone sees it in '
-                          'their map list within a minute (they download it on first play).' % u['map'])
+                          'their map list within a minute (they download it on first play).%s' % (u['map'],
+                                                                                                  u['zones_note']))
         except Refused as e:
             return fail(str(e))
         except zonepub_publish.PartialPublish as e:
             log('partial zone publish:', e)
-            return fail('The zones could not all be written (and were put back); nothing was published. Tell Proto.', 500)
+            return fail('The zone files could not all be written or put back; nothing was published. Tell Proto.', 500)
         except OSError as e:
             log('publish failed:', e)
             return fail('The map could not be written on the server; nothing was published.', 500)
@@ -808,37 +946,50 @@ def main():
                 db.execute('INSERT OR IGNORE INTO roles VALUES(?)', (sid,))
         print('Granted the map role to the %d zone admins' % len(sids))
     elif args.command == 'remove':
-        # an upload taken back: its row (so the tick stops healing it), the BSP aside, zones, pictures and table rows
+        # an upload taken back: its row (so the tick stops healing it), the BSP aside, the zones it placed (P1799:
+        # and what they replaced put back), pictures and table rows
         name = args.map
         if not NAME.fullmatch(name):
             ap.error('Expected an uploaded map name')
         with connect(db_path) as db, writing(db):
-            if db.execute('DELETE FROM uploads WHERE map=?', (name,)).rowcount != 1:
+            db.execute(ZONES_SQL)           # a store `init` has not brought up to date
+            up = db.execute('SELECT zone FROM uploads WHERE map=?', (name,)).fetchone()
+            if up is None:
                 ap.error('%s is not an upload' % name)
+            zr = db.execute('SELECT sha, aside FROM upload_zones WHERE map=?', (name,)).fetchone()
+            db.execute('DELETE FROM uploads WHERE map=?', (name,))
         maps = Path(args.maps)
         old = maps / '.old'
         old.mkdir(exist_ok=True)
+        stamp = int(time.time())
         with zonepub_publish.content_publication():
             if (maps / (name + '.bsp')).exists():
-                os.replace(maps / (name + '.bsp'), old / ('%s.removed-%d.bsp' % (name, int(time.time()))))
-            for d in args.zone_dir or ():
-                (Path(d) / (name + '.json')).unlink(missing_ok=True)
+                os.replace(maps / (name + '.bsp'), old / ('%s.removed-%d.bsp' % (name, stamp)))
+            said = remove_zones(args.store, name, [Path(d) for d in args.zone_dir or ()], up['zone'],
+                                zr['sha'] if zr else None, json.loads(zr['aside']) if zr else [], stamp)
+        if args.zone_dir:   # only once its zones are dealt with (without --zone-dir the record stays)
+            with connect(db_path) as db, writing(db):
+                db.execute('DELETE FROM upload_zones WHERE map=?', (name,))
         if args.media:
             for f in (name + '.jpg', name + '-thumb.jpg'):
                 (Path(args.media) / 'uploads' / f).unlink(missing_ok=True)
             drop_rows(Path(args.media) / 'mapmeta.txt', 'meta ' + name + ' ', meta=True)
         if args.list:
             drop_rows(Path(args.list), 'dl ' + name + ' ')
-        print('Removed %s (its BSP is in %s)' % (name, old))
+        print('Removed %s (its BSP is in %s); zones: %s' % (name, old, said))
     elif args.command == 'roles':
         with connect(db_path, readonly=True) as db:
             print(db.execute('SELECT COUNT(*) FROM roles').fetchone()[0], 'accounts hold the map role')
     elif args.command == 'list':
         with connect(db_path, readonly=True) as db:
-            for r in db.execute('SELECT map, at, kb, mode, tier, stages, bonuses, shot, zone FROM uploads ORDER BY at'):
-                print('%s %s %d KB %s tier %d stages %d bonuses %d shot %d zone %d' % (
+            zt = db.execute("SELECT 1 FROM sqlite_master WHERE name='upload_zones'").fetchone()
+            q = ('SELECT u.map, at, kb, mode, tier, stages, bonuses, shot, zone, %s AS aside FROM uploads u %s ORDER BY at'
+                 % (("z.aside", "LEFT JOIN upload_zones z ON z.map=u.map") if zt else ("NULL", "")))
+            for r in db.execute(q):
+                print('%s %s %d KB %s tier %d stages %d bonuses %d shot %d zone %d%s' % (
                     r['map'], time.strftime('%Y-%m-%d %H:%MZ', time.gmtime(r['at'])), r['kb'], r['mode'], r['tier'],
-                    r['stages'], r['bonuses'], r['shot'], r['zone']))
+                    r['stages'], r['bonuses'], r['shot'], r['zone'],
+                    ' (replaced %d zone files)' % len(json.loads(r['aside'])) if r['aside'] and r['aside'] != '[]' else ''))
 
 
 if __name__ == '__main__':

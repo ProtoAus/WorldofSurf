@@ -32,8 +32,8 @@ def png(w=640, h=360):
     return buf.getvalue()
 
 
-def zone():
-    r = dict(points=[[0, 0], [32, 0], [32, 32], [0, 32]], bottom=0, height=64)
+def zone(height=64):
+    r = dict(points=[[0, 0], [32, 0], [32, 32], [0, 32]], bottom=0, height=height)
     return json.dumps(dict(formatVersion=1, tracks=dict(main=dict(zones=dict(
         segments=[dict(checkpoints=[dict(regions=[r])])], end=dict(regions=[r])))))).encode()
 
@@ -99,6 +99,29 @@ class Flow(unittest.TestCase):
 
     def finish(self, token):
         return self.post('finish', data=('session %s\n' % token).encode())
+
+    def upload(self, name, bsp=None, z=None, shot=None, mode=None):
+        """begin, every part, finish: (begin's answer, finish's answer)."""
+        bsp = bsp if bsp is not None else vbsp()
+        b, _ = self.begin(manifest(name, bsp, shot, z, mode=mode or name.split('_')[0]))
+        self.assertEqual(b['ok'], 1, b)
+        for which, body in (('bsp', bsp), ('shot', shot), ('zone', z)):
+            if body is not None:
+                self.assertEqual(self.part(b['session'], which, body)['ok'], 1)
+        return b, self.finish(b['session'])
+
+    def remove(self, name, zone_dirs=None):
+        argv = ['mapupd.py', '--store', str(self.store), 'remove', '--map', name, '--maps', str(self.maps),
+                '--media', str(self.media), '--list', str(self.list)] + sum(
+                    (['--zone-dir', str(d)] for d in (self.zones if zone_dirs is None else zone_dirs)), [])
+        old, sys.argv = sys.argv, argv
+        try:
+            M.main()
+        finally:
+            sys.argv = old
+
+    def aside(self):
+        return sorted(p.name for p in (self.store / M.ASIDE).iterdir())
 
     def test_publishes_everything(self):
         bsp, shot, z = vbsp(extra=b'x' * 5000), png(), zone()
@@ -220,7 +243,6 @@ class Flow(unittest.TestCase):
 
     def test_manifest_rules(self):
         for text, why in ((manifest('kz_map', vbsp()), 'surf_ or bhop_'),
-                          (manifest('bhop_nozone', vbsp(), mode='bhop'), 'needs its zone file'),
                           (manifest('surf_mode', vbsp(), mode='bhop', zonebody=zone()), "name's own"),
                           (manifest('surf_tier', vbsp(), tier=11), 'out of range')):
             b, _ = self.begin(text)
@@ -264,8 +286,6 @@ class Flow(unittest.TestCase):
         self.assertFalse((self.maps / 'surf_revoked.bsp').exists())
 
     def test_names_held_elsewhere(self):
-        (self.zones[1] / 'surf_zoned.json').write_bytes(zone())
-        self.assertIn('already has zones', self.begin(manifest('surf_zoned', vbsp()))[0]['error'])
         with open(self.list, 'a') as f:
             f.write('dl surf_listed surf m 0 10 2026-01-01 0 0 0\n')
         self.assertIn('map list', self.begin(manifest('surf_listed', vbsp()))[0]['error'])
@@ -318,13 +338,165 @@ class Flow(unittest.TestCase):
         self.assertEqual(self.part(tok, 'bsp', bsp, 'gzip')['left'], '')
 
     def test_zone_names_in_other_lobby_dirs(self):
+        # P1799: zones in a directory a lobby reads (Momentum's online ones here) no longer hold the name; they are
+        # said, and never written or moved: only zonepub's two directories are
         other = Path(self.tmp.name) / 'online'
         other.mkdir()
         (other / 'surf_elsewhere.json').write_bytes(zone())
-        app = M.create_app(self.store, self.main, self.maps, self.zones, self.media, self.list, clock=lambda: self.now,
-                           verify=ed25519.verify, free_bytes=lambda: 1 << 40, zone_check=self.zones + [other])
-        self.c = app.test_client()
-        self.assertIn('already has zones', self.begin(manifest('surf_elsewhere', vbsp()))[0]['error'])
+        self.app = M.create_app(self.store, self.main, self.maps, self.zones, self.media, self.list,
+                                clock=lambda: self.now, verify=ed25519.verify, free_bytes=lambda: 1 << 40,
+                                zone_check=self.zones + [other])
+        self.c = self.app.test_client()
+        b, f = self.upload('surf_elsewhere')
+        self.assertEqual(b['zones'], 1)
+        self.assertIn('they stay as they are', b['note'])
+        self.assertEqual(f['ok'], 1, f)
+        self.assertIn('uses the zones already on the server', f['note'])
+        self.assertEqual((other / 'surf_elsewhere.json').read_bytes(), zone())
+        self.assertFalse(any((d / 'surf_elsewhere.json').exists() for d in self.zones))
+        b, f = self.upload('surf_elsewhere2', z=zone(96))
+        self.assertEqual(b['zones'], 0)
+        self.assertEqual(b['note'], '')
+        self.assertEqual(self.aside(), [])
+
+    # ---- P1799: zones optional, and zones already on the server -------------------------------------------------
+    def test_bhop_without_zones_is_accepted(self):
+        b, f = self.upload('bhop_nozone', mode='bhop')
+        self.assertEqual((b['need'], b['zones'], b['note']), ('bsp', 0, ''))
+        self.assertEqual(f['ok'], 1, f)
+        self.assertIn('no zones yet', f['note'])
+        self.assertTrue((self.maps / 'bhop_nozone.bsp').is_file())
+        self.assertEqual({r['map']: r['mode'] for r in mapmanifest.read_list(self.list)}['bhop_nozone'], 'bhop')
+        self.assertFalse(any((d / 'bhop_nozone.json').exists() for d in self.zones))
+        with sqlite3.connect(self.store / 'mapupd.db') as db:
+            self.assertEqual(db.execute("SELECT zone FROM uploads WHERE map='bhop_nozone'").fetchone(), (0,))
+            self.assertEqual(db.execute("SELECT sha, aside FROM upload_zones WHERE map='bhop_nozone'").fetchone(),
+                             ('', '[]'))
+
+    def test_a_name_with_published_zones_is_accepted(self):
+        # Lex's bhop_uncanny: zone_edit's Publish (zonepub) wrote both zone directories before the map existed;
+        # zonepub writes nothing else (no list row, no table row), and the name was refused
+        for d in self.zones:
+            (d / 'bhop_uncanny.json').write_bytes(zone())
+        b, f = self.upload('bhop_uncanny')
+        self.assertEqual(b['zones'], 1)
+        self.assertIn('bhop_uncanny already has zones on the server', b['note'])
+        self.assertEqual(f['ok'], 1, f)
+        for d in self.zones:
+            self.assertEqual((d / 'bhop_uncanny.json').read_bytes(), zone())
+        # the BSP still holds the name: a second upload is refused
+        b2, _ = self.begin(manifest('bhop_uncanny', vbsp(), mode='bhop'))
+        self.assertIn('already in the library', b2['error'])
+
+    def test_attached_zones_replace_the_old_and_keep_them(self):
+        old, new = zone(), zone(128)
+        for d in self.zones:
+            (d / 'bhop_swap.json').write_bytes(old)
+        b, f = self.upload('bhop_swap', z=new)
+        self.assertEqual(b['zones'], 1)
+        self.assertIn('takes their place', b['note'])
+        self.assertEqual(f['ok'], 1, f)
+        self.assertIn('replaced the ones already on the server', f['note'])
+        for d in self.zones:
+            self.assertEqual((d / 'bhop_swap.json').read_bytes(), new)
+        kept = self.aside()
+        self.assertEqual(len(kept), 2)
+        for k in kept:
+            self.assertTrue(k.startswith('bhop_swap.replaced-'))
+            self.assertEqual((self.store / M.ASIDE / k).read_bytes(), old)
+        with sqlite3.connect(self.store / 'mapupd.db') as db:
+            sha_, aside = db.execute("SELECT sha, aside FROM upload_zones WHERE map='bhop_swap'").fetchone()
+        self.assertEqual(sha_, sha(new))
+        self.assertEqual(sorted(e['dir'] for e in json.loads(aside)), sorted(str(d.resolve()) for d in self.zones))
+        # taken back: the old zones return, the upload's own are kept aside
+        self.remove('bhop_swap')
+        for d in self.zones:
+            self.assertEqual((d / 'bhop_swap.json').read_bytes(), old)
+        kept = self.aside()
+        self.assertEqual(len(kept), 2)
+        for k in kept:
+            self.assertTrue(k.startswith('bhop_swap.removed-'))
+            self.assertEqual((self.store / M.ASIDE / k).read_bytes(), new)
+        with sqlite3.connect(self.store / 'mapupd.db') as db:
+            self.assertIsNone(db.execute("SELECT 1 FROM upload_zones WHERE map='bhop_swap'").fetchone())
+
+    def test_no_attached_zones_leaves_the_old(self):
+        old = zone()
+        for d in self.zones:
+            (d / 'surf_kept.json').write_bytes(old)
+        b, f = self.upload('surf_kept')
+        self.assertIn('they stay as they are', b['note'])
+        self.assertEqual(f['ok'], 1, f)
+        self.assertIn('uses the zones already on the server', f['note'])
+        for d in self.zones:
+            self.assertEqual((d / 'surf_kept.json').read_bytes(), old)
+        self.assertEqual(self.aside(), [])
+        self.remove('surf_kept')
+        for d in self.zones:
+            self.assertEqual((d / 'surf_kept.json').read_bytes(), old)
+        self.assertFalse((self.maps / 'surf_kept.bsp').exists())
+
+    def test_remove_leaves_zones_it_did_not_bring(self):
+        # zones published (zone_edit) after an upload that brought none, and over an upload's own
+        self.assertEqual(self.upload('surf_later')[1]['ok'], 1)
+        self.assertEqual(self.upload('surf_over', z=zone())[1]['ok'], 1)
+        later = zone(200)
+        for d in self.zones:
+            (d / 'surf_later.json').write_bytes(later)
+            (d / 'surf_over.json').write_bytes(later)
+        self.remove('surf_later')
+        self.remove('surf_over')
+        for d in self.zones:
+            self.assertEqual((d / 'surf_later.json').read_bytes(), later)
+            self.assertEqual((d / 'surf_over.json').read_bytes(), later)
+        self.assertEqual(self.aside(), [])
+
+    def test_a_failed_publish_puts_the_old_zones_back(self):
+        old, new = zone(), zone(128)
+        (self.zones[0] / 'surf_fails.json').write_bytes(old)       # one directory had them, the other not
+        bad = b'\x89PNG\r\n\x1a\n' + bytes(4000)                       # fails after the zones are written
+        b, f = self.upload('surf_fails', z=new, shot=bad)
+        self.assertEqual(f['ok'], 0)
+        self.assertIn('picture could not be read', f['error'])
+        self.assertEqual((self.zones[0] / 'surf_fails.json').read_bytes(), old)
+        self.assertFalse((self.zones[1] / 'surf_fails.json').exists())
+        self.assertFalse((self.maps / 'surf_fails.bsp').exists())
+        self.assertEqual(self.aside(), [])
+        with sqlite3.connect(self.store / 'mapupd.db') as db:
+            self.assertIsNone(db.execute("SELECT 1 FROM uploads WHERE map='surf_fails'").fetchone())
+
+    def test_remove_of_an_upload_from_before_p1799(self):
+        # no upload_zones row: uploads.zone says whether it wrote zones (nothing could be under them then)
+        with sqlite3.connect(self.store / 'mapupd.db') as db:
+            for name, z in (('surf_legacy0', 0), ('surf_legacy1', 1)):
+                db.execute("INSERT INTO uploads VALUES(?,?,1,?,1,'surf',0,0,0,'',0,?)", (name, SID, '0' * 64, z))
+        for d in self.zones:
+            (d / 'surf_legacy0.json').write_bytes(zone())        # published later: not the upload's
+            (d / 'surf_legacy1.json').write_bytes(zone(96))      # the upload's own
+        self.remove('surf_legacy0')
+        self.remove('surf_legacy1')
+        for d in self.zones:
+            self.assertEqual((d / 'surf_legacy0.json').read_bytes(), zone())
+            self.assertFalse((d / 'surf_legacy1.json').exists())
+        kept = self.aside()
+        self.assertEqual(len(kept), 2)
+        self.assertTrue(all(k.startswith('surf_legacy1.removed-') for k in kept))
+
+    def test_an_older_store_gains_the_table(self):
+        # a store made by the P1746 release: init (the installer's upgrade step) adds upload_zones and keeps the rows
+        t = Path(self.tmp.name) / 'oldstore'
+        t.mkdir()
+        with sqlite3.connect(t / 'mapupd.db') as db:
+            db.executescript(M.SQL.replace(M.ZONES_SQL + ';\n', ''))
+            db.execute("INSERT INTO meta VALUES('secret','x')")
+            db.execute("INSERT INTO uploads VALUES('surf_x',?,1,?,1,'surf',0,0,0,'',0,0)", (SID, '0' * 64))
+            self.assertIsNone(db.execute("SELECT 1 FROM sqlite_master WHERE name='upload_zones'").fetchone())
+        M.initialize(t)
+        with sqlite3.connect(t / 'mapupd.db') as db:
+            self.assertIsNotNone(db.execute("SELECT 1 FROM sqlite_master WHERE name='upload_zones'").fetchone())
+            self.assertEqual(db.execute('SELECT map FROM uploads').fetchall(), [('surf_x',)])
+            self.assertEqual(db.execute("SELECT v FROM meta WHERE k='secret'").fetchone(), ('x',))
+        self.assertTrue((t / M.ASIDE).is_dir())
 
     def test_a_refused_part_is_not_read(self):
         r = self.post('part?s=%s&p=bsp&e=raw' % ('0' * 32), data=b'x' * 100000)
