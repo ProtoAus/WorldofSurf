@@ -268,9 +268,18 @@ float tint_n;
 float(float isnew) Tint_Delta =
 {
 	local float k;
+	local vector d;
+	self.drawmask = 0;	// the engine's copy: never also drawn by addentities unless taken below
 	for (k = 0; k < tint_n; k = k + 1)
 		if (tint_mi[k] == self.modelindex && vlen(self.origin - tint_org[k]) < 4)
 		{
+			// only while the server still sends the map's colour (rounded to the wire's 1/32): a Color input that
+			// changed it wins
+			d = self.colormod - tint_col[k];
+			if (fabs(d_x) > 0.035 || fabs(d_y) > 0.035 || fabs(d_z) > 0.035)
+				return FALSE;
+			if (self.effects & EF_NODRAW)
+				return TRUE;	// hidden (Disable, rendermode 10): drawn by nobody
 			self.colormod = tint_col[k];
 			self.drawmask = MASK_ENGINE;
 			return TRUE;
@@ -309,8 +318,8 @@ void() Tint_Load =
 		if (c == '255 255 255' || c == '0 0 0')
 			continue;
 		mi = getmodelindex(mdl, TRUE);
-		if (!mi)
-			continue;	// not precached by the server: not on the wire
+		if (mi <= 0)
+			continue;	// not precached by the server (or only by this client): not on the wire
 		seen = FALSE;
 		for (k = 0; k < tint_n; k = k + 1)
 			if (tint_mi[k] == mi)
