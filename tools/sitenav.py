@@ -60,7 +60,7 @@ HTML_BLOCK = re.compile(r'(?P<indent>[ \t]*)<!-- sitenav:(?P<kind>header|footer|
                         r'(?P<body>(?:(?!<!-- /?sitenav).)*?)[ \t]*<!-- /sitenav -->', re.S)
 PY_BLOCK = re.compile(r'(?P<indent>[ \t]*)# sitenav:(?P<kind>python)(?P<args>[^\n]*)\n'
                       r'(?P<body>(?:(?!# /?sitenav).)*?)[ \t]*# /sitenav', re.S)
-MARKERS = re.compile(r'<!-- (/?)sitenav\b|# (/?)sitenav\b')
+MARKERS = re.compile(r'<!-- sitenav:|<!-- (/)sitenav -->|# sitenav:|# (/)sitenav[ \t]*$', re.M)
 MENU = re.compile(r'<nav\b|SITE_NAV\s*=')
 
 

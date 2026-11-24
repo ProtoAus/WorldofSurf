@@ -99,6 +99,15 @@ class SiteNav(unittest.TestCase):
         with open(path, encoding='utf-8') as fh:
             self.assertEqual(fh.read(), text.replace('<!-- /sitenav -->', '', 1))      # untouched
 
+    def test_prose_about_the_tool_is_not_a_marker(self):
+        self.copy_tree()
+        path = os.path.join(self.tmp, 'src/release/site/anticheat.html')
+        with open(path, encoding='utf-8') as fh:
+            text = fh.read()
+        with open(path, 'w', encoding='utf-8') as fh:
+            fh.write(text.replace('<body>', '<body>\n<!-- sitenav.py writes the header below -->', 1))
+        self.assertEqual(self.nav.run(self.tmp, check=True), 0)
+
     def test_board_keeps_its_hash_hooks(self):
         out = self.nav.header({'page': 'board', 'base': '../'}, '')
         self.assertIn('<a data-tab="board" href="#">Leaderboard</a>', out)
