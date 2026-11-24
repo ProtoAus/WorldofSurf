@@ -19,6 +19,26 @@
   changed for the player; no file names, hashes or anti-cheat details.
 -->
 
+## next
+
+### P1805 Props lit by the map's lamps on Strata maps
+- On Strata maps (bhop_canals), barrels, cans and crates without baked lighting are lit by nearby lamps again, as in Momentum, instead of drawing black.
+
+### P1804 The sun hides behind hills
+- The sun's glow now fades as hills, buildings and the 3D skybox cover it, instead of shining through them.
+
+### P1803 Lit smoke
+- Smoke volumes take the light around them: no more glowing smoke in dark corridors.
+
+### P1802 Tree cards cast shadows
+- See-through foliage props (bhop_canals' flat tree cards) cast their branch shadows in the sun.
+
+### P1801 Fix: crash changing shadow quality
+- Fixed a crash when switching shadows from cascades to blobs on some Source maps.
+
+### P1800 Missing props drawn
+- Static props with inverted fade distances (bhop_canals' driftwood logs, rebar, cleats) draw again.
+
 ## 0.1.67 2026-11-25
 
 ### P1799 Map uploads: zones optional, a Zone editor tab

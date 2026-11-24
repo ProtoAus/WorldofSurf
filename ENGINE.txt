@@ -1,4 +1,9 @@
 # The engine build this QuakeC requires.
+# P1800-P1805 (engine gl/gl_backend.c; plugin hl2/mod_vbsp.c; QC cl_emit.qc cl_sun.qc; worldofsurf-67, Lex 25 Nov canals
+# pass 4 saves 33-41): inverted static prop fades swapped (save 33's driftwood), a zeroed-shader batch skipped (the
+# r_shadows 2->1 crash), blended props with the plugin's masked depth pass cast (tree cards), smoke volumes lit, the sun
+# sprite faded by its visible share (world + 3D skybox), hl2_lt_wlv25 0 (Strata props lit by local lights).
+# Client-side: reaches players with 0.1.68; lobbies take its csprogs. Record: ENGINE_PATCHES P1800-P1805.
 # P1772, P1781-P1785 (engine client/r_surf.c renderer.c, gl/gl_shadow.c gl_backend.c gl_rmain.c r_bishaders.h, shaders/glsl
 # defaultadditivesprite defaultgammacb; plugin hl2/mod_vbsp.c, glsl/vmt lightmapped transition vertexlit animated twotexture;
 # QC cl_emit.qc cl_sprites.qc; worldofsurf-67, Lex 24 Nov canals saves 29/32 + backlog): Strata's baked direct-sun page
@@ -843,7 +848,7 @@
 
 repo     https://github.com/ProtoAus/ftequakers
 branch   main
-commit   bd0111709
+commit   763640620
 # ^ The pin is the ENGINE_PATCHES.md work this QuakeC is written against, NOT the
 #   commit a shipped binary was built from -- those drift, deliberately: patches
 #   420-438 are all mod-side, so the engine source moved without any binary
