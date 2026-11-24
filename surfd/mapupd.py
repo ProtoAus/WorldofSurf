@@ -111,6 +111,14 @@ def writing(db):
         raise
 
 
+def migrate(db):
+    """upload_zones for a store made before it, and its `at` for one made by P1799's first commits (0: any zonepub
+    publication counts as later, which errs toward leaving zone files)."""
+    db.execute(ZONES_SQL)
+    if 'at' not in {r[1] for r in db.execute('PRAGMA table_info(upload_zones)')}:
+        db.execute('ALTER TABLE upload_zones ADD COLUMN at INTEGER NOT NULL DEFAULT 0')
+
+
 def initialize(store):
     """A new store, or an older one brought up to date: every step is additive (CREATE ... IF NOT EXISTS)."""
     store = Path(store)
@@ -122,6 +130,7 @@ def initialize(store):
         db.execute('PRAGMA journal_mode=WAL')
         with db:
             db.executescript(SQL)
+            migrate(db)
             db.execute("INSERT OR IGNORE INTO meta(k, v) VALUES ('secret', ?)", (secrets.token_hex(32),))
     finally:
         db.close()
@@ -572,15 +581,19 @@ def set_record(db_path, name, sha=None, entries=None, at=0):
                        (name, sha, json.dumps(entries), at))
 
 
+# zonepub_publish's kinds whose files were written or confirmed (an identical publish is noop), or may have been
+PUBLISHED_KINDS = ('live', 'live-partial', 'noop', 'noop-partial', 'rollback', 'partial', 'applying', 'rollingback')
+
+
 def published_since(zstore, name, at):
-    """Whether zonepub has a publication of `name` queued at or after `at` (any kind: an identical publish is a
-    noop row, and the file is then that publish's too), or None when its store cannot be read. No store at all:
-    zonepub never ran here."""
+    """Whether zonepub has a publication of `name` queued (at) or applied (live) at or after `at`, or None when its
+    store cannot be read. No store at all: zonepub never ran here."""
     if not Path(zstore).exists():
         return False
     try:
         with connect(zstore, readonly=True) as z:
-            return z.execute('SELECT 1 FROM publications WHERE map=? AND at>=? LIMIT 1', (name, at)).fetchone() is not None
+            return z.execute('SELECT 1 FROM publications WHERE map=? AND kind IN (%s) AND (at>=? OR live>=?) LIMIT 1'
+                             % ','.join('?' * len(PUBLISHED_KINDS)), (name,) + PUBLISHED_KINDS + (at, at)).fetchone() is not None
     except sqlite3.Error:
         return None
 
@@ -623,7 +636,7 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
     inflight, inflight_lock = set(), threading.Lock()   # (token, part) being received: one stream a file
     with connect(db_path) as db:
         secret = db.execute("SELECT v FROM meta WHERE k='secret'").fetchone()['v']
-        db.execute(ZONES_SQL)       # P1799: a store `init` has not brought up to date yet (additive)
+        migrate(db)                 # P1799: a store `init` has not brought up to date yet (additive)
 
     def answer(**kw):
         return jsonify(ok=1, **kw)
@@ -893,7 +906,7 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
         if shot and media_dir:
             pics = list(zip((media_dir / 'uploads' / (name + '.jpg'), media_dir / 'uploads' / (name + '-thumb.jpg')),
                             render_pictures(shot)))
-        aside, olds = [], []
+        aside, olds, written_at = [], [], 0
         try:
             with open(bsp, 'rb') as src, open(part, 'wb') as dst:
                 for block in iter(lambda: src.read(1 << 20), b''):
@@ -912,8 +925,9 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                     except (OSError, ValueError):
                         raise Refused('A zone file of that name on the server is not a plain zone file; tell Proto.')
                     aside = keep_aside(store, name, now, list(zip(zone_paths, olds)), 'replaced')
+                    written_at = int(clock())       # under the lock: zonepub publishes after this are later
                     try:
-                        set_record(db_path, name, m['zone'][0], aside, now)    # before the first zone write
+                        set_record(db_path, name, m['zone'][0], aside, written_at)     # before the first zone write
                     except sqlite3.Error as e:
                         drop_aside(store, aside)
                         log('upload not recorded before its zones:', name, e)
@@ -953,7 +967,8 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                         db.execute('INSERT OR REPLACE INTO uploads VALUES(:map,:steamid,:at,:bsp_sha,:kb,:mode,:tier,'
                                    ':stages,:bonuses,:author,:shot,:zone)', u)
                         db.execute('INSERT OR REPLACE INTO upload_zones(map, sha, aside, at) VALUES(?,?,?,?)',
-                                   (name, m['zone'][0] if zone_body is not None else '', json.dumps(aside), now))
+                                   (name, m['zone'][0] if zone_body is not None else '', json.dumps(aside),
+                                    written_at or int(clock())))
                         drop_session(db, token)
                 except sqlite3.Error as e:
                     log('PUBLISHED BUT NOT RECORDED', name, e, '; zones replaced are in', ASIDE, aside_names(aside))
@@ -1137,7 +1152,7 @@ def main():
         try:
             with zone_lock(args.zonepub_lock, 120), zonepub_publish.content_publication():
                 with connect(db_path) as db, writing(db):
-                    db.execute(ZONES_SQL)   # a store `init` has not brought up to date
+                    migrate(db)             # a store `init` has not brought up to date
                     up = db.execute('SELECT zone FROM uploads WHERE map=?', (name,)).fetchone()
                     zr = db.execute('SELECT sha, aside, at FROM upload_zones WHERE map=?', (name,)).fetchone()
                 if up is None and zr is None:
@@ -1179,8 +1194,8 @@ def main():
     elif args.command == 'list':
         with connect(db_path, readonly=True) as db:
             zt = db.execute("SELECT 1 FROM sqlite_master WHERE name='upload_zones'").fetchone()
-            q = ('SELECT u.map, at, kb, mode, tier, stages, bonuses, shot, zone, %s AS aside FROM uploads u %s ORDER BY at'
-                 % (("z.aside", "LEFT JOIN upload_zones z ON z.map=u.map") if zt else ("NULL", "")))
+            q = ('SELECT u.map, u.at, kb, mode, tier, stages, bonuses, shot, zone, %s AS aside FROM uploads u %s ORDER BY '
+                 'u.at' % (("z.aside", "LEFT JOIN upload_zones z ON z.map=u.map") if zt else ("NULL", "")))
             for r in db.execute(q):
                 print('%s %s %d KB %s tier %d stages %d bonuses %d shot %d zone %d%s' % (
                     r['map'], time.strftime('%Y-%m-%d %H:%MZ', time.gmtime(r['at'])), r['kb'], r['mode'], r['tier'],

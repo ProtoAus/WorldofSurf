@@ -139,11 +139,13 @@ class Flow(unittest.TestCase):
         return out.getvalue()
 
     def zonepub(self, *rows):
-        """zonepub's store beside its lock, with publications (map, at)."""
+        """zonepub's store beside its lock, with publications (map, at[, kind, live]): zonepub_publish's columns."""
         with sqlite3.connect(self.lock.with_name('zones.sqlite3')) as z:
-            z.execute('CREATE TABLE IF NOT EXISTS publications(id INTEGER PRIMARY KEY, map TEXT, at INTEGER, kind TEXT)')
-            for name, at in rows:
-                z.execute("INSERT INTO publications(map, at, kind) VALUES(?,?,'noop')", (name, at))
+            z.execute('CREATE TABLE IF NOT EXISTS publications(id INTEGER PRIMARY KEY, map TEXT, at INTEGER, kind TEXT, '
+                      'live INTEGER)')
+            for r in rows:
+                name, at, kind, live = (tuple(r) + ('noop', None))[:4]
+                z.execute('INSERT INTO publications(map, at, kind, live) VALUES(?,?,?,?)', (name, at, kind, live))
 
     def record(self, name):
         with sqlite3.connect(self.store / 'mapupd.db') as db:
@@ -735,6 +737,66 @@ class Flow(unittest.TestCase):
             self.assertEqual((d / 'surf_legacy0.json').read_bytes(), zone())
             self.assertEqual((d / 'surf_legacy1.json').read_bytes(), zone(96))
         self.assertEqual(self.aside(), [])
+
+    # ---- round 3 ---------------------------------------------------------------------------------------------------
+    def test_list_on_a_store_with_the_table(self):
+        for d in self.zones:
+            (d / 'surf_listed2.json').write_bytes(zone())
+        self.assertEqual(self.upload('surf_listed2', z=zone(96))[1]['ok'], 1)
+        self.assertEqual(self.upload('surf_plain')[1]['ok'], 1)
+        out = self.cli(['mapupd.py', '--store', str(self.store), 'list'])
+        self.assertEqual(self.rc, 0, self.err)
+        self.assertIn('surf_listed2 ', out)
+        self.assertIn('(replaced 2 zone files)', out)
+        self.assertIn('surf_plain ', out)
+
+    def test_a_p1799_store_without_at_gains_it(self):
+        # a store made by P1799's first commits: upload_zones without `at`; init, the service and remove add it (0)
+        for entry in ('init', 'app', 'remove'):
+            t = Path(self.tmp.name) / ('noat-' + entry)
+            t.mkdir()
+            (t / 'spool').mkdir()
+            with sqlite3.connect(t / 'mapupd.db') as db:
+                db.executescript(M.SQL.replace(M.ZONES_SQL + ';\n', ''))
+                db.execute('CREATE TABLE upload_zones(map TEXT PRIMARY KEY, sha TEXT NOT NULL, aside TEXT NOT NULL)')
+                db.execute("INSERT INTO meta VALUES('secret','x')")
+                db.execute("INSERT INTO uploads VALUES('surf_noat',?,1,?,1,'surf',0,0,0,'',0,0)", (SID, '0' * 64))
+                db.execute("INSERT INTO upload_zones VALUES('surf_noat','','[]')")
+            if entry == 'init':
+                M.initialize(t)
+            elif entry == 'app':
+                M.create_app(t, self.main, self.maps, self.zones)
+            else:
+                self.remove('surf_noat', store=t)
+                self.assertEqual(self.rc, 0, self.err)
+            with sqlite3.connect(t / 'mapupd.db') as db:
+                self.assertIn('at', [r[1] for r in db.execute('PRAGMA table_info(upload_zones)')], entry)
+                if entry != 'remove':
+                    self.assertEqual(db.execute("SELECT at FROM upload_zones").fetchone(), (0,))
+
+    def test_published_since_reads_applied_kinds_and_live(self):
+        zs = self.lock.with_name('zones.sqlite3')
+        t = 1_800_000_100
+        self.zonepub(('m_late', t - 50, 'noop', t + 5),           # queued before, applied (as noop) after: counts
+                     ('m_dead', t + 10, 'superseded'), ('m_dead', t + 10, 'expired'), ('m_dead', t + 10, 'failed'),
+                     ('m_dead', t + 10, 'pending'), ('m_old', t - 50, 'live', t - 40), ('m_now', t, 'live', t))
+        self.assertTrue(M.published_since(zs, 'm_late', t))
+        self.assertFalse(M.published_since(zs, 'm_dead', t))      # never wrote or confirmed the files
+        self.assertFalse(M.published_since(zs, 'm_old', t))
+        self.assertTrue(M.published_since(zs, 'm_now', t))
+        self.assertFalse(M.published_since(zs, 'm_none', t))
+
+    def test_the_record_time_is_taken_under_the_lock(self):
+        # a finish that waited for zonepub's lock: the record's time is when it got it, not when the request came in
+        orig = M.zone_lock
+
+        def slow(path, wait):
+            self.now += 50
+            return orig(path, wait)
+        with mock.patch('mapupd.zone_lock', slow):
+            self.assertEqual(self.upload('surf_waited', z=zone(96))[1]['ok'], 1)
+        with sqlite3.connect(self.store / 'mapupd.db') as db:
+            self.assertEqual(db.execute("SELECT at FROM upload_zones WHERE map='surf_waited'").fetchone(), (self.now,))
 
     def test_an_older_store_without_the_table(self):
         t = Path(self.tmp.name) / 'oldstore2'

@@ -54,8 +54,9 @@ Every account is refused until granted. The zone admins (Proto, Markbeaton54 on 
    zonepub's own lock (`publish.lock` beside its store, as zonepub_publish.locked takes it; opened read-only, since
    the unit cannot write that directory and flock needs no write access; 30 s, then "try again") and the content
    lease: an earlier attempt's record with no uploads row (it crashed with its zones live) is undone first, unless
-   zonepub's history (its store beside the lock, read-only) has a publication of that map since the record was
-   written: then the files are that publish's (an identical publish is a noop row) and are left; zone
+   zonepub's history (its store beside the lock, read-only) has a publication of that map that wrote or confirmed
+   its files (live, noop, rollback and their partial kinds) queued or applied (`at` or `live`) since the record's time
+   (taken under the lock): then the files are that publish's (an identical publish is a noop row) and are left; zone
    files already in zonepub's two dirs are copied to `<store>/zones-aside/` (private, never served); the
    `upload_zones` row is written; the zones; the pictures into `ftesurf-site/media/uploads/`; the BSP linked into
    `game/momentum/maps/` last (never over a file); the `uploads` row. If the pictures or the link fail, the old zone
@@ -74,10 +75,11 @@ download it from the Pi. Uploaded zones are not in zonepub's history (the zoning
 file the upload wrote ('' none), a JSON list, one entry per zone dir it wrote (`dir`; `file`, its copy in
 `zones-aside/` of what it replaced there, and that copy's `sha`, both '' for none), and `at`, when. Written before
 the first zone write; a row with no `uploads` row is an attempt that crashed (the next finish of that name undoes it) or a remove
-left part done (a re-run continues). A table of its own, not columns on `uploads`: `init` is the migration (CREATE
-... IF NOT EXISTS, additive) and runs while the old release still serves (`--upgrade-from`), which inserts 12 values
-into `uploads`. The service and `remove` also create it. An upload from before P1799 has no row. `list` shows how
-many zone files each upload replaced.
+left part done (a re-run continues). A table of its own, not columns on `uploads`: `init` is the migration and runs
+while the old release still serves (`--upgrade-from`), which inserts 12 values into `uploads`. It is additive:
+CREATE ... IF NOT EXISTS, and `at` added (ALTER TABLE, default 0) to a table made by P1799's first commits, where 0
+makes any zonepub publication count as later, so zone files are left. The service and `remove` do the same. An
+upload from before P1799 has no row. `list` shows how many zone files each upload replaced.
 
 ## Taking an upload back (as proto)
 
@@ -97,3 +99,13 @@ has published the map since the upload, or its history cannot be read; so is eve
 no zones or one from before P1799 (who brought which files is not recorded). It prints what it did per file. Old zones an upload replaced stay in
 `zones-aside/` until a remove puts them back; there is no other command. A lobby on the map keeps it until its next
 change; R2's copy goes with r2mirror's next run.
+
+## Limits (BACKLOG)
+
+- zonepub prunes its history (KEEP_PER_MAP 32, KEEP_TOTAL 1024): a publication pruned before a reconcile or remove
+  reads is not seen, and an identical publish since could then be taken back. Falsifier: a crashed attempt, the same
+  zones published with zone_edit, 33 more publishes of that map, then a retry without zones.
+- A record left by remove (a dir not handled, a file changed since, zonepub's history unreadable) stays until a re-run
+  can act on it; one whose file was changed by a later publish can only be cleared by hand (DELETE FROM upload_zones).
+- A crashed attempt's record that reconcile kept (zone_edit published since) is replaced by the next attempt's own;
+  the copies it named stay in zones-aside/ and are logged, not recorded.
