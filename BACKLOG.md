@@ -1,5 +1,17 @@
 # BACKLOG.md
 
+## P1806 TAS uploads on the boards' TAS tab -- what it leaves (25 Nov, worldofsurf-8b)
+- An upload row has no replay (rep 0): the game cannot watch or race it from the board. Needs surfd to serve a
+  `tasup` replay kind (tasindex copies the .rec beside surfd's data and writes a replays row) -- a generation, and every
+  replays reader (sweep's verifier, PublicReplays, admin) checked for the new kind first.
+- A player who already holds a course's TAS slot with a lobby run (live, or set aside by surfd), or has an unrejected
+  lobby recording of it, keeps it even when their upload is faster; the upload shows on /tasup/board only. (Also: an
+  upload row standing over a slower lobby recording is not replaced by the player's next, faster upload -- the slot is
+  refilled from the recording.) Fix with its own tier (`tasup`) that the TAS board combines
+  with community (surfd forces tier=community for style=tas today) -- a generation and the clients' TAS tab.
+- The web board's upload rows do not link to /tasup/run/<id> (the row JSON carries no runid); board.js rides a
+  generation or publish_board.py.
+
 ## P1758-P1761 bhop_canals graphics vs Momentum -- what they leave (24 Nov, worldofsurf-67; root FTESurf-worktrees/canalsgfx-20261124-67)
 - DONE by P1762-P1764 (0.1.64): the vmt receivers and defaultwall read the sun cascades (r_shadows_cascades 4 on Source
   maps, reach from env_cascade_light); a bumped VertexLitGeneric takes its sun per pixel; Source's HDR auto-exposure runs
@@ -406,7 +418,7 @@ once the reload clock is rebased -- scratchpad p1716_rebase.py), giving a "re-si
   count (PW_SCRIPTGUARD, "update the game").
 
 ## TAS uploads -- what P1640 left (20 Nov, tasupload-20261120-c7; root FTESurf-worktrees/tasupload-20261120-c7)
-- A TAS-uploads view in the web/menu boards (read `/tasup/api/board`). (The in-game upload is P1696.)
+- DONE by P1806: shown uploads are rows of the boards' TAS tab (tasindex). (The in-game upload is P1696.)
 - P1696 left: runs finished before the P1696 build are not offered (no record of them); a TAS run made in the game
   samples once a packet, and tasplaus held the one game-made file tried (a teleported finish) partly for "31 lost
   packets": how genuine Jargon runs fare is not measured (no Jargon finish on this machine: sandtrap2 b4 stuck at
@@ -450,7 +462,8 @@ once the reload clock is rebased -- scratchpad p1716_rebase.py), giving a "re-si
   assertions can still use up a minute's sign-ins (self-heals each minute).
 - tasupd store: rows (~5 KB each, <= 1000 a day) are outside STORE_CAP, rejected runs keep their file, and a
   full store is only a journal line (`journalctl -u ftesurf-tasupd`). Add a purge for rejected/removed runs and
-  a size line in the owner's `list`.
+  a size line in the owner's `list`. A purge that DELETEs run rows must keep the rows (or run `tasindex.py --full`
+  after): P1806's tasindex finds its board rows through every course the store has held.
 - Round 5 (21 Nov) left: a crafted 8 MB file of minimal samples stores a ~7 MB motion blob (cap on samples, or a
   purge); `same_path` filters the whole series per shift (60 candidates of 83k ticks: 4.1 s here, ~15-25 s on the Pi:
   bisect the step ends); the upload connection limit is keyed per /128, so one /64 can hold the 16 nginx upload

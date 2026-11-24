@@ -19,6 +19,12 @@
   changed for the player; no file names, hashes or anti-cheat details.
 -->
 
+## next
+
+### P1806 TAS uploads on the leaderboard
+- Uploaded TAS runs now show on the leaderboard's TAS tab, on the website and in the game, a few minutes after they are published.
+- The TAS upload site keeps you signed in with Steam for 30 days, renewed each day you visit. Sign out signs you out on every browser.
+
 ## 0.1.68 2026-11-24
 
 ### P1805 Props lit by the map's lamps on Strata maps

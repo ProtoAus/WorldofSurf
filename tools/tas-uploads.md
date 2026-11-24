@@ -260,8 +260,8 @@ for the next surfd generation.
 
 ## Still to build
 
-1. A TAS-uploads tab on the web/menu boards reading `/tasup/api/board` (surfd's board.js rides a guarded
-   generation; tasupd's page works now). The in-game upload is built (P1696, above).
+1. DONE by P1806 (below): shown uploads are rows of the boards' TAS tab. Left: their replays (rep 0 until surfd
+   serves a `tasup` replay kind -- a generation) and a link from such a row to its /tasup/run page.
 2. EXACT: native recordings with `in` rows re-simulated by pm_verify (sweep.py), shown with a
    "re-simulated" badge.
 3. tasplaus: map push volumes from the entity lump; stage legs (both HOLD today).
@@ -275,3 +275,32 @@ installer copied to /root/install_tasupd-a0cf6968.py): release /opt/ftesurf-tasu
 b61c53ef removed). Checked live: X-Tasupd-Source a0cf6968, /tasup/api/health {"ok":1,"replays":3} (the service lists the
 three replay roots in its sandbox), unit carries TASUPD_REPLAYS. Next upgrade: --upgrade-from a0cf69682ea08fd2b9bdab3adc4f8468f8e734fb.
 
+## P1806: uploads on the main board's TAS tab (Lex 25 Nov: Rounin's sandtrap main "doesn't appear on the leaderboard")
+The TAS tab (web board, game boards) is surfd's community/tas rows; tasupd's uploads were only on /tasup/board.
+`surfd/tasindex.py` files each player's best shown upload per course as one of those rows (node `tasup`, runid
+`tasup-<id>`, TF_TAS, rep 0, name = the linked account's), every 5 minutes from a proto user timer
+(`surfd/ftesurf-tasindex.{service,timer}`; not crontab, which the generation kits hash). Only into an empty slot: a
+player with any TAS row of their own on that course (live, or set aside by surfd), or an unrejected lobby recording
+of it, keeps it and the upload stays on /tasup/board -- the first review round showed that displacing and later restoring a lobby row can undo a reject or
+lose a better lobby run. A row whose upload stops being shown (removed, rejected, beaten by the player's own better
+upload) is taken out and the slot refilled from the player's best unrejected lobby replay (surfd.restand's rule).
+Banned accounts are left to accounts.ban_rows; an upload row surfd set aside is not filed again. No state file: it
+looks at every (map, track, player) tasupd's store has held, by primary key, and takes surfd's write lock only to
+write. Never imports surfd (its connect() migrates). A held upload reaches the board once the owner approves it.
+
+Install / upgrade (proto, no root; D=/srv/nvme/ftesurf-ops/tasindex, C=<commit>):
+
+    mkdir -p $D/$C && git -C <clean checkout> show $C:surfd/tasindex.py > $D/$C/tasindex.py
+    python3 $D/$C/tasindex.py --store /srv/nvme/ftesurf-ops/tasupd-state/tasup.sqlite3 --db /srv/nvme/surfd/data/surfd.db --dry-run
+    git -C <checkout> show $C:surfd/ftesurf-tasindex.service | sed "s/@COMMIT@/$C/" > ~/.config/systemd/user/ftesurf-tasindex.service
+    git -C <checkout> show $C:surfd/ftesurf-tasindex.timer > ~/.config/systemd/user/ftesurf-tasindex.timer
+    systemctl --user daemon-reload && systemctl --user enable --now ftesurf-tasindex.timer
+
+Log: $D/tasindex.log (a line only when a pass changed something). Stop: `systemctl --user disable --now
+ftesurf-tasindex.timer`; rollback: then the dry-run command with `--withdraw` instead of `--dry-run` (every upload row
+off, slots refilled from lobby replays). `--full` finds upload rows of courses the store no longer names.
+
+tasupd half: the Steam sign-in lasts 30 days, renewed by a page read a day after the cookie was made, and at most 90
+days from the Steam sign-in; Sign out ends the account's session in every browser (meta `session <steamid>` = a
+generation the cookie carries). Cookies made before this release are refused: everyone signs in once more. Needs Lex's
+root upgrade (`--upgrade-from a0cf69682ea08fd2b9bdab3adc4f8468f8e734fb`).
