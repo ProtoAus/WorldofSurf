@@ -3009,10 +3009,15 @@ void(entity e, float ct, float cl) SV_TASAutoSavedQuery =
 	msg_entity = e; multicast(e.origin, MULTICAST_ONE_R);
 };
 // P1696: `tas uploads`, the Upload tab's list, as events (CSQC may not read data/tasproj/) to the host's own client only.
-// P1797 (Lex, 24 Nov: "list all tas runs in your game"): the runs this game noted finishing (SV_TASUpNote, newest first,
-// with the SHA-256 it saved them with), then every other loose TAS run of a whole course in data/runs/, this map's
-// before the rest, sha "-" (the tab says it came from the folder). At most TAS_UPSHOW. An empty list is one event.
-#define TAS_UPSHOW 64
+// P1797 (Lex, 24 Nov: "list all tas runs in your game"): this map's runs the game noted finishing (SV_TASUpNote, newest
+// first, with the SHA-256 it saved them with; at most TAS_UPNOTED), then every other loose TAS run of a whole course in
+// data/runs/, this map's first, name-sorted: one another map's uploads.txt noted carries its SHA too (review 1), the
+// rest go as "-" (the tab says it came from the folder). At most TAS_UPSHOW: ~6 KB, inside the loopback client's
+// reliable message (review 1: 64 x ~170 B overflowed it). The folder scan is kept TAS_UPSCAN s or until a run is noted.
+// The token and mode ride the first event only. An empty list is one event.
+#define TAS_UPSHOW 48
+#define TAS_UPNOTED 16
+#define TAS_UPSCAN 15
 // data/runs/<map>/main/<leaf> or data/runs/<map>/bonus_<N>/<leaf>, any map (SV_TASUpCourse is this map's)
 float(string path) SV_TASUpWhole =
 {
@@ -3046,10 +3051,60 @@ float(float b, string path) SV_TASUpListed =
 	}
 	return FALSE;
 };
+// the SHA-256 a map's uploads.txt noted for path, else "-" (the player's own loose file only)
+string(string m, string path) SV_TASUpNotedSha =
+{
+	local float fh, i, c;
+	local string l, f, sha;
+	f = sprintf("data/tasproj/%s/uploads.txt", strtolower(m));
+	fh = SV_TASUpLoose(f) ? fopen(f, FILE_READ) : -1;
+	if (fh < 0) return "-";
+	sha = "-";
+	for (i = 0; i < TAS_UPKEEP + 10; i = i + 1)
+	{
+		l = fgets(fh);
+		if (l == "") break;
+		c = tokenize(l);
+		if (c == 2 && strlen(argv(0)) == 64 && !strcasecmp(argv(1), path)) { sha = strcat(argv(0)); break; }
+	}
+	fclose(fh);
+	return sha;
+};
+void() SV_TASUpScan =
+{
+	local float pass, h, m, i;
+	local string pre, f, fm;
+	if (sv_tasup_scan >= 0 && time < sv_tasup_scanat + TAS_UPSCAN && time >= sv_tasup_scanat && sv_tasup_scanmap == mapname) return;
+	if (sv_tasup_scan >= 0) buf_del(sv_tasup_scan);
+	sv_tasup_scan = buf_create();
+	sv_tasup_scanat = time;
+	if (sv_tasup_scanmap != "") strunzone(sv_tasup_scanmap);
+	sv_tasup_scanmap = strzone(mapname);
+	pre = strcat("data/runs/", mapname, "/");        // FS_RunDir's own case (review 1: Linux paths are case-sensitive)
+	for (pass = 0; pass < 2; pass = pass + 1)
+	{
+		h = search_begin((pass == 0) ? strcat(pre, "*/*_tas.rec") : "data/runs/*/*/*_tas.rec", FS_NAMESORT, TRUE);
+		if (h < 0) continue;
+		m = search_getsize(h);
+		for (i = 0; i < m && buf_getsize(sv_tasup_scan) < TAS_UPSHOW; i = i + 1)
+		{
+			f = search_getfilename(h, i);
+			if (SV_TASUpWhole(f))     // nested: QC's && reads the folder/buffer either way
+			if (SV_TASUpLoose(f))
+			if (!SV_TASUpListed(sv_tasup_scan, f))
+			{
+				fm = substring(f, 10, -1);
+				fm = substring(fm, 0, strstrofs(fm, "/"));
+				bufstr_add(sv_tasup_scan, strcat(SV_TASUpNotedSha(fm, f), " ", f), TRUE);
+			}
+		}
+		search_end(h);
+	}
+};
 void(entity e) SV_TASUpList =
 {
-	local float fh, i, n, c, show, local_host, mode, pass, h, m;
-	local string l, pre, f;
+	local float fh, i, n, c, show, local_host, mode;
+	local string l;
 	show = -1;
 	local_host = SV_TASUpHost(e);
 	mode = local_host ? SV_TASUpOffer() : 0;      // P1712: the Upload tab shows it
@@ -3060,7 +3115,7 @@ void(entity e) SV_TASUpList =
 		fh = SV_TASUpLoose(SV_TASUpListPath()) ? fopen(SV_TASUpListPath(), FILE_READ) : -1;   // the player's own file only
 		if (fh >= 0)
 		{
-			for (i = 0; i < TAS_UPKEEP + 10 && n < TAS_UPSHOW; i = i + 1)
+			for (i = 0; i < TAS_UPKEEP + 10 && n < TAS_UPNOTED; i = i + 1)
 			{
 				l = fgets(fh);
 				if (l == "") break;
@@ -3070,28 +3125,18 @@ void(entity e) SV_TASUpList =
 			}
 			fclose(fh);
 		}
-		pre = strcat("data/runs/", strtolower(mapname), "/");
-		for (pass = 0; pass < 2 && n < TAS_UPSHOW; pass = pass + 1)
+		SV_TASUpScan();
+		for (i = 0; i < buf_getsize(sv_tasup_scan) && n < TAS_UPSHOW; i = i + 1)
 		{
-			h = search_begin((pass == 0) ? strcat(pre, "*/*_tas.rec") : "data/runs/*/*/*_tas.rec", 0, TRUE);
-			if (h < 0) continue;
-			m = search_getsize(h);
-			for (i = 0; i < m && n < TAS_UPSHOW; i = i + 1)
-			{
-				f = search_getfilename(h, i);
-				if (pass == 1 && !strcasecmp(substring(f, 0, strlen(pre)), pre)) continue;   // pass 0 had this map's
-				if (SV_TASUpWhole(f))     // nested: QC's && reads the folder/buffer either way
-				if (SV_TASUpLoose(f))
-				if (!SV_TASUpListed(show, f)) { bufstr_add(show, strcat("- ", f), TRUE); n = n + 1; }
-			}
-			search_end(h);
+			l = bufstr_get(sv_tasup_scan, i);
+			if (!SV_TASUpListed(show, substring(l, strstrofs(l, " ") + 1, -1))) { bufstr_add(show, l, TRUE); n = n + 1; }
 		}
 	}
 	for (i = 0; i < max(1, n); i = i + 1)
 	{
 		WriteByte(MSG_MULTICAST, SVC_CGAMEPACKET); WriteByte(MSG_MULTICAST, TAS_EV_UPLIST);
 		WriteByte(MSG_MULTICAST, i); WriteByte(MSG_MULTICAST, n); WriteByte(MSG_MULTICAST, mode);
-		WriteString(MSG_MULTICAST, local_host ? SV_TASUpOfferTok() : "");
+		WriteString(MSG_MULTICAST, (local_host && i == 0) ? SV_TASUpOfferTok() : "");
 		if (n) { c = tokenize(bufstr_get(show, i)); WriteString(MSG_MULTICAST, argv(0)); WriteString(MSG_MULTICAST, argv(1)); }
 		msg_entity = e; multicast(e.origin, MULTICAST_ONE_R);
 	}

@@ -7426,6 +7426,9 @@ float() SV_TASUpOffer =
 	return (v == 0 || v == 1) ? v : 2;
 };
 void(entity e) SV_TASUpList;
+var float sv_tasup_scan = -1;
+float sv_tasup_scanat;   // P1797: the Upload tab's folder scan, "<sha|-> <path>" (SV_TASUpScan)
+string sv_tasup_scanmap;
 void(entity e, float v, string tok) SV_TASUpSetOffer =
 {
 	local float fh;
@@ -7477,6 +7480,7 @@ void(entity e, string path) SV_TASUpNote =
 		if (frename(part, list) != 0) dprint(sprintf("tas upload: cannot rename %s\n", part));
 		else
 		{	// P1712: a new best goes to the host's own client to offer (TASUp_NewEvent); the list it asks for says what it is
+			if (sv_tasup_scan >= 0) { buf_del(sv_tasup_scan); sv_tasup_scan = -1; }   // P1797: the tab's scan has a new run
 			mode = SV_TASUpOffer();
 			if (mode > 0)          // nested: QC's && would scan the folder anyway
 			if (SV_TASUpBest(path))

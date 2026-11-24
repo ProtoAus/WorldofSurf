@@ -11,7 +11,7 @@
 #ifndef TUP_BASE   // a test build only (fteqcc -DTUP_BASE): a server must never choose where a proof goes
 #define TUP_BASE "https://play.proto.bar/tasup/"
 #endif
-#define TUP_MAX 64                                  // SV_TASUpList's TAS_UPSHOW
+#define TUP_MAX 48                                  // SV_TASUpList's TAS_UPSHOW
 #define TUP_PAGE 8
 #define TUP_BYTES 8388608                           // tasupd.MAX_REC
 string tup_p[TUP_MAX], tup_l[TUP_MAX], tup_s[TUP_MAX];   // path, label, the SHA-256 the game saved it with
@@ -102,6 +102,11 @@ float(string p) TASUp_Head =
 	}
 	fclose(fh);
 	if (line == "") { line = substring(p, 10, -1); line = substring(line, 0, max(0, strstrofs(line, "/"))); }   // data/runs/<map>/
+	if (tup_hct[h] < 0)            // no track line: the folder's (data/runs/<map>/bonus_<N>/)
+	{
+		i = strstrofs(p, "/bonus_");
+		tup_hct[h] = (i > 0) ? stof(substring(p, i + 7, -1)) : 0;
+	}
 	tup_hcp[h] = strzone(p); tup_hcm[h] = strzone(line);
 	return h;
 };
@@ -142,7 +147,10 @@ void() TASUp_ListEvent =
 	sha = path = "";
 	if (n) { sha = readstring(); path = readstring(); }
 	if (!isserver()) return;        // only the game this process hosts says what it finished
-	tup_mode = m; tup_tok = TASUp_Keep(tup_tok, TASUp_Hex(tk, 16) ? tk : "");   // it goes into a command line
+	if (i == 0)                     // P1797: they ride the first event only
+	{
+		tup_mode = m; tup_tok = TASUp_Keep(tup_tok, TASUp_Hex(tk, 16) ? tk : "");   // it goes into a command line
+	}
 	if (m < 2) tupb_auto = FALSE;   // P1712: turned down (the tab, or `cmd tas offer` -- SV_TASUpSetOffer resends this)
 	if (m == 0)
 	{
@@ -166,7 +174,7 @@ void() TASUp_List =
 	if (!isserver()) return;
 	key = zone_mapname;
 	if (key == tup_key && cltime < tup_at) return;
-	tup_at = cltime + 3;
+	tup_at = cltime + 5;            // P1797: a list is up to ~6 KB of reliable messages
 	if (key != tup_key) { tup_key = TASUp_Keep(tup_key, key); }
 	localcmd("cmd tas uploads\n");
 };
@@ -363,7 +371,7 @@ vector(vector at, float width, float tsz, float hint, float row) TASUp_OfferChip
 		{
 			v = 2 - i;
 			localcmd(sprintf("cmd tas offer %g %s\n", v, tup_tok));
-			tup_mode = v; tup_at = 0;
+			tup_mode = v;           // SV_TASUpSetOffer sends the list (P1797 review: asking too doubled it)
 			if (v == 0) while (tupb_qn > 0) TASUp_Unqueue(tupb_q[0]);   // Off: nothing waiting is offered either
 			if (tupb_box && v < 2) tupb_auto = FALSE;              // an offer already up follows it
 			if (TASUp_BoxOwns() && v == 0 && (tup_state == 1 || tup_state == 2)) TASUp_BoxKeep("Off");
@@ -399,8 +407,8 @@ void(vector at, float width, float tsz, float hint, float row) TASUp_Draw =
 		{
 			if (Profile_Chip("tup_prev", at + [width - chip_x * 2 - 4, 0, 0], chip, "Prev", tsz, FALSE)) tup_page = max(0, tup_page - 1);
 			if (Profile_Chip("tup_next", at + [width - chip_x, 0, 0], chip, "Next", tsz, FALSE)) tup_page = min(pages - 1, tup_page + 1);
-			sui_text(at + [tsz * 9 + 8, (row - hint) * 0.5, 0], [hint, hint], sprintf("%g runs, page %g of %g", tup_n, tup_page + 1, pages),
-				SUI_THEME_DIM, 1, 0);
+			sui_text(at + [tsz * 9 + 8, (row - hint) * 0.5, 0], [hint, hint], sprintf("%g runs%s, page %g of %g", tup_n,
+				(tup_n >= TUP_MAX) ? " (the first)" : "", tup_page + 1, pages), SUI_THEME_DIM, 1, 0);
 		}
 		at_y = at_y + row + 6;
 		if (!tup_n)
@@ -548,6 +556,7 @@ void() TASUp_OfferList =
 	tupb_want = 0;
 	for (i = 0; i < tup_n; i = i + 1) if (!strcmp(tup_p[i], tupb_path)) break;
 	if (i >= tup_n || tup_mode <= 0) return;
+	if (tup_s[i] == "") return;     // P1797 review: only a run the game noted, never one found in the folder
 	if (TASUp_Busy()) { TASUp_Queue(tupb_path, TRUE); return; }    // the tab started one in the gap
 	tup_state = 0;
 	tupb_box = TRUE; tupb_auto = (tup_mode >= 2); tupb_why = TASUp_Keep(tupb_why, "");
