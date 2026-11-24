@@ -552,7 +552,7 @@ void() Sun_MapLight =
 	// shader adds this x alpha where the cascades leave the prop lit.  vbsp_vhvsun calibrated on bhop_canals' street
 	// lamp against Momentum's sunlit/shaded sides.
 	v = '0 0 0';
-	if (havecsm && havele)
+	if (havecsm && havele && cvar("hl2_bspversion") >= 25)	// the plugin keeps the .vhv alpha only there (255 elsewhere)
 		v = lesun * cvar("vbsp_vhvsun");
 	if (cvar_type("r_shadows_vhvsun"))
 		cvar_set("r_shadows_vhvsun", sprintf("%g %g %g", v_x, v_y, v_z));
