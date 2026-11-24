@@ -267,8 +267,11 @@ void() TASUp_OpenFolder =
 	pre = strcat("data/runs/", strtolower(zone_mapname), "/");
 	for (i = 0; i < tup_n; i = i + 1) if (!strcmp(substring(tup_p[i], 0, strlen(pre)), pre)) { f = substring(pre, 0, strlen(pre) - 1); break; }
 	if (checkbuiltin(sys_openfolder))
-	if (sys_openfolder(f)) { print(sprintf("tas upload: opened %s in the file manager\n", f)); return; }
-	print(sprintf("tas upload: your TAS runs are in the game folder's %s (the file manager could not be opened from here)\n", f));
+	{
+		if (sys_openfolder(f)) return;          // the engine prints the folder
+		if (f != "data/runs") if (sys_openfolder("data/runs")) return;   // a refused call spends nothing (odd map names)
+	}
+	print(sprintf("tas upload: your TAS runs are in the game folder's %s (the file manager opens only in a game you host)\n", f));
 };
 void() TASUp_Press =
 {
