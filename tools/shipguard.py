@@ -163,6 +163,8 @@ PATTERNISH = re.compile(r"[*?<>]|\.\.\.|\s")
 # The literal must EQUAL the key.
 DENY_EXACT = {
     "maps/": "A search root, not a file (m_main.qc's map enumeration).",
+    "data/runs": "P1797: the player's own TAS runs folder (cl_tasupload.qc: sys_openfolder and the Upload "
+                 "tab's hint), written at runtime by sv_timer.qc. Never shipped.",
     "maps/%s.bsp": "Mounted or runtime-downloaded Source map; Emit_MapHDR reads "
                      "its header, with unknown-HDR fallback. BSPs never ship.",
     "data/mapdl.net.txt": "Mdl_Reply's validated runtime directory cache; "
