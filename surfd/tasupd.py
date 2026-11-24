@@ -1427,10 +1427,12 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         if res['verdict'] == tp.FAIL:
             return refuse('The physics check refused it.', 422, reasons)
         series, trail = unpack_sig(sig)
-        # P1798 review 4: the start and finish the checker could vouch for (zones, and no start/end-zone note), without
-        # which a copy's end line can be moved (or cut, the matcher compares the overlap) and earn the 'shorter' hold
-        zone_sure = bool(zones) and not any(k in (r.get('what') or '') for r in res['reasons']
-                                            for k in ('no zones', 'start zone', 'never reaches', 'reaches the end zone'))
+        # P1798 reviews 4-5: the start and finish the checker vouched for -- zones, no start/end-zone note, nothing it
+        # dropped (tasplaus keeps 200 notes and the zone ones come last), not suspect (a jump or gap into the end zone),
+        # not crashed -- without which a copy's end can be moved or cut (the matcher compares the overlap)
+        zone_sure = (bool(zones) and not res.get('unlisted') and not res.get('crashed') and not res.get('suspect', True)
+                     and not any(k in (r.get('what') or '') for r in res['reasons']
+                                 for k in ('no zones', 'start zone', 'never reaches', 'reaches the end zone')))
         suspect = res.get('suspect', res['verdict'] == tp.HOLD)   # P1716: a checker without the flag: every HOLD
         state = 'shown' if res['verdict'] == tp.PASS or not (review or res.get('crashed') or suspect) else 'held'
         lo, hi = end - max(30, end // 10), end + max(30, end // 10)

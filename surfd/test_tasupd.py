@@ -1804,6 +1804,23 @@ class PublicReplays(Service):
         r = self.upload(c, other)
         self.assertEqual(r.status_code, 409, r.get_json())
 
+    def test_dropped_or_suspect_notes_void_the_shorter_hold(self):
+        """Review 5: 250 junk samples before t=0 push the checker's zone notes past its 200 kept (counted in unlisted);
+        a position jump into the end zone is suspect. Either way a cut copy is refused, not held."""
+        rows, fin = fx.simulate()
+        R = fx.RATE
+        self.public(rec())
+        cut = self.end - svc.COPY_SHIFTS - 9
+        t0, o0 = rows[0][0], rows[0][1]
+        pad = [(round(t0 - (k + 1) * R, 6), [o0[0], o0[1], o0[2] - (4000.0 + rows[0][2][2]) * 0.5 * R],
+                [0.0, 0.0, -4000.0 if k % 2 else 4000.0]) for k in range(250)][::-1]
+        c, _ = self.sign_in(ALICE)
+        r = self.upload(c, rec(pad + list(rows), fin).replace(b'\nend %d ' % self.end, b'\nend %d ' % cut))
+        self.assertEqual(r.status_code, 409, r.get_json())
+        jump = [(t, [o[0] + (500.0 if t >= cut * R else 0.0), o[1], o[2]], v) for t, o, v in rows]
+        r = self.upload(c, rec(jump, fin).replace(b'\nend %d ' % self.end, b'\nend %d ' % cut))
+        self.assertIn(r.status_code, (409, 422), r.get_json())   # refused as the copy, or by the physics check
+
     def test_files_that_do_not_parse_leave_the_count(self):
         """Review 4: ten nearer files that read but have no end do not use up the 8 reads."""
         for i in range(10):
