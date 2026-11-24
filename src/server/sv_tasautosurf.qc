@@ -3012,8 +3012,9 @@ void(entity e, float ct, float cl) SV_TASAutoSavedQuery =
 // P1797 (Lex, 24 Nov: "list all tas runs in your game"): this map's runs the game noted finishing (SV_TASUpNote, newest
 // first, with the SHA-256 it saved them with; at most TAS_UPNOTED), then every other loose TAS run of a whole course in
 // data/runs/, this map's first, name-sorted: one another map's uploads.txt noted carries its SHA too (review 1), the
-// rest go as "-" (the tab says it came from the folder). At most TAS_UPSHOW: ~6 KB, inside the loopback client's
-// reliable message (review 1: 64 x ~170 B overflowed it). The folder scan is kept TAS_UPSCAN s or until a run is noted.
+// rest go as "-" (the tab says it came from the folder). At most TAS_UPSHOW: ~7.6 KB with ordinary paths, ~9 KB at
+// 120 characters -- the loopback reliable message holds ~8 KB and the rest drains through the overflow buffers in order
+// (review 2). The folder scan is kept TAS_UPSCAN s or until a run is noted.
 // The token and mode ride the first event only. An empty list is one event.
 #define TAS_UPSHOW 48
 #define TAS_UPNOTED 16
@@ -3081,7 +3082,7 @@ void() SV_TASUpScan =
 	if (sv_tasup_scanmap != "") strunzone(sv_tasup_scanmap);
 	sv_tasup_scanmap = strzone(mapname);
 	pre = strcat("data/runs/", mapname, "/");        // FS_RunDir's own case (review 1: Linux paths are case-sensitive)
-	for (pass = 0; pass < 2; pass = pass + 1)
+	for (pass = 0; pass < 2 && buf_getsize(sv_tasup_scan) < TAS_UPSHOW; pass = pass + 1)   // review 2: no full walk when full
 	{
 		h = search_begin((pass == 0) ? strcat(pre, "*/*_tas.rec") : "data/runs/*/*/*_tas.rec", FS_NAMESORT, TRUE);
 		if (h < 0) continue;

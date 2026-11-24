@@ -16,7 +16,7 @@
 #define TUP_BYTES 8388608                           // tasupd.MAX_REC
 string tup_p[TUP_MAX], tup_l[TUP_MAX], tup_s[TUP_MAX];   // path, label, the SHA-256 the game saved it with
 string tupe_p[TUP_MAX], tupe_s[TUP_MAX];                  // the list arriving (TASUp_ListEvent)
-float tup_n, tup_at, tupe_n, tup_page;
+float tup_n, tup_at, tupe_n, tup_page, tup_srvn;   // tup_srvn: how many the local game sent (P1797)
 string tup_key;                 // the map the list was asked for
 float tup_state;                // 0 the list, 1 asking for a code, 2 confirm, 3 sending, 4 answered
 float tup_req, tup_until, tup_armed, tup_size;
@@ -102,10 +102,11 @@ float(string p) TASUp_Head =
 	}
 	fclose(fh);
 	if (line == "") { line = substring(p, 10, -1); line = substring(line, 0, max(0, strstrofs(line, "/"))); }   // data/runs/<map>/
-	if (tup_hct[h] < 0)            // no track line: the folder's (data/runs/<map>/bonus_<N>/)
+	if (tup_hct[h] < 0)            // no track line: the folder after the map's (data/runs/<map>/bonus_<N>/)
 	{
-		i = strstrofs(p, "/bonus_");
-		tup_hct[h] = (i > 0) ? stof(substring(p, i + 7, -1)) : 0;
+		l = substring(p, 10, -1);
+		l = substring(l, strstrofs(l, "/") + 1, -1);
+		tup_hct[h] = (substring(l, 0, 6) == "bonus_") ? stof(substring(l, 6, -1)) : 0;
 	}
 	tup_hcp[h] = strzone(p); tup_hcm[h] = strzone(line);
 	return h;
@@ -161,20 +162,21 @@ void() TASUp_ListEvent =
 	if (i == 0) { for (k = 0; k < tupe_n; k = k + 1) { strunzone(tupe_p[k]); strunzone(tupe_s[k]); } tupe_n = 0; }
 	if (n && i == tupe_n && tupe_n < TUP_MAX) { tupe_p[tupe_n] = strzone(path); tupe_s[tupe_n] = strzone(sha); tupe_n = tupe_n + 1; }
 	if (i < n - 1) return;
+	tup_srvn = n;
 	for (k = 0; k < tup_n; k = k + 1) { strunzone(tup_p[k]); strunzone(tup_l[k]); strunzone(tup_s[k]); }
 	tup_n = 0;
 	for (k = 0; k < tupe_n; k = k + 1) TASUp_Add(tupe_p[k], tupe_s[k]);
 	if (tup_pendt) TASUp_Pending();         // the console verb, answered by this list (flow review 3: it read the last one)
 	if (tupb_want) TASUp_OfferList();
 };
-// asks the local game for its list: when the map changes, and every 3 s while the tab is drawn
+// asks the local game for its list: when the map changes, and every 5 s while the tab is drawn
 void() TASUp_List =
 {
 	local string key;
 	if (!isserver()) return;
 	key = zone_mapname;
 	if (key == tup_key && cltime < tup_at) return;
-	tup_at = cltime + 5;            // P1797: a list is up to ~6 KB of reliable messages
+	tup_at = cltime + 5;            // P1797: a list is up to ~9 KB of reliable messages
 	if (key != tup_key) { tup_key = TASUp_Keep(tup_key, key); }
 	localcmd("cmd tas uploads\n");
 };
@@ -272,8 +274,9 @@ void() TASUp_OpenFolder =
 	local float i;
 	local string f, pre;
 	f = "data/runs";
-	pre = strcat("data/runs/", strtolower(zone_mapname), "/");
-	for (i = 0; i < tup_n; i = i + 1) if (!strcmp(substring(tup_p[i], 0, strlen(pre)), pre)) { f = substring(pre, 0, strlen(pre) - 1); break; }
+	pre = strcat("data/runs/", zone_mapname, "/");
+	for (i = 0; i < tup_n; i = i + 1)   // the listed path's own case (review 2: a mixed-case map name)
+		if (!strcasecmp(substring(tup_p[i], 0, strlen(pre)), pre)) { f = substring(tup_p[i], 0, strlen(pre) - 1); break; }
 	if (checkbuiltin(sys_openfolder))
 	{
 		if (sys_openfolder(f)) return;          // the engine prints the folder
@@ -408,7 +411,7 @@ void(vector at, float width, float tsz, float hint, float row) TASUp_Draw =
 			if (Profile_Chip("tup_prev", at + [width - chip_x * 2 - 4, 0, 0], chip, "Prev", tsz, FALSE)) tup_page = max(0, tup_page - 1);
 			if (Profile_Chip("tup_next", at + [width - chip_x, 0, 0], chip, "Next", tsz, FALSE)) tup_page = min(pages - 1, tup_page + 1);
 			sui_text(at + [tsz * 9 + 8, (row - hint) * 0.5, 0], [hint, hint], sprintf("%g runs%s, page %g of %g", tup_n,
-				(tup_n >= TUP_MAX) ? " (the first)" : "", tup_page + 1, pages), SUI_THEME_DIM, 1, 0);
+				(tup_srvn >= TUP_MAX) ? " (the first)" : "", tup_page + 1, pages), SUI_THEME_DIM, 1, 0);
 		}
 		at_y = at_y + row + 6;
 		if (!tup_n)
