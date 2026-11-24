@@ -1,5 +1,14 @@
 # lextest.md — things waiting on a human
 
+## 0.1.68 release -- PUBLISHED 24 Nov 17:57Z UTC, lobbies on its progs 18:13Z; your dev install has it (P1800-P1805)
+1. Save 33: the driftwood logs are back, and the tree cards' branch shadows stripe the ground as in Momentum.
+2. Save 39 (the props room, = save 28): the cans and barrels lit by the lamps (one blue, one rusty), not black.
+3. Save 38: the corridor smoke is a faint haze, not a glowing bank; the basin haze outdoors as before.
+4. Saves 40/41 and low near the hills: the sun's glow fades as hills and the 3D skybox cover it.
+5. Shadows menu: switching cascades -> blobs on canals no longer crashes.
+Not done: save 36's window (Momentum's pane is twice as bright: reflection), save 37's sky blow-out, the tree LODs
+(next), the walk-through ramp -- BACKLOG "P1800-P1805".
+
 ## 0.1.67 release -- PUBLISHED 24 Nov 13:27Z, lobbies on its progs 13:40Z; your dev install has it (P1772, P1781-P1785
 ## + a3's P1796-P1799)
 1. Save 32: the world-cast wall shadow is one sharp edge all the way, no soft cut-off.

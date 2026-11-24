@@ -19,7 +19,7 @@
   changed for the player; no file names, hashes or anti-cheat details.
 -->
 
-## next
+## 0.1.68 2026-11-24
 
 ### P1805 Props lit by the map's lamps on Strata maps
 - On Strata maps (bhop_canals), barrels, cans and crates without baked lighting are lit by nearby lamps again, as in Momentum, instead of drawing black.
