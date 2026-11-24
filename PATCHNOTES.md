@@ -19,7 +19,7 @@
   changed for the player; no file names, hashes or anti-cheat details.
 -->
 
-## next
+## 0.1.69 2026-11-24
 
 ### P1820 Map downloads and a tidier website
 - Every map on the website leaderboard has Download map and Download zones buttons; files save under the map's own name.

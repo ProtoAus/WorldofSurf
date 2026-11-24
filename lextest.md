@@ -1,5 +1,12 @@
 # lextest.md — things waiting on a human
 
+## 0.1.69 release -- PUBLISHED 24 Nov 19:26Z UTC, lobbies on its progs 19:50Z; your dev install has it (P1810/P1811)
+1. Saves 40/41 and around the oak by the water tower: the tree switches to simpler models as you move away, as in
+   Momentum (and the distant trees at save 13).
+2. Save 36: the window's top reflects more (still darker than Momentum's); metal props' reflections follow the exposure.
+3. The website: worldofsurf-47's download page and site menu (P1820).
+Not done: save 36's remaining reflection gap, save 37's sky, the walk-through ramp (mover 17, next) -- BACKLOG.
+
 ## 0.1.68 release -- PUBLISHED 24 Nov 17:57Z UTC, lobbies on its progs 18:13Z; your dev install has it (P1800-P1805)
 1. Save 33: the driftwood logs are back, and the tree cards' branch shadows stripe the ground as in Momentum.
 2. Save 39 (the props room, = save 28): the cans and barrels lit by the lamps (one blue, one rusty), not black.

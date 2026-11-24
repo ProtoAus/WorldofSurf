@@ -49,6 +49,11 @@ since, re-take its sha256 and re-run the dry run first. Rollback: `systemctl dis
 /etc/nginx/play.proto.bar.conf.pre-mapupd-99171e807f56 back over the site file, remove
 /etc/nginx/snippets/ftesurf-mapupd.conf and /etc/nginx/conf.d/ftesurf-mapupd-zones.conf, `nginx -t && systemctl reload
 nginx`. Pi task root /srv/nvme/agent-work/mapupd-20261123-cb (OWNER.md).
+## 24 Nov 2026 19:50Z: lobby progs = release 0.1.69 LIVE (worldofsurf-67)
+All 12 lobbies: qwprogs 2b8bfc7f / csprogs 1dd36f2c (= release 0.1.69, tag v0.1.69 = 65bb87b5; rebuilt for the version),
+over b442b030 / e5fb3ab9; backups *.pre0169-20261124T192817Z; codes.txt 189. Engine unchanged (patch-1747 arm64). See
+tools/release-0.1.69.md. The next lobby build starts from main (v0.1.69).
+
 ## 24 Nov 2026 18:13Z: lobby progs = release 0.1.68 LIVE (worldofsurf-67)
 All 12 lobbies: qwprogs b442b030 / csprogs e5fb3ab9 (= release 0.1.68, tag v0.1.68 = 6518d999; P1803 lit smoke, P1804
 sun fade csprogs), over b0760514 / 33515a70; backups *.pre0168-20261124T180353Z; codes.txt 188. Engine unchanged
