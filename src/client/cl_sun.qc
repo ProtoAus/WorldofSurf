@@ -593,13 +593,15 @@ void() Sun_Draw =
 	// screen, and again only once the eye has moved.
 	fov = getproperty(VF_FOV);
 	if (fov_x <= 0 || fov_y <= 0)
-	{	// clearscene zeroes VF_FOV until renderscene computes it (view.c V_ApplyAFov): the user's fov, square (wide side)
+	{	// clearscene zeroes VF_FOV until renderscene computes it (view.c V_ApplyAFov): the user's fov, a 4:3 width under
+		// scr_fov_mode 4, widened by the view's aspect -- linearly, which overestimates the angle (errs wide)
 		ga = getproperty(VF_AFOV);
 		if (ga <= 0)
 			ga = cvar("fov");
 		if (ga <= 0)
 			ga = 90;
-		fov = [ga, ga, 0];
+		fov = getproperty(VF_SIZE);
+		fov = [ga * max(1, (fov_y > 0) ? fov_x / fov_y * 0.75 : 1.4), ga, 0];
 	}
 	if (dot < cos(min(89, sqrt(fov_x * fov_x + fov_y * fov_y) * 0.5 + 12) * M_PI / 180))
 	{
