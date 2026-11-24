@@ -106,6 +106,7 @@ float  ze_mouse_seen;
 vector ze_mouse;
 float  ze_ptr_noted;                // P1081: "place not known" said once; the next press is accepted
 vector ze_panel_p, ze_panel_s;
+vector ze_tab_p, ze_tab_s;          // P1799: the Map upload tab's box: a press there is the tab's, not a title drag
 float  ze_scroll;
 
 // The zone being placed.
@@ -214,6 +215,9 @@ float(string s) ZoneEdit_DimNumber;
 float(float face, float v) ZoneEdit_DimSet;
 void() ZoneHist_Open;
 void(vector p, float w, float y, float h, float rowh, float tsz) ZoneEdit_HistoryDraw;
+void() ZoneEdit_Open;
+void() ZoneEdit_Want;               // P1799: the map upload window's Zone editor tab
+void() ZoneEdit_MapUpload;          // P1799: this panel's Map upload tab
 // A text field takes the keys: a map property, or a zone face (P1184).
 float() ZoneEdit_FieldOpen = { return (ze_cursor && ((ze_settings && ze_field >= 0) || (!ze_settings && ze_dim >= 0))); };
 
@@ -1310,7 +1314,8 @@ float(string id) ZoneEdit_Clicked =
 	{
 		strunzone(ze_press);
 		ze_press = "";
-		return (strcmp(id, "ze_upload") != 0);  // P815: a command never stands in for Publish's click
+		// P815: a command never stands in for Publish's click; P1799: nor for Map upload's
+		return (strcmp(id, "ze_upload") != 0 && strcmp(id, "ze_mapup") != 0);
 	}
 	return sui_is_clicked(id);
 };
@@ -1333,6 +1338,7 @@ string(string id) ZoneEdit_Tip =
 	if (id == "ze_gs") return "Use the world surface as hit instead of rounding placement to the grid. This is a snapping option, not the Surf gamemode. Click again to restore grid snapping.";
 	if (id == "ze_sv") return "Save the zones to this map's local JSON file on your machine. Reload the map to use them for timing in your hosted game. This does not upload zones or change a lobby's timing or times.";
 	if (id == "ze_upload") return "Publish this map's SAVED local zones, and their speed cap, to the lobbies. Requires a linked zone-admin Steam account; a dialog asks before anything is sent. Lobbies on the map restart with them at once and runs in progress there end; existing times stay.";
+	if (id == "ze_mapup") return "Open the map upload window (F8) with this map picked, to upload it with these zones. Save zones first: the window offers this map's saved local zone file, and attaches it when you click it there. Its Zone editor tab comes back here.";
 	if (id == "ze_hist") return "List this map's published zones, newest first, with who published each and when. Click one to load it here as unsaved edits; Save zones, then Publish saved brings it back.";
 	if (id == "ze_hrefresh") return "Ask the zone service for this map's published zones again.";
 	if (id == "ze_hback") return "Return to the zone tools. Nothing is loaded unless you clicked a version.";
@@ -1385,6 +1391,7 @@ void(vector scr) ZoneEdit_Panel =
 	ZonePub_Pump();
 	if (!ui_ze_state || !ze_cursor)
 		if (substring(sui_tip_id, 0, 3) == "ze_") sui_tooltip_reset();
+	ZoneEdit_Want();                // P1799
 	if (!ui_ze_state)
 		return;
 	if (ui_ze_state == ZE_PANEL)
@@ -1486,12 +1493,20 @@ void(vector scr) ZoneEdit_Panel =
 	drawsetcliparea(p_x, p_y, w, h);
 
 	tp = p + [pad, pad];
+	// P1799: the map upload window is this editor's other tab (its Zone editor tab comes back here)
+	bw = stringwidth("Map upload", TRUE, [rsz, rsz]) + pad * 2;
+	ze_tab_p = [p_x + w - pad - bw, tp_y];
+	ze_tab_s = [bw, tsz + pad * 0.5 + rsz];
+	if (ZoneEdit_Button(ze_tab_p, ze_tab_s, "ze_mapup", "Map upload", rsz, ZEC_TEXT))
+		ZoneEdit_MapUpload();
+	drawsetcliparea(p_x, p_y, w - pad * 1.5 - bw, h);      // the two header lines stop short of it
 	sui_text(tp, [tsz, tsz], sprintf("zone editor  -  %s%s", ze_map, ze_dirty ? "  (not saved)" : ""),
 	         ze_dirty ? ZEC_WARN : ZEC_TEXT, 1, 0);
 	tp_y = tp_y + tsz + pad * 0.5;
 	sui_text(tp, [rsz, rsz], sprintf("%g zones, from %s%s", zone_count, Zone_SourceName(zone_source),
 	                                (serverkey("board") == "ranked") ? "; this server times with its own" : ""),
 	         ZEC_DIM, 1, 0);
+	drawsetcliparea(p_x, p_y, w, h);
 	tp_y = tp_y + rsz + pad;
 	if (ze_settings)
 	{
@@ -1949,6 +1964,68 @@ void() ZoneEdit_Open =
 	ZoneEdit_ToPanel();
 	if (ui_ze_state)
 		print("^5zone_edit^7: add a zone from the panel, then aim and click; ESC closes\n");
+};
+
+// P1799: the map upload window (menu F8, m_mapupload.qc) and this editor are tabs of each other. Want opens the editor
+// on the map the window's Zone editor tab loaded (ui_zoneedit_want: "<map> <gettime(0)>", one clock in both VMs), only
+// in a game this client hosts; it opens nothing else, so WHO MAY WRITE A FILE still holds. A request older than a
+// minute, or one whose map has not come up 10 s on, is dropped; so is one in a game of someone else's.
+void() ZoneEdit_Want =
+{
+	local string w, m;
+	local float sp, age;
+
+	if (cvar_string("ui_mapupload_request") == "-")
+	{	// the menu refused this editor's Map upload request (MUp_PollRequest)
+		cvar_set("ui_mapupload_request", "");
+		ZoneEdit_Note("the Map upload tab opens the upload window only in a game you host; F8 opens it anywhere");
+	}
+	w = cvar_string("ui_zoneedit_want");
+	if (w == "")
+		return;
+	sp = strstrofs(w, " ", 0);
+	m = (sp > 0) ? substring(w, 0, sp) : "";
+	age = (sp > 0) ? gettime(0) - stof(substring(w, sp + 1, -1)) : 999;
+	if (age > 60 || age < -5)
+	{
+		cvar_set("ui_zoneedit_want", "");
+		return;
+	}
+	if (!ZoneEdit_Hosting() || strcmp(m, serverkey("map")))
+	{	// not a game of our own, or another map: the one asked for did not come up
+		if (age > 10) cvar_set("ui_zoneedit_want", "");
+		return;
+	}
+	if (strcmp(zone_mapname, serverkey("map")))
+		return;                     // its zones not read yet
+	if (ui_ze_state)
+	{	// already open on it (the window's tab from this editor): done, or closing it later would open it again
+		if (!strcmp(ze_map, m)) cvar_set("ui_zoneedit_want", "");
+		return;
+	}
+	if (ZoneEdit_Blocker() != "")
+		return;                     // a card or board holding the mouse as the map starts: a later frame
+	cvar_set("ui_zoneedit_want", "");
+	ZoneEdit_Open();
+};
+
+// Game code's localcmd cannot run a menu command (P667): a cvar asks, as cl_profile.qc's board request does. Only a
+// device's own click (a `zone_edit press` could be a server's); the window only picks the map, Upload needs a press.
+void() ZoneEdit_MapUpload =
+{
+	if (!(ze_real_t > 0 && cltime - ze_real_t < 0.25))
+	{
+		ZoneEdit_Note("click Map upload with the mouse to open the upload window");
+		return;
+	}
+	cvar_set("ui_mapupload_request", ze_map);
+	if (strcmp(cvar_string("ui_mapupload_request"), ze_map))
+	{
+		ZoneEdit_Note("this game's menu has no map upload window to open; update the game");
+		return;
+	}
+	ZoneEdit_Note(ze_dirty ? "opening the map upload window: these zones are NOT saved, so Save zones first or it will not find them"
+	                       : "opening the map upload window; its Zone editor tab comes back here");
 };
 
 void() ZoneEdit_Status =
