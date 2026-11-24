@@ -56,7 +56,8 @@
 - P1760: casting Source models do not receive shadows (P1732), now including a cascade map's static props; under r_shadows
   1 a cascade map's disableshadows props draw a blob (EF_NOSHADOW is both switches); a disabled or killed
   env_cascade_light still counts (QC, cl_sun.qc and the plugin read the lump); a v10 static-prop lump never casts.
-- The walk-through ramp (Lex save 5, NOT FIXED): bhop_canals' metal_panel01a pair (prop_dynamic_override solid 6, angles
+- The walk-through ramp (Lex save 5) -- DONE as mover 17 (P1812, 0.1.70; LEFT: a turned prop's model-axis bevels reach a
+  little past its edges, prop scale in the mover, margin 0 vs vphysics' half unit, no twin flag in the pin). History: bhop_canals' metal_panel01a pair (prop_dynamic_override solid 6, angles
   -70 90 -180). Cause found: BIH_ClipToTriangle/TestToTriangle bevel a turned box along MODEL axes with the UNTURNED
   half-size (Patch 320 missed them), so the box sinks 7.5 units at the high edge and passes under the low half (drops and
   a walk in the rig stop at Lex's save point; r_showhull draws the hull right). P1761 (engine branch p1761-mover17-wip,
