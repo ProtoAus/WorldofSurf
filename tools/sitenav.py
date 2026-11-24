@@ -45,6 +45,8 @@ ADMIN = (
     ('accounts', 'Accounts', '/admin/accounts'),
     ('reports', 'Reports', '/admin/reports'),
 )
+# Markup a page's own script fills in (reportd_reports.html counts unseen reports into #navunseen).
+ADMIN_EXTRA = {'reports': ' <span class="pill info" id="navunseen" hidden></span>'}
 # The board switches views by hash: board.js navTab() lights these data-tab hooks, so the markup marks none.
 BOARD_HOOKS = {'home': ('dl', '../'), 'board': ('board', '#'), 'people': ('people', '#who=')}
 
@@ -118,7 +120,8 @@ def footer(a, indent):
 def admin(a, indent):
     # nav=0 / brand=0: one half alone (the fleet page shows its menu only when surfd has runs or bans).
     page = a.get('page', '')
-    links = ''.join('<a href="%s"%s>%s</a>' % (url, ' aria-current="page"' if key == page else '', esc(label))
+    links = ''.join('<a href="%s"%s>%s%s</a>' % (url, ' aria-current="page"' if key == page else '', esc(label),
+                                                 ADMIN_EXTRA.get(key, '') if key == page else '')
                     for key, label, url in ADMIN)
     brand = (indent + '<a class="brand" href="/admin/" aria-label="World of Surf admin">'
              '{% include "_admin_brand.html" %}<span class="tag">Admin</span></a>\n')

@@ -101,6 +101,9 @@ class SiteNav(unittest.TestCase):
         self.assertIn('{% include "_admin_brand.html" %}', out)
         self.assertNotIn('<nav', self.nav.admin({'page': 'fleet', 'nav': '0'}, ''))
         self.assertNotIn('brand', self.nav.admin({'page': 'fleet', 'brand': '0'}, ''))
+        # reportd_reports.html's script writes the unseen count into #navunseen; without it the page throws.
+        self.assertIn('Reports <span class="pill info" id="navunseen" hidden></span></a>', self.nav.admin({'page': 'reports'}, ''))
+        self.assertNotIn('navunseen', out)
 
 
 if __name__ == '__main__':
