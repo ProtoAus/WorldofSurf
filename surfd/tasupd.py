@@ -1393,6 +1393,7 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         if not heavy.acquire(timeout=HEAVY_WAIT):
             unspend(sid, now)   # not the uploader's attempt
             return refuse('The checker is busy; try again in a minute.', 503)
+        zones = None
         try:
             run = tp.read(text=text)
             del text   # the parse holds what is needed; 8 MB of str less while the check runs
@@ -1426,6 +1427,10 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         if res['verdict'] == tp.FAIL:
             return refuse('The physics check refused it.', 422, reasons)
         series, trail = unpack_sig(sig)
+        # P1798 review 4: the start and finish the checker could vouch for (zones, and no start/end-zone note), without
+        # which a copy's end line can be moved (or cut, the matcher compares the overlap) and earn the 'shorter' hold
+        zone_sure = bool(zones) and not any(k in (r.get('what') or '') for r in res['reasons']
+                                            for k in ('no zones', 'start zone', 'never reaches', 'reaches the end zone'))
         suspect = res.get('suspect', res['verdict'] == tp.HOLD)   # P1716: a checker without the flag: every HOLD
         state = 'shown' if res['verdict'] == tp.PASS or not (review or res.get('crashed') or suspect) else 'held'
         lo, hi = end - max(30, end // 10), end + max(30, end // 10)
@@ -1511,12 +1516,12 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
             except Unavailable as e:
                 pub, pub_why = None, 'not compared with the public replays: %s' % e
             if pub is not None and ('tas' in (pub['style'] or '').lower() or pub['hidden']
-                                    or end < pub['end'] - COPY_SHIFTS - 1):
+                                    or (zone_sure and end < pub['end'] - COPY_SHIFTS - 1)):
                 # held, not refused (review 2): another bot's motion may converge; a hidden row is not named; and a run
-                # shorter than the replay it follows by more than the matcher's shift window may be a tool's improvement
-                # on it (review 3: within the window the copy's end can simply be moved)
-                pub_why, pub = ('close to the motion of public replay %d (another player\'s, %d ticks long against %d):'
-                                ' the owner decides whose it is' % (pub['id'], pub['end'], end)), None
+                # shorter than the replay it follows by more than the matcher's shift window, start and finish vouched
+                # for by the zones, may be a tool's improvement on it (reviews 3-4: else its end can simply be moved)
+                pub_why, pub = ('close to the motion of public replay %d (another player\'s%s): the owner decides whose it is'
+                                % (pub['id'], '' if pub['hidden'] else ', %d ticks long against %d' % (pub['end'], end))), None
             if pub is None:
                 with connect(store) as db:
                     seen = db.execute('SELECT COALESCE(MAX(id), 0) FROM runs').fetchone()[0]

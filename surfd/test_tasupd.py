@@ -1781,6 +1781,39 @@ class PublicReplays(Service):
         near = slower.replace(b'\nend %d ' % (self.end + far), b'\nend %d ' % (self.end + far - svc.COPY_SHIFTS))
         self.assertEqual(self.upload(c, near.replace(b'track 0\n', b'track 0\ncomment near\n')).status_code, 409)   # within the window
 
+    def test_the_shorter_hold_needs_the_zones_to_vouch(self):
+        """Review 4: the boundary is exactly COPY_SHIFTS + 1 ticks; a copy cut short (the checker: never reaches the end)
+        and a course without zones get no exemption."""
+        c, _ = self.sign_in(ALICE)
+        base = rec()
+        def longer(k): return base.replace(b'\nend %d ' % self.end, b'\nend %d ' % (self.end + k))
+        for k, want in ((svc.COPY_SHIFTS + 1, 409), (svc.COPY_SHIFTS + 2, 'held')):
+            with self.subTest(k=k):
+                with contextlib.closing(sqlite3.connect(self.accounts)) as db, db: db.execute('DELETE FROM replays')
+                self.public(longer(k))
+                r = self.upload(c, rec(extra='comment k%d' % k))
+                self.assertEqual(r.get_json().get('state') if r.status_code == 200 else r.status_code, want, r.get_json())
+        with contextlib.closing(sqlite3.connect(self.accounts)) as db, db: db.execute('DELETE FROM replays')
+        self.public(base)
+        cut = base.replace(b'\nend %d ' % self.end, b'\nend %d ' % (self.end - svc.COPY_SHIFTS - 9))
+        r = self.upload(c, cut)
+        self.assertEqual(r.status_code, 409, r.get_json())   # held only if the zones vouched for its finish
+        rows, fin = fx.simulate()
+        other = rec(rows, fin).replace(b'track 0\n', b'track 3\n')   # a course with no zone file
+        self.public(longer(svc.COPY_SHIFTS + 8).replace(b'track 0\n', b'track 3\n'), track=3)
+        r = self.upload(c, other)
+        self.assertEqual(r.status_code, 409, r.get_json())
+
+    def test_files_that_do_not_parse_leave_the_count(self):
+        """Review 4: ten nearer files that read but have no end do not use up the 8 reads."""
+        for i in range(10):
+            self.public(rec().split(b'\nend ')[0] + b'\n', player='7656119800000%04d' % (400 + i), ticks=self.end)
+        rid = self.public(rec(), name='Erin', ticks=self.end + 3)
+        c, _ = self.sign_in(ALICE)
+        r = self.upload(c, rec())
+        self.assertEqual(r.status_code, 409, r.get_json())
+        self.assertIn('(replay %d)' % rid, r.get_json()['error'])
+
     def test_the_time_budget_and_size_cap_pass_files_over(self):
         self.public(rec())
         c, _ = self.sign_in(ALICE)
