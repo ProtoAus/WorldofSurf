@@ -8,19 +8,22 @@ templates/_admin_brand.html (generation.json ship_added) and surfd/test_admin_ex
 test_verifier_counts.py changed. No schema change. reportd's copy of the three templates goes live without a generation
 (AGENT_NOTES "P1820 site pages and tabs"). The board/watch web files publish ahead with publish_board.py.
 
-## 24 Nov 2026: P1806 tasindex LIVE 18:37:22Z; tasupd d8c49533 STAGED for Lex's root upgrade (worldofsurf-8b)
+## 24 Nov 2026: P1806 tasindex LIVE 18:37:22Z; tasupd cbefd439 (P1806 + 47's P1820 chrome) STAGED for Lex's root upgrade (worldofsurf-8b)
 tasindex (no root, no surfd generation): /srv/nvme/ftesurf-ops/tasindex/d8c4953325c9c4bc844a921eb09eed8c6e39714b/tasindex.py
 (sha256 158af723...), proto user units ftesurf-tasindex.{service,timer} (every 5 min; NOT crontab, so the generation kits'
 crontab hash is unchanged), log /srv/nvme/ftesurf-ops/tasindex/tasindex.log. First pass filed 2 rows: Rounin's
 surf_sandtrap2 main 48.165 (tasup-2) and Proto's bonus 4 7.830 (tasup-1); the site and /api/board TAS tab show them.
 Rollback: `systemctl --user disable --now ftesurf-tasindex.timer`, then the same command with --withdraw.
-tasupd upgrade (30-day sign-in, Sign out everywhere; signs everyone out once): source
-/srv/nvme/ftesurf-ops/tasupd-src-d8c49533 (clean, HEAD d8c49533), proto dry run passed; installer sha256
-4f8b2769bf0f205e83acb771a4ab7c2886447d3231201bb5916e533a7e605454 (= a0cf6968's). Lex, on the Pi:
-  sudo install -m 700 /srv/nvme/ftesurf-ops/tasupd-src-d8c49533/tools/install_tasupd.py /root/install_tasupd-d8c49533.py
-  sudo python3 -I /root/install_tasupd-d8c49533.py --source /srv/nvme/ftesurf-ops/tasupd-src-d8c49533 \
-      --commit d8c4953325c9c4bc844a921eb09eed8c6e39714b --upgrade-from a0cf69682ea08fd2b9bdab3adc4f8468f8e734fb --apply
-(worldofsurf-47's tasupd page-chrome change may supersede this staging with one upgrade carrying both.)
+tasupd upgrade (P1806 30-day sign-in, Sign out everywhere -- signs everyone out once; P1820 the site's dark look and
+tabs): re-staged at cbefd439 (carries d8c49533; 47's diff is CSS/header/SITE_NAV only), source
+/srv/nvme/ftesurf-ops/tasupd-src-cbefd439 (clean), proto dry run passed, test_tasupd 447 + test_tasindex 18 at that
+commit; installer sha256 4f8b2769bf0f205e83acb771a4ab7c2886447d3231201bb5916e533a7e605454 (= a0cf6968's). The d8c49533
+checkout was removed. Lex, on the Pi:
+  sudo install -m 700 /srv/nvme/ftesurf-ops/tasupd-src-cbefd439/tools/install_tasupd.py /root/install_tasupd-cbefd439.py
+  sudo python3 -I /root/install_tasupd-cbefd439.py --source /srv/nvme/ftesurf-ops/tasupd-src-cbefd439 \
+      --commit cbefd4396935a3d3b3484b63d7da1db165690c31 --upgrade-from a0cf69682ea08fd2b9bdab3adc4f8468f8e734fb --apply
+Check after: `curl -sI https://play.proto.bar/tasup/api/health` shows X-Tasupd-Source cbefd439...; next upgrade
+--upgrade-from cbefd4396935a3d3b3484b63d7da1db165690c31.
 
 ## P1746 map upload service -- LIVE 23 Nov 07:24Z (ftesurf-cb; Lex's root install, release /opt/ftesurf-mapupd/99171e80)
 Checked live: unit active, public POST /mapup/api/health 200 with X-Mapupd-Source 99171e807f56 and accounts 1, a
