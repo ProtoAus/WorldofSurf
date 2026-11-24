@@ -40,20 +40,25 @@ Every account is refused until granted. The zone admins (Proto, Markbeaton54 on 
    under a device's press, and the menu offers it only in the main menu, a game it hosts, or a lobby the directory
    lists). The key must be linked to an unbanned account holding the role; the name must be new (`surf_`/`bhop_`):
    no BSP in the library, no row in the list or table; 20 GB must stay free; 10 maps / 8 GB an account a day. A retry
-   replaces the account's earlier attempt at that name. P1799: zones are optional for every mode (bhop too: the
-   lobbies just do not offer it until it has zones), and zone files already on the server do not hold a name -- zone
-   files are all zone_edit's Publish (zonepub) writes, so a name published before its map is free. The answer says
-   when any directory a lobby reads (MAPUPD_ZONECHECK) holds zones of that name (`zones`, `note`); the game shows it.
+   replaces the account's earlier attempt at that name. P1799: zones are optional for every mode, and zone files
+   already on the server do not hold a name -- zone files are all zone_edit's Publish (zonepub) writes, so a name
+   published before its map is free. The answer says when any directory a lobby reads (MAPUPD_ZONECHECK) holds zones
+   of that name (`zones`, `note`): which copies an attached file replaces (zonepub's two dirs), which are left, and a
+   warning for a `data/maps/zones/local` copy, which lobbies read first (QC_FixFileName) and which would still win.
 3. `part` per file: a `FTESURF-MAPUP-PART 1` head, then the bytes (the map gzipped by the game). Size and SHA-256 must
    be the manifest's (inflate bounded by the confirmed size, 4 MB a call); one stream a file. Spool `<store>/spool/`.
 4. `finish`: role and ban looked at again; every spooled file hashed again; VBSP 17-21 or 25 with all 64 lumps inside
    the file; zones through `zonepub.validate`; the picture through Pillow (PNG/JPEG/TGA only, 160x90 to 40 MP; a 16:9
-   320x180 thumb and a <= 1920x1080 card). Then, under the content lease: zones into both zone dirs, the BSP linked into
-   `game/momentum/maps/` (never over a file), pictures into `ftesurf-site/media/uploads/`, and the `uploads` and
-   `upload_zones` rows. Zone files already in those two dirs are copied to `<store>/zones-aside/` first (private,
-   never served) and replaced; if the BSP or pictures then fail, the old files are put back byte for byte and the
-   copies dropped (no old file: the new one goes). No zones attached: the zone dirs are not touched. Zones in the
-   other lobby dirs (online, curated) are never written; an uploaded `zones/local` file is read before them.
+   320x180 thumb and a <= 1920x1080 card), rendered in memory, and the BSP staged as `.mapupd.<name>.bsp.part`: all
+   that can fail without touching a shared file, first, so a refused picture never changes a zone file. Then under
+   zonepub's own lock (`publish.lock` beside its store, as zonepub_publish.locked takes it; opened read-only, since
+   the unit cannot write that directory and flock needs no write access; 30 s, then "try again") and the content
+   lease: an earlier attempt's record with no uploads row (it crashed with its zones live) is undone first; zone
+   files already in zonepub's two dirs are copied to `<store>/zones-aside/` (private, never served); the
+   `upload_zones` row is written; the zones; the pictures into `ftesurf-site/media/uploads/`; the BSP linked into
+   `game/momentum/maps/` last (never over a file); the `uploads` row. If the pictures or the link fail, the old zone
+   files are put back byte for byte, the copies and the record dropped (no old file: the new one goes). No zones
+   attached: the zone dirs are not touched. Zones in the other lobby dirs are never written.
 
 The map list (`surfd/data/mapwatch/mapdl.txt`, mapwatch's) and the site's map table (`media/mapmeta.txt`) get a row;
 a rewrite by their own writers drops it, and the minute tick (`heal`) puts it back for maps still in the library.
@@ -64,11 +69,13 @@ download it from the Pi. Uploaded zones are not in zonepub's history (the zoning
 ## The store
 
 `mapupd.db`: roles, nonces, sessions, uploads, and (P1799) `upload_zones(map, sha, aside)`: the SHA-256 of the zone
-file the upload wrote ('' none) and a JSON list of the files it replaced (`dir`, `file` in `zones-aside/`, `sha`).
-A table of its own, not columns on `uploads`: `init` is the migration (CREATE ... IF NOT EXISTS, additive) and runs
-while the old release still serves (`--upgrade-from`), which inserts 12 values into `uploads`. The service also
-creates it at start. An upload from before P1799 has no row: `uploads.zone` says whether it wrote zones (nothing
-could have been under them then). `list` shows how many zone files each upload replaced.
+file the upload wrote ('' none) and a JSON list, one entry per zone dir it wrote (`dir`; `file`, its copy in
+`zones-aside/` of what it replaced there, and that copy's `sha`, both '' for none). Written before the first zone
+write; a row with no `uploads` row is an attempt that crashed (the next finish of that name undoes it) or a remove
+left part done (a re-run continues). A table of its own, not columns on `uploads`: `init` is the migration (CREATE
+... IF NOT EXISTS, additive) and runs while the old release still serves (`--upgrade-from`), which inserts 12 values
+into `uploads`. The service and `remove` also create it. An upload from before P1799 has no row. `list` shows how
+many zone files each upload replaced.
 
 ## Taking an upload back (as proto)
 
@@ -76,10 +83,13 @@ could have been under them then). `list` shows how many zone files each upload r
         --maps /srv/nvme/ftesurf-server/game/momentum/maps --zone-dir /srv/nvme/ftesurf-server/game/ftesurf/maps/zones/local \
         --zone-dir /srv/nvme/ftesurf-site/zones --media /srv/nvme/ftesurf-site/media --list /srv/nvme/surfd/data/mapwatch/mapdl.txt
 
-The row goes first (so the tick stops healing it), the BSP to `maps/.old/<name>.removed-<time>.bsp`, then the zones,
-pictures and table rows. Zones (P1799): only the ones the upload placed. A file whose SHA-256 is no longer the
-upload's (a zone_edit Publish since) is left; one that is still the upload's is copied to `zones-aside/` and either
-replaced by what the upload displaced (kept there, checked against its SHA-256) or taken out. An upload that brought
-no zones leaves them all. Before P1799: zones taken out only when `uploads.zone` is 1 (copied aside too). The
-`upload_zones` row goes once that is done; the command prints what it did per file. A lobby on the map keeps it
-until its next change; R2's copy goes with r2mirror's next run.
+Under zonepub's lock, the BSP to `maps/.old/<name>.removed-<time>.bsp`, then the zones; then pictures and table rows;
+the rows last (the tick heals only maps still in the library), so a failed remove can simply be run again. Zones
+(P1799): only the ones the upload placed, per recorded dir. A file still the upload's (its SHA-256) is copied to
+`zones-aside/` and either replaced by what the upload displaced (checked against its SHA-256) or taken out. A dir not
+given with `--zone-dir`, a file gone or changed since (a zone_edit Publish), a missing copy, or a read or write that
+fails is left and stays in `upload_zones` (the output names the copy of what it replaced); a re-run with the record
+alone continues. An upload that brought no zones, or one from before P1799 (who brought which files is not
+recorded), leaves them all. The command prints what it did per file. Old zones an upload replaced stay in
+`zones-aside/` until a remove puts them back; there is no other command. A lobby on the map keeps it until its next
+change; R2's copy goes with r2mirror's next run.
