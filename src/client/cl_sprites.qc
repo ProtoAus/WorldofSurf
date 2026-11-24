@@ -532,6 +532,9 @@ float  vbsp_xp_seen;                      // P1435: env_explosion in the lump (t
 float  xp_live;                           // P1435: cl_explode.qc's live particles (Sprite_Draw's early exit)
 void() Explode_LoadForMap;               // cl_explode.qc
 float(vector eye, vector fwd) Explode_Draw;
+float  sv_n, sv_matn;                     // P1772: cl_emit.qc's smoke-volume billboards (Sprite_Draw's early exit) and materials
+float(vector eye, vector fwd) SmokeVol_Draw;
+float(vector lo, vector hi, float space, float width, float rot, float dens, string c1, string c2, string mat) SmokeVol_Add;
 void(entity e) Explode_FxNet;
 float  vbsp_fish_seen;                    // P1436: func_fish_pool in the lump
 void() Fish_LoadForMap;                  // cl_fish.qc
@@ -3259,7 +3262,7 @@ void() Sprite_Draw =
 		Sprite_LoadForMap();
 	}
 
-	if (!spr_n && !beam_n && !fx_n && !xp_live && !wt_n && !sh_busy && !gib_live)
+	if (!spr_n && !beam_n && !fx_n && !xp_live && !wt_n && !sh_busy && !gib_live && !sv_n)
 		return;
 
 	if (spr_drawdirty || !spr_drawhead)
@@ -3823,6 +3826,7 @@ void() Sprite_Draw =
 	drawn = drawn + Laser_Draw(eye, fwd, maxdist, skyon);   // P1252: adds its sky skips to spr_skyhid
 	drawn = drawn + Fx_Draw(eye, fwd, maxdist);             // P1430: tesla and env_beam arcs
 	drawn = drawn + Explode_Draw(eye, fwd);                 // P1435
+	drawn = drawn + SmokeVol_Draw(eye, fwd);                // P1772
 	drawn = drawn + Wt_Draw(eye, fwd, maxdist);             // P1438
 	drawn = drawn + Sh_Frame();                             // P1439: env_shooter's gibs
 

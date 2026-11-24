@@ -2480,6 +2480,7 @@ void() Emit_RegisterCvars =
 	registercvar("vbsp_emit_spark",   "1", CVAR_ARCHIVE);
 	// Off by default: a churning approximation of a static haze, on 45 maps.
 	registercvar("vbsp_emit_smoke",   "0", CVAR_ARCHIVE);
+	registercvar("vbsp_smokevol",     "1", CVAR_ARCHIVE);	// P1772: func_smokevolume as Source's grid (0: vbsp_emit_smoke's particles)
 	// ON by default, unlike its similarly-named neighbour: env_smokestack is
 	// 2443 real jets across 52 maps and is most maps' only torch flame.
 	registercvar("vbsp_emit_stack",   "1", CVAR_ARCHIVE);
@@ -3700,6 +3701,8 @@ void() Emit_LoadForMap =
 	local float  smin, smax, lmin, lmax, fall, look;
 	local float  spawnflags, disabled, density, freq, current;
 	local float  firesize, maxdelay, magnitude, traillen, mspeed;
+	local float  svspace, svwidth, svrot;                       // P1772: func_smokevolume's grid
+	local string svc1, svc2, svmat;
 	local float  ssize, esize, jetlen, spread, initst, basesp, sph;
 	local float  initkey, stype, rollsp, stopped, vc;          // P1433
 	local string tn, tparent;
@@ -3723,6 +3726,8 @@ void() Emit_LoadForMap =
 		em_ratemax = EM_RATE_MAX;
 
 	em_n = 0;
+	sv_n = 0;	// P1772
+	sv_matn = 0;
 	em_pinused = em_pinned = 0;
 	em_gen = em_gen + 1;                // P1432: a template copy's emitters went with them
 	tplr_n = 0;
@@ -3899,6 +3904,8 @@ void() Emit_LoadForMap =
 		spawnflags = disabled = 0;
 		density = freq = current = 0;
 		firesize = maxdelay = magnitude = traillen = mspeed = 0;
+		svspace = svwidth = svrot = 0;
+		svc1 = svc2 = svmat = "";
 		ssize = esize = jetlen = basesp = sph = 0;
 		spread = -1;            // P1433: unwritten (env_steam's default is 15; the smokestack's <= 0 test still holds)
 		smat = tn = tparent = "";
@@ -3940,7 +3947,8 @@ void() Emit_LoadForMap =
 			else if (key == "fallspeed")     fall = stof(tok);
 
 			else if (key == "color")         scol = tok;
-			else if (key == "color1")        scol = tok;
+			else if (key == "color1")        { scol = tok; svc1 = tok; }
+			else if (key == "color2")        svc2 = tok;                     // P1772
 			else if (key == "rendercolor")   scol = tok;
 
 			else if (key == "speed")         spd = stof(tok);
@@ -3953,6 +3961,10 @@ void() Emit_LoadForMap =
 			else if (key == "magnitude")     magnitude = stof(tok);
 			else if (key == "traillength")   traillen = stof(tok);
 			else if (key == "movementspeed") mspeed = stof(tok);
+			else if (key == "particlespacingdistance") svspace = stof(tok);   // P1772
+			else if (key == "particledrawwidth") svwidth = stof(tok);
+			else if (key == "rotationspeed") svrot = stof(tok);
+			else if (key == "material")      svmat = tok;
 
 			/*
 			  env_smokestack.  `rate` is shared with SpawnRate above and that is
@@ -4051,6 +4063,17 @@ void() Emit_LoadForMap =
 			setmodel(probe, mdl);
 			bmin = probe.mins;
 			bmax = probe.maxs;
+		}
+		// P1772: a smoke volume as Source draws it -- a still grid of turning billboards -- unless the old particle
+		// look is asked for; one with no density draws nothing until its SetDensity input (not wired here)
+		if (kind == EK_SMOKE && cvar("vbsp_smokevol"))
+		{
+			if (density > 0 && SmokeVol_Add(bmin + org + '1 1 1', bmax + org - '1 1 1', svspace, svwidth, svrot, density,
+			                                 svc1, svc2, svmat))
+				em_live[kind] = em_live[kind] + 1;
+			else
+				em_off[kind] = em_off[kind] + 1;
+			continue;
 		}
 		if (kind == EK_PRECIP)
 		{
@@ -5638,4 +5661,124 @@ float(string cmd) Emit_ConsoleCommand =
 		return TRUE;
 	}
 	return FALSE;
+};
+
+/*
+===========================================================================
+  P1772 -- func_smokevolume as Source draws it (c_func_smokevolume.cpp): a still
+  grid of billboards, one every ParticleSpacingDistance across the brush, each
+  ParticleDrawWidth wide, turning at RotationSpeed, its colour picked between
+  Color1 and Color2, its alpha the volume's density, faded out as the eye comes
+  within a particle's own radius (so a quad's edge never fills the screen).
+  Drawn far to near from Sprite_Draw.  Lex, 24 Nov: bhop_canals' basin haze
+  (12 volumes, 235 particles with a density) had never drawn.
+===========================================================================
+*/
+#define SV_MAX 1024
+#define SV_MATMAX 8
+vector sv_org[SV_MAX];
+vector sv_col[SV_MAX];
+float  sv_ang[SV_MAX];
+float  sv_rot[SV_MAX];
+float  sv_alpha[SV_MAX];
+float  sv_half[SV_MAX];
+float  sv_mat[SV_MAX];
+float  sv_ord[SV_MAX];
+float  sv_dist[SV_MAX];
+string sv_mats[SV_MATMAX];
+
+float(vector lo, vector hi, float space, float width, float rot, float dens, string c1, string c2, string mat) SmokeVol_Add =
+{
+	local vector sz, k, a, b, p;
+	local float ix, iy, iz, mi, f;
+
+	if (space < 8) space = 8;
+	if (width <= 0) width = space * 1.5;
+	if (mat == "") mat = "particle/particle_smokegrenade";
+	mat = strtolower(mat);
+	for (mi = 0; mi < sv_matn; mi = mi + 1)
+		if (sv_mats[mi] == mat)
+			break;
+	if (mi == sv_matn)
+	{
+		if (sv_matn >= SV_MATMAX)
+			return FALSE;
+		sv_mats[mi] = strzone(mat);
+		sv_matn = sv_matn + 1;
+	}
+	a = Sprite_ParseVec(c1) * (1/255);
+	b = Sprite_ParseVec(c2) * (1/255);
+	if (c1 == "") a = '1 1 1';
+	if (c2 == "") b = a;
+	sz = hi - lo;
+	k = [max(1, floor(sz_x / space + 0.5)), max(1, floor(sz_y / space + 0.5)), max(1, floor(sz_z / space + 0.5))];
+	for (ix = 0; ix < k_x; ix = ix + 1)
+	for (iy = 0; iy < k_y; iy = iy + 1)
+	for (iz = 0; iz < k_z; iz = iz + 1)
+	{
+		if (sv_n >= SV_MAX)
+			return TRUE;
+		p = lo + [sz_x * (ix + 0.5) / k_x, sz_y * (iy + 0.5) / k_y, sz_z * (iz + 0.5) / k_z];
+		p = p + [random() - 0.5, random() - 0.5, random() - 0.5] * (space * 0.5);
+		f = random();
+		sv_org[sv_n] = p;
+		sv_col[sv_n] = a + (b - a) * f;
+		sv_ang[sv_n] = random() * 360;
+		sv_rot[sv_n] = rot * (random() < 0.5 ? -1 : 1);
+		sv_alpha[sv_n] = bound(0, dens, 1);
+		sv_half[sv_n] = width * 0.5;
+		sv_mat[sv_n] = mi;
+		sv_n = sv_n + 1;
+	}
+	return TRUE;
+};
+
+float(vector eye, vector fwd) SmokeVol_Draw =
+{
+	local float i, j, n, d, al, an, c, s, h;
+	local vector o, r, u, rr, uu, pr, pu;
+
+	if (!sv_n || !cvar("vbsp_smokevol"))
+		return 0;
+	makevectors(getproperty(VF_ANGLES));
+	pr = v_right;
+	pu = v_up;
+	n = 0;
+	for (i = 0; i < sv_n; i = i + 1)
+	{
+		o = sv_org[i] - eye;
+		h = sv_half[i];
+		if (o * fwd < -h)
+			continue;	// wholly behind the eye
+		d = vlen(o);
+		// insertion sort, far first (QC's && does not short-circuit: no [j-1] test at j 0)
+		j = n;
+		while (j > 0)
+		{
+			if (sv_dist[j-1] >= d)
+				break;
+			sv_ord[j] = sv_ord[j-1];
+			sv_dist[j] = sv_dist[j-1];
+			j = j - 1;
+		}
+		sv_ord[j] = i;
+		sv_dist[j] = d;
+		n = n + 1;
+	}
+	for (j = 0; j < n; j = j + 1)
+	{
+		i = sv_ord[j];
+		h = sv_half[i];
+		al = sv_alpha[i] * bound(0, sv_dist[j] / h - 0.5, 1);	// fades out inside its own radius
+		if (al <= 0.004)
+			continue;
+		an = (sv_ang[i] + sv_rot[i] * time) * (M_PI / 180);
+		c = cos(an);
+		s = sin(an);
+		rr = (pr * c + pu * s) * h;
+		uu = (pu * c - pr * s) * h;
+		o = sv_org[i];
+		Sprite_Quad(o - rr + uu, o + rr + uu, o + rr - uu, o - rr - uu, sv_mats[sv_mat[i]], 0, sv_col[i], al);
+	}
+	return n;
 };
