@@ -3,6 +3,7 @@
 Needs Flask (2.2.2 on the Pi). Steam is a fake `http`; the run is tools/test_tasplaus.py's simulator.
 """
 import contextlib
+import inspect
 import io
 import json
 import math
@@ -232,7 +233,8 @@ class Service(unittest.TestCase):
 
     def test_forged_session_cookie_ignored(self):
         c = self.app.test_client()
-        c.set_cookie('localhost', 'ftup', '%s.%d.%s' % (ALICE, int(self.clock.t) + 3600, '0' * 32))
+        t = int(self.clock.t)
+        self.set_cookie(c, 'ftup', '%s.0.%d.%d.%s.%s' % (ALICE, t, t, 'a' * 32, '0' * 32))   # P1806's format, a made-up MAC
         self.assertNotIn('name="rec"', c.get('/tasup/').get_data(as_text=True))
         self.assertEqual(self.upload(c, rec(), csrf='0' * 32).status_code, 401)
 
@@ -304,6 +306,46 @@ class Service(unittest.TestCase):
             db.execute('UPDATE accounts SET banned_at = 9 WHERE steamid = ?', (ALICE,))
         self.clock.t += 2 * 86400
         self.assertNotIn('Set-Cookie', c.get('/tasup/').headers)
+
+    def set_cookie(self, c, name, value):
+        if 'server_name' in inspect.signature(c.set_cookie).parameters:
+            c.set_cookie('localhost', name, value)               # Werkzeug 2.2 (the Pi)
+        else:
+            c.set_cookie(name, value)                            # 2.3+
+
+    def test_a_malformed_cookie_is_signed_out_not_an_error(self):
+        c, back = self.sign_in(ALICE)
+        good = re.search(r'ftup=([^;]+)', back.headers['Set-Cookie']).group(1)
+        for bad in (good[:-1] + '\u00e9', '\u00b9' * 17 + good[17:], good.replace('.', '..', 1), good + '.0', 'x'):
+            self.set_cookie(c, 'ftup', bad)
+            r = c.get('/tasup/')
+            self.assertEqual(r.status_code, 200, repr(bad))
+            self.assertNotIn('Signed in as', r.get_data(as_text=True))
+
+    def test_each_sign_in_has_its_own_form_token(self):
+        c1, _ = self.sign_in(ALICE)
+        old = self.page_csrf(c1.get('/tasup/'))
+        self.assertEqual(c1.post('/tasup/signout', data={'csrf': old}).status_code, 303)
+        self.clock.t += 61
+        c2, _ = self.sign_in(ALICE)
+        new = self.page_csrf(c2.get('/tasup/'))
+        self.assertNotEqual(old, new)
+        self.assertEqual(self.upload(c2, rec(), csrf=old).status_code, 403)   # a page from before Sign out is refused
+        self.assertEqual(self.upload(c2, rec(), csrf=new).status_code, 200)
+
+    def test_no_renewal_once_unlinked(self):
+        c, _ = self.sign_in(ALICE)
+        with contextlib.closing(sqlite3.connect(self.accounts)) as db, db:
+            db.execute('DELETE FROM accounts WHERE steamid = ?', (ALICE,))
+        self.clock.t += 2 * 86400
+        self.assertNotIn('Set-Cookie', c.get('/tasup/').headers)
+
+    def test_the_cookie_lasts_no_longer_than_the_cap(self):
+        c, _ = self.sign_in(ALICE)
+        for _ in range(4):
+            self.clock.t += 20 * 86400
+            r = c.get('/tasup/')
+        self.assertIn('Max-Age=%d' % (10 * 86400), r.headers.get('Set-Cookie', ''))   # 90 - 80 days left
 
     def test_sign_out_from_a_stale_tab(self):
         c, _ = self.sign_in(ALICE)

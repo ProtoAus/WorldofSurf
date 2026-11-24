@@ -67,6 +67,7 @@ STORE_CAP = 4 * 1024 ** 3
 # forms keep their CSRF token), never past auth + SESSION_MAX. Sign out bumps the account's gen (meta 'session <sid>'):
 # every cookie made before it, in any browser, stops working.
 SESSION_TTL, SESSION_MAX, SESSION_RENEW, STATE_TTL = 30 * 86400, 90 * 86400, 86400, 600
+SESSION_RE = re.compile(r'[0-9]{17}(\.[0-9]{1,12}){3}\.[0-9a-f]{32}\.[0-9a-f]{32}', re.ASCII)
 PEER_READS, PEER_SIGNINS = 120, 10  # a minute, per address (an IPv6 /64)
 REC_PEER_BYTES, REC_ALL_BYTES = 32 * 1024 ** 2, 128 * 1024 ** 2   # .rec downloads a minute: an address / everyone
 STEAM_ATONCE, STEAM_MINUTE = 2, 30  # Steam confirmations in flight / a minute, everyone (surfd: OUT_ATONCE 2)
@@ -575,10 +576,10 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         """(sid, gen, auth, iat, key) of a valid session cookie, or None. Once a request."""
         if 'sess' in g: return g.sess
         g.sess = None
-        f = request.cookies.get(sess_cookie, '').split('.')
-        if len(f) != 6 or not steam.is_steamid64(f[0]) or not all(x.isdigit() and len(x) <= 12 for x in f[1:4]) \
-                or not re.fullmatch('[0-9a-f]{32}', f[4]) or not hmac.compare_digest(f[5], mac('session', *f[:5])):
-            return None
+        v = request.cookies.get(sess_cookie, '')
+        if not SESSION_RE.fullmatch(v): return None     # ASCII only: compare_digest and int() raise on other text
+        f = v.split('.')
+        if not steam.is_steamid64(f[0]) or not hmac.compare_digest(f[5], mac('session', *f[:5])): return None
         gen, auth, iat, now = int(f[1]), int(f[2]), int(f[3]), clock()
         if not auth <= iat <= now + 60 or now >= min(iat + SESSION_TTL, auth + SESSION_MAX): return None
         with connect(store) as db:
