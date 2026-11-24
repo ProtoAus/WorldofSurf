@@ -28,7 +28,7 @@ string sun_mat, sun_omat;
 float  sun_vis;                 // 0..1, the obstruction fade
 entity sun_probe;               // the trace's mask: brush glass (WINDOW) shows the sun, glass props do not
 float  sun_seen;                // the last visibility printed: -1 none yet
-float  sun_traced, sun_target;   // P1804: the last nine-ray answer, kept while the eye stays put
+float  sun_traced, sun_target, sun_tracedsky;   // P1804: the last nine-ray answer, kept while the eye stays put
 vector sun_tracedeye;
 
 string(string m) Sun_Shader =
@@ -592,17 +592,26 @@ void() Sun_Draw =
 	// 3d skybox geometry"). Nine rays: the centre and eight at half the quad's radius. Traced only with the sun near the
 	// screen, and again only once the eye has moved.
 	fov = getproperty(VF_FOV);
+	if (fov_x <= 0 || fov_y <= 0)
+	{	// clearscene zeroes VF_FOV until renderscene computes it (view.c V_ApplyAFov): the user's fov, square (wide side)
+		ga = getproperty(VF_AFOV);
+		if (ga <= 0)
+			ga = cvar("fov");
+		if (ga <= 0)
+			ga = 90;
+		fov = [ga, ga, 0];
+	}
 	if (dot < cos(min(89, sqrt(fov_x * fov_x + fov_y * fov_y) * 0.5 + 12) * M_PI / 180))
 	{
 		sun_vis = 0;
 		sun_traced = FALSE;
 		return;                 // well off screen
 	}
-	if (sun_traced && vlen(eye - sun_tracedeye) < 0.5)
+	sky = vbsp_skyroom_have && cvar("vbsp_skyroom");
+	if (sun_traced && vlen(eye - sun_tracedeye) < 0.5 && sky == sun_tracedsky)
 		target = sun_target;
 	else
 	{
-		sky = vbsp_skyroom_have && cvar("vbsp_skyroom");
 		se = eye;
 		if (sky)
 		{
@@ -634,6 +643,7 @@ void() Sun_Draw =
 		target = (target > 0.99) ? 1 : target;
 		sun_traced = TRUE;
 		sun_tracedeye = eye;
+		sun_tracedsky = sky;
 		sun_target = target;
 	}
 	if ((target > 0) != sun_seen)
