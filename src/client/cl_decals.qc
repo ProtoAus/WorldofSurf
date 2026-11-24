@@ -414,7 +414,7 @@ float  vbsp_skyroom_scale;
 
 void() Decal_LoadForMap =
 {
-	local string tok, key, tex, cn, map;
+	local string tok, key, tex, cn, map, tn;
 	local vector org, ovn, ovup;
 	local float  size, na, opened, wantdecals, sc;
 	local float  ovw, ovh, ovshear, ovfaces;
@@ -466,6 +466,7 @@ void() Decal_LoadForMap =
 
 		cn = "";
 		tex = "";
+		tn = "";
 		org = '0 0 0';
 		sc  = 0;
 		ovn = ovup = '0 0 0';
@@ -479,6 +480,7 @@ void() Decal_LoadForMap =
 			else if (key == "texture")   tex = tok;
 			else if (key == "scale")     sc  = stof(tok);
 			else if (key == "material")  tex = tok;    // info_overlay's spelling of "texture"
+			else if (key == "targetname") tn = tok;
 			else if (key == "shear")     ovshear  = stof(tok);
 			else if (key == "faces")     ovfaces  = stof(tok);
 			else if (key == "origin")
@@ -525,7 +527,9 @@ void() Decal_LoadForMap =
 			}
 		}
 
-		if (cn == "infodecal" && tex != "")
+		// P1776: a NAMED infodecal waits for its Activate input (CDecal::Spawn) -- bhop_canals' arlene_blood_decals are
+		// never fired, so Momentum shows no blood in that room
+		if (cn == "infodecal" && tex != "" && tn == "")
 		{
 			vbsp_decal_seen = vbsp_decal_seen + 1;
 			if (wantdecals)

@@ -223,7 +223,8 @@ vector(string val, float hdr) Sun_VradLight =
 
 // VRAD ParseLightEnvironment's sky ambient: a legal _ambientHDR (HDR), else _ambient, else half the sun (_light,
 // _lightHDR, _lightscaleHDR as ParseLightGeneric); x _AmbientScaleHDR on HDR.  Linear, VRAD units / 255.
-vector(float hdr, string lt, string lthdr, float ltscale, string amb, string ambhdr, float ambscale) Sun_SkyAmbient =
+// The sun itself (ParseLightGeneric): _lightHDR when legal on HDR, else _light; x _lightscaleHDR on HDR.
+vector(float hdr, string lt, string lthdr, float ltscale) Sun_Direct =
 {
 	local vector sun, v;
 
@@ -238,6 +239,13 @@ vector(float hdr, string lt, string lthdr, float ltscale, string amb, string amb
 		sun = '0 0 0';
 	if (hdr)
 		sun = sun * ltscale;
+	return sun;
+};
+vector(float hdr, string lt, string lthdr, float ltscale, string amb, string ambhdr, float ambscale) Sun_SkyAmbient =
+{
+	local vector sun, v;
+
+	sun = Sun_Direct(hdr, lt, lthdr, ltscale);
 	v = '-1 -1 -1';
 	if (hdr)
 		v = Sun_VradLight(ambhdr, TRUE);
@@ -281,6 +289,10 @@ float(float isnew) Tint_Delta =
 			if (self.effects & EF_NODRAW)
 				return TRUE;	// hidden (Disable, rendermode 10): drawn by nobody
 			self.colormod = tint_col[k];
+			// P1778: drawn by the CSQC path, which flips a mesh's pitch/roll (r_meshpitch/r_meshroll, -1) where the
+			// engine's own exempts a Source model (Patch 1027): the barn shafts leant away from the sun patches
+			self.angles_x = self.angles_x * cvar("r_meshpitch");
+			self.angles_z = self.angles_z * cvar("r_meshroll");
 			self.drawmask = MASK_ENGINE;
 			return TRUE;
 		}
@@ -370,14 +382,14 @@ void() Sun_MapLight =
 	local string tok, key, cn, inp, amb, ambhdr, lt, lthdr;
 	local float bloom, bat, d, p, y, havesc, havecsm, csmle, havele, epitch, ehaspitch, emin, emax, eminat, emaxat;
 	local float ambscale, ltscale, hascol, hdr, hdrk, expo, csmdist, emsd, autoexp;
-	local vector eang, scdir, csmdir, ledir, thr, ecol, sccol, skyamb, skyambhdr, v;
+	local vector eang, scdir, csmdir, ledir, thr, ecol, sccol, skyamb, skyambhdr, v, lesun, lesunhdr;
 
 	bloom = 1;
 	bat = eminat = emaxat = -1;
 	emin = emax = 0;
 	havesc = havecsm = csmle = havele = FALSE;
 	csmdist = 0;
-	scdir = csmdir = ledir = sccol = skyamb = skyambhdr = '0 0 0';
+	scdir = csmdir = ledir = sccol = skyamb = skyambhdr = lesun = lesunhdr = '0 0 0';
 	getentitytoken(0);
 	while ((tok = getentitytoken()) != "")
 	{
@@ -463,6 +475,8 @@ void() Sun_MapLight =
 			havele = TRUE;
 			skyamb = Sun_SkyAmbient(FALSE, lt, lthdr, ltscale, amb, ambhdr, ambscale);
 			skyambhdr = Sun_SkyAmbient(TRUE, lt, lthdr, ltscale, amb, ambhdr, ambscale);
+			lesun = Sun_Direct(FALSE, lt, lthdr, ltscale);	// P1780
+			lesunhdr = Sun_Direct(TRUE, lt, lthdr, ltscale);
 		}
 		else if (cn == "env_cascade_light" && !havecsm)
 		{
@@ -485,7 +499,10 @@ void() Sun_MapLight =
 		hdrk = Emit_MapHDR(CL_WorldShortName());	// -1: not read (a map over EM_BSPREAD)
 	hdr = hdrk == 1;
 	if (hdr)
+	{
 		skyamb = skyambhdr;
+		lesun = lesunhdr;
+	}
 
 	// Exposure test: Source's band (values above 0 count; defaults 0.5..2; min over max raises max) clamped round 1.
 	// An LDR-lit map has no tonemap: 1.  vbsp_exposure 0 hands r_exposure back to the player.
@@ -531,6 +548,14 @@ void() Sun_MapLight =
 	if (havecsm && havele)
 		v = [Sun_SRGB(skyamb_x), Sun_SRGB(skyamb_y), Sun_SRGB(skyamb_z)];
 	cvar_set("r_shadows_sunfloor", sprintf("%g %g %g", v_x, v_y, v_z));
+	// P1780: Strata bakes a static prop's direct sun into its .vhv alpha (the plugin keeps it only on a v25 BSP); the
+	// shader adds this x alpha where the cascades leave the prop lit.  vbsp_vhvsun calibrated on bhop_canals' street
+	// lamp against Momentum's sunlit/shaded sides.
+	v = '0 0 0';
+	if (havecsm && havele)
+		v = lesun * cvar("vbsp_vhvsun");
+	if (cvar_type("r_shadows_vhvsun"))
+		cvar_set("r_shadows_vhvsun", sprintf("%g %g %g", v_x, v_y, v_z));
 	// P1762: a cascade map's shadows reach as far as its env_cascade_light says (canals 4000), else the engine default.
 	if (cvar_type("r_shadows_cascade_dist"))
 		cvar_set("r_shadows_cascade_dist", (havecsm && csmdist > 0) ? ftos(bound(512, csmdist, 8192)) : cvar_defstring("r_shadows_cascade_dist"));
