@@ -47,8 +47,9 @@
   smoke lit, sun faded behind hills/skybox, Strata props lit by lamps, the r_shadows 2->1 crash guarded. LEFT: the
   zeroed shader's producer (P1801 names it under developer 1); save 36's window (ours shows the interior and dirt, the
   top of Momentum's pane is bright -- not its 32x32 interior cubemap; likely the sun on translucent faces, unmeasured);
-  save 37's sky not blown out in dark rooms (P1775 exposes for the sky; the decoded HDR sky values 0.3-0.5 linear);
-  oak_tree01's LODs (4 levels, VVD fixups: the loader keeps LOD 0 -- needs per-LOD offsets and Source's switch points);
+  save 37's sky not blown out in dark rooms (the room matches Momentum p10-p50, Momentum's sky clips 12% of the frame;
+  r_autoexposure_bright 0.02 only lifts save 37 0.69 -> 0.75 and throws saves 27/29/30 to 2.0 -- not the lever);
+  oak_tree01's LODs DONE in P1810 (0.1.69); the window's remaining 2x (P1811 took the pane 52 -> 57.5 of Momentum's 124);
   save 39's cyan "E" under the credits text (Momentum shows none); save 34's barrels dimmer than Momentum's (leaf cube).
 - P1759 tint precision: colormod crosses the wire in 1/32 steps, so a dark tint is approximate (21 18 13 -> 24 16 16,
   pinkish); exact needs a protocol or CSQC path. Out-of-range rendercolor clamps (Source wraps bytes), as P1250.

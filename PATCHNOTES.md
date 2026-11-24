@@ -21,6 +21,12 @@
 
 ## next
 
+### P1811 Brighter, truer reflections
+- Cubemap reflections on Source maps follow the exposure and add their light the way Source does: windows and metal reflect more of the sky.
+
+### P1810 Tree and prop detail levels
+- Source models with detail levels (bhop_canals' oak trees and many HL2 props) switch to simpler versions at a distance where Source does, which looks the same as Momentum and saves GPU time.
+
 ### P1806 TAS uploads on the leaderboard
 - Uploaded TAS runs now show on the leaderboard's TAS tab, on the website and in the game, a few minutes after they are published.
 - The TAS upload site keeps you signed in with Steam for 30 days, renewed each day you visit. Sign out signs you out on every browser.
