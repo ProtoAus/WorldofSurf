@@ -296,7 +296,9 @@ Install / upgrade (proto, no root; D=/srv/nvme/ftesurf-ops/tasindex, C=<commit>)
     git -C <checkout> show $C:surfd/ftesurf-tasindex.timer > ~/.config/systemd/user/ftesurf-tasindex.timer
     systemctl --user daemon-reload && systemctl --user enable --now ftesurf-tasindex.timer
 
-Log: $D/tasindex.log (a line only when a pass changed something). Stop: `systemctl --user disable --now
+LIVE 24 Nov 2026 18:37:22Z (worldofsurf-8b): release $D/d8c4953325c9c4bc844a921eb09eed8c6e39714b, timer enabled; the
+first pass filed Rounin's surf_sandtrap2 main (48.165) and Proto's bonus 4 (7.830). Log: $D/tasindex.log (a line only
+when a pass changed something). Stop: `systemctl --user disable --now
 ftesurf-tasindex.timer`; rollback: then the dry-run command with `--withdraw` instead of `--dry-run` (every upload row
 off, slots refilled from lobby replays). `--full` finds upload rows of courses the store no longer names.
 
