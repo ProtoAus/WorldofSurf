@@ -62,10 +62,11 @@ HELD_CAP = 10                       # an account's runs waiting for the owner
 # run. create_app(review=True) / TASUPD_REVIEW=1 holds as before.
 REVIEW_DEFAULT = False
 STORE_CAP = 4 * 1024 ** 3
-# P1806 (a player, 25 Nov: "Website doesn't save your steam login"): was 12 h. A page read more than SESSION_RENEW after
-# the cookie was made sets a fresh one, so a browser in use stays signed in; Sign out ends every browser's session
-# (meta 'signout <steamid>').
-SESSION_TTL, STATE_TTL, SESSION_RENEW = 30 * 86400, 600, 86400
+# P1806 (a player, 25 Nov: "Website doesn't save your steam login"): was 12 h. Cookie `sid.gen.auth.iat.key.mac`: auth =
+# the Steam sign-in, iat = this cookie's issue; a page read SESSION_RENEW after iat sets a fresh one (same key, so open
+# forms keep their CSRF token), never past auth + SESSION_MAX. Sign out bumps the account's gen (meta 'session <sid>'):
+# every cookie made before it, in any browser, stops working.
+SESSION_TTL, SESSION_MAX, SESSION_RENEW, STATE_TTL = 30 * 86400, 90 * 86400, 86400, 600
 PEER_READS, PEER_SIGNINS = 120, 10  # a minute, per address (an IPv6 /64)
 REC_PEER_BYTES, REC_ALL_BYTES = 32 * 1024 ** 2, 128 * 1024 ** 2   # .rec downloads a minute: an address / everyone
 STEAM_ATONCE, STEAM_MINUTE = 2, 30  # Steam confirmations in flight / a minute, everyone (surfd: OUT_ATONCE 2)
@@ -561,30 +562,38 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
             hits[k] = hits.get(k, 0) + n
             return hits[k] > cap
 
-    def session_cookie(sid, now):
-        exp = str(int(now) + SESSION_TTL)
-        return '%s.%s.%s' % (sid, exp, mac('session', sid, exp))
+    def session_gen(db, sid):
+        row = db.execute('SELECT v FROM meta WHERE k = ?', ('session ' + sid,)).fetchone()
+        return int(row['v']) if row is not None else 0
+
+    def session_cookie(sid, gen, auth, iat, key):
+        """(value, max_age) of a session cookie (P1806)."""
+        f = (sid, str(gen), str(auth), str(iat), key)
+        return '.'.join(f + (mac('session', *f),)), max(0, min(iat + SESSION_TTL, auth + SESSION_MAX) - iat)
+
+    def session_fields():
+        """(sid, gen, auth, iat, key) of a valid session cookie, or None. Once a request."""
+        if 'sess' in g: return g.sess
+        g.sess = None
+        f = request.cookies.get(sess_cookie, '').split('.')
+        if len(f) != 6 or not steam.is_steamid64(f[0]) or not all(x.isdigit() and len(x) <= 12 for x in f[1:4]) \
+                or not re.fullmatch('[0-9a-f]{32}', f[4]) or not hmac.compare_digest(f[5], mac('session', *f[:5])):
+            return None
+        gen, auth, iat, now = int(f[1]), int(f[2]), int(f[3]), clock()
+        if not auth <= iat <= now + 60 or now >= min(iat + SESSION_TTL, auth + SESSION_MAX): return None
+        with connect(store) as db:
+            if session_gen(db, f[0]) != gen: return None    # signed out since
+        g.sess = (f[0], gen, auth, iat, f[4])
+        return g.sess
 
     def session():
-        """The signed-in SteamID, or ''. Once a request; a GET page may set g.renew (P1806)."""
-        if 'sid' in g: return g.sid
-        g.sid = ''
-        v = request.cookies.get(sess_cookie, '')
-        f = v.split('.')
-        if len(f) != 3 or not steam.is_steamid64(f[0]) or not f[1].isdigit(): return ''
-        now = clock()
-        if int(f[1]) < now or not hmac.compare_digest(f[2], mac('session', f[0], f[1])): return ''
-        with connect(store) as db:
-            out = db.execute('SELECT v FROM meta WHERE k = ?', ('signout ' + f[0],)).fetchone()
-        if out is not None and int(f[1]) - SESSION_TTL < int(out['v']): return ''   # made before a Sign out
-        g.sid = f[0]
-        if request.method in ('GET', 'HEAD') and not g.get('game') and int(f[1]) - SESSION_TTL < now - SESSION_RENEW:
-            g.renew = session_cookie(f[0], now)
-        return g.sid
+        """The signed-in SteamID, or ''."""
+        s = session_fields()
+        return s[0] if s else ''
 
     def csrf():
-        # a renewing page's forms come back with the new cookie
-        return mac('csrf', g.get('renew') or request.cookies.get(sess_cookie, ''))
+        s = session_fields()
+        return mac('csrf', s[0], s[4]) if s else mac('csrf', '')
 
     def read_surfd(sql, args=()):
         """Rows from surfd.db (accounts, the board's runs), read-only. P1618 (AGENT_NOTES): once surfd's last close deletes -wal/-shm this
@@ -774,10 +783,14 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
 
     @app.after_request
     def headers(resp):
-        if g.get('renew') and resp.status_code < 400 and not any(
-                h.startswith(sess_cookie + '=') for h in resp.headers.getlist('Set-Cookie')):
-            resp.set_cookie(sess_cookie, g.renew, max_age=SESSION_TTL, path='/', secure=secure, httponly=True,
-                            samesite='Lax')
+        s = g.get('sess')
+        if (s and request.method == 'GET' and resp.status_code == 200 and resp.mimetype == 'text/html'
+                and clock() - s[3] >= SESSION_RENEW and not resp.headers.getlist('Set-Cookie')):
+            try: acct = accounts_of([s[0]]).get(s[0])
+            except Unavailable: acct = None
+            if acct is not None and not acct[1]:     # a ban or an unlink stops the renewal
+                value, age = session_cookie(s[0], s[1], s[2], int(clock()), s[4])
+                resp.set_cookie(sess_cookie, value, max_age=age, path='/', secure=secure, httponly=True, samesite='Lax')
         resp.headers['Cache-Control'] = 'no-store'
         resp.headers['X-Content-Type-Options'] = 'nosniff'
         resp.headers['Referrer-Policy'] = 'same-origin'
@@ -892,8 +905,9 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                        'placeholder="e.g. my search bot v2" size="40"></label></p><p><button type="submit">Upload and check</button></p>'
                        '<p class="fine">The board is 66.67 tick (tickrate 0.015). Map and course come from the file\'s header. '
                        'Your Steam name is shown with the run and anyone can download the file. This browser stays signed '
-                       'in for %d days, renewed each day you visit; Sign out ends it on every browser.</p></form></div>'
-                       % (base, csrf(), MAX_REC // 1024 ** 2, TOOL_MAX, SESSION_TTL // 86400))
+                       'in for %d days, renewed each day you visit (sign in with Steam again after %d); Sign out ends it on '
+                       'every browser.</p></form></div>'
+                       % (base, csrf(), MAX_REC // 1024 ** 2, TOOL_MAX, SESSION_TTL // 86400, SESSION_MAX // 86400))
         else:
             card.append('<div class="card"><p><a class="go" href="%s/steam">Sign in with Steam to upload</a></p>'
                        '<p class="fine">Uploading needs a Steam account linked to World of Surf. First time? '
@@ -1079,8 +1093,9 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         if acct[1]:
             return refuse('This Steam account cannot upload.', 403)
         resp = redirect(base + '/', 303)
-        resp.set_cookie(sess_cookie, session_cookie(sid, now), max_age=SESSION_TTL,
-                        path='/', secure=secure, httponly=True, samesite='Lax')
+        with connect(store) as db: gen = session_gen(db, sid)
+        value, age = session_cookie(sid, gen, now, now, secrets.token_hex(16))
+        resp.set_cookie(sess_cookie, value, max_age=age, path='/', secure=secure, httponly=True, samesite='Lax')
         resp.delete_cookie(state_cookie, path='/', secure=secure, httponly=True, samesite='Lax')
         return resp
 
@@ -1096,7 +1111,7 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         sid = session()
         if sid:
             with connect(store) as db, writing(db):
-                db.execute('INSERT OR REPLACE INTO meta(k, v) VALUES (?, ?)', ('signout ' + sid, str(int(clock()))))
+                db.execute('INSERT OR REPLACE INTO meta(k, v) VALUES (?, ?)', ('session ' + sid, str(session_gen(db, sid) + 1)))
         resp = redirect(base + '/', 303)
         resp.delete_cookie(sess_cookie, path='/', secure=secure, httponly=True, samesite='Lax')
         return resp

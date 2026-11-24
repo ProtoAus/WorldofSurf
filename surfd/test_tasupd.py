@@ -250,25 +250,74 @@ class Service(unittest.TestCase):
         self.clock.t += svc.SESSION_TTL - 60
         self.assertEqual(self.upload(c, rec(), csrf='x').status_code, 403)   # still signed in: only the form is wrong
 
+    def page_csrf(self, page):
+        m = re.search(r'name="csrf" value="([0-9a-f]{32})"', page.get_data(as_text=True))
+        return m.group(1) if m else ''
+
     def test_a_page_renews_the_session(self):
         c, _ = self.sign_in(ALICE)
-        self.assertNotIn('Set-Cookie', c.get('/tasup/').headers)            # a fresh cookie is not re-sent
+        first = c.get('/tasup/')
+        self.assertNotIn('Set-Cookie', first.headers)                       # a fresh cookie is not re-sent
+        token = self.page_csrf(first)
         self.clock.t += 2 * 86400
+        r = self.upload(c, rec(), csrf=token)                               # a 2-day-old cookie posts; a POST never renews
+        self.assertEqual((r.status_code, r.get_json().get('ok')), (200, 1), r.get_json())
+        self.assertNotIn('Set-Cookie', r.headers)
+        self.assertNotIn('Set-Cookie', c.get('/tasup/api/recent').headers)  # nor JSON
+        self.assertNotIn('Set-Cookie', c.get('/tasup/run/999999').headers)  # nor an error page
         page = c.get('/tasup/')
         self.assertIn('ftup=', page.headers.get('Set-Cookie', ''))
+        self.assertEqual(self.page_csrf(page), token)                       # an open tab's forms keep working
         self.clock.t += svc.SESSION_TTL - 86400                             # 31 days after signing in
         self.assertTrue(self.signed_in(c))
-        r = self.upload(c, rec())                                           # the renewing page's form is accepted
-        self.assertEqual((r.status_code, r.get_json().get('ok')), (200, 1), r.get_json())
         self.clock.t += svc.SESSION_TTL + 1
+        self.assertFalse(self.signed_in(c))
+
+    def test_renewal_only_on_a_page(self):
+        a, _ = self.sign_in(ALICE)
+        b, _ = self.sign_in(BOB)
+        held = self.upload(a, edited_speed()).get_json()['id']
+        self.clock.t += 18 * 3600
+        self.assertNotIn('Set-Cookie', a.get('/tasup/').headers)            # under a day old: kept as it is
+        self.clock.t += 2 * 86400
+        j = a.get('/tasup/api/run/%d' % held)                              # JSON that reads the session (a held run)
+        self.assertEqual(j.status_code, 200)
+        self.assertNotIn('Set-Cookie', j.headers)
+        e = b.get('/tasup/run/%d' % held)                                  # an error page that reads it
+        self.assertEqual(e.status_code, 404)
+        self.assertNotIn('Set-Cookie', e.headers)
+        r = self.upload(a, rec(), json_reply=False)                         # a POST page
+        self.assertEqual(r.status_code, 303)
+        self.assertNotIn('Set-Cookie', r.headers)
+
+    def test_sign_in_again_after_ninety_days(self):
+        c, _ = self.sign_in(ALICE)
+        for _ in range(4):
+            self.clock.t += 20 * 86400
+            self.assertTrue(self.signed_in(c))                              # renewed at 20, 40, 60, 80 days
+        self.clock.t += 10 * 86400
+        self.assertFalse(self.signed_in(c))                                 # 90 days after the Steam sign-in
+
+    def test_no_renewal_once_banned(self):
+        c, _ = self.sign_in(ALICE)
+        with contextlib.closing(sqlite3.connect(self.accounts)) as db, db:
+            db.execute('UPDATE accounts SET banned_at = 9 WHERE steamid = ?', (ALICE,))
+        self.clock.t += 2 * 86400
+        self.assertNotIn('Set-Cookie', c.get('/tasup/').headers)
+
+    def test_sign_out_from_a_stale_tab(self):
+        c, _ = self.sign_in(ALICE)
+        token = self.page_csrf(c.get('/tasup/'))
+        self.clock.t += 2 * 86400
+        self.assertIn('ftup=', c.get('/tasup/').headers.get('Set-Cookie', ''))   # another tab renewed
+        self.assertEqual(c.post('/tasup/signout', data={'csrf': token}).status_code, 303)
         self.assertFalse(self.signed_in(c))
 
     def test_sign_out_ends_every_browser(self):
         c1, _ = self.sign_in(ALICE)
         c2, _ = self.sign_in(ALICE)
         c3, _ = self.sign_in(BOB)
-        self.clock.t += 5
-        r = c1.post('/tasup/signout', data={'csrf': self.csrf(c1)})
+        r = c1.post('/tasup/signout', data={'csrf': self.csrf(c1)})         # the same second as c2's cookie
         self.assertEqual(r.status_code, 303)
         self.assertFalse(self.signed_in(c1))
         self.assertFalse(self.signed_in(c2))

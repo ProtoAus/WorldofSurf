@@ -1,0 +1,15 @@
+# P1806: tasupd's shown uploads -> the board's TAS tab (surfd/tasindex.py; tools/tas-uploads.md "P1806").
+# A proto user unit (systemctl --user), not crontab: the generation kits compare the crontab by hash.
+# @COMMIT@ is the release dir's name: /srv/nvme/ftesurf-ops/tasindex/<commit>/tasindex.py (git archive of that commit).
+[Unit]
+Description=World of Surf: TAS uploads onto the board's TAS tab (P1806)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3.11 -I -B /srv/nvme/ftesurf-ops/tasindex/@COMMIT@/tasindex.py --quiet \
+    --store /srv/nvme/ftesurf-ops/tasupd-state/tasup.sqlite3 --db /srv/nvme/surfd/data/surfd.db
+StandardOutput=append:/srv/nvme/ftesurf-ops/tasindex/tasindex.log
+StandardError=append:/srv/nvme/ftesurf-ops/tasindex/tasindex.log
+Nice=10
+MemoryMax=256M
+TimeoutStartSec=2min
