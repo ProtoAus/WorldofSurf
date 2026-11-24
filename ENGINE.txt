@@ -1,4 +1,11 @@
 # The engine build this QuakeC requires.
+# P1773-P1780 (engine gl/gl_backend.c gl_rmain.c gl_shader.c shader.h gl_shadow.c, client/renderer.c; plugin hl2/mod_vbsp.c
+# mat_vmt.c glsl/vmt lightmapped transition vertexlit; QC cl_sun.qc cl_decals.qc cl_emit.qc; worldofsurf-67, Lex 24 Nov
+# canals saves 21-31 vs Momentum): cascade casters not sphere-culled; cascade-map shadows keep the surface's hue;
+# auto-exposure bright 0.5%, per-channel hdrsat, no min-avg; multiply decals unexposed, named infodecals wait; Strata v25
+# local lights off unbaked models (hl2_lt_wlv25); tinted shafts undo the CSQC pitch flip; no _glow guess for VMTs; Strata's
+# baked prop sun (.vhv alpha x r_shadows_vhvsun, set from hl2_bspversion + vbsp_vhvsun). Client-side: reaches players with
+# 0.1.66; lobbies take its csprogs. Record: ENGINE_PATCHES P1773-P1780.
 # P1765-P1771 (engine gl/gl_shadow.c gl_backend.c gl_vidcommon.c gl_rmain.c r_bishaders.h, shaders/glsl/depthonly.glsl;
 # plugin hl2/mod_vbsp.c mat_vmt.c glsl/vmt/twotexture.glsl; QC cl_sun.qc cl_main.qc; worldofsurf-67, Lex 24 Nov canals
 # saves 11-20 vs Momentum): on a Strata cascade map the world casts into the sun cascades (no throw fade, props
@@ -821,7 +828,7 @@
 
 repo     https://github.com/ProtoAus/ftequakers
 branch   main
-commit   548a07573
+commit   e9dc66c46
 # ^ The pin is the ENGINE_PATCHES.md work this QuakeC is written against, NOT the
 #   commit a shipped binary was built from -- those drift, deliberately: patches
 #   420-438 are all mod-side, so the engine source moved without any binary

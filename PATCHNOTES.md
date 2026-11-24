@@ -21,6 +21,30 @@
 
 ## next
 
+### P1780 Sunlit props on Strata maps
+- Static props on maps like bhop_canals catch the sun on their lit side again (Strata keeps that light apart from the rest of their lighting); shadows still fall across them.
+
+### P1779 Street lamps no longer look painted
+- Props no longer pick up a glow texture that belongs to another material with a similar name: bhop_canals' street lamps were white with black stripes.
+
+### P1778 Barn light shafts point the right way
+- The barn's light shafts on bhop_canals lean down from the skylights toward the sun patches again, not away from them.
+
+### P1777 Indoor props as dark as in Momentum
+- On Strata maps, props without baked lighting are no longer lit a second time by the map's lamps: bhop_canals' barrels, cans and crates drew far brighter than in Momentum.
+
+### P1776 Blood decals no longer light up the floor
+- Darkening decals such as blood no longer brighten the surface under them, and decals a map shows only when triggered stay hidden.
+
+### P1775 Dark rooms stay darker
+- Auto-exposure no longer opens dark rooms all the way: small skylights and sun patches count as bright, as they do in Momentum.
+
+### P1774 Shadow colour on Strata maps
+- Sun shadows on maps like bhop_canals keep the colour of the surface instead of a blue-green tint.
+
+### P1773 Shadows stop fading as you approach
+- Prop shadows no longer fade out and snap back as you walk toward them.
+
 ## 0.1.65 2026-11-24
 
 ### P1771 Glass reflects on Strata maps

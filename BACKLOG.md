@@ -15,6 +15,14 @@
   sky/sun patches outshine our clamped readback); prop_dynamic outside the PVS is not sent, so its shadow can pop;
   canals' oak_tree01 resolves to CS:S's model (mount order) and loses its HL2 bake; the ramp's corrugation softer than
   Momentum's.
+- P1773-P1780 (0.1.66, Lex's saves 21-31): cascade casters no longer sphere-culled, shadow colour keeps the surface's
+  hue, auto-exposure (bright 0.5%, hdrsat, no min-avg), multiply decals unexposed + named infodecals wait, Strata v25
+  local lights off unbaked models (hl2_lt_wlv25, empirical: one room), shaft pitch under CSQC, no _glow name guess for
+  VMTs, Strata's baked prop sun (.vhv alpha x r_shadows_vhvsun, vbsp_vhvsun 3 from one lamp). LEFT: save 29's wall --
+  the lightmap there is baked shade where Strata shows sun (we only darken; Strata may light it live); UnlitTwoTexture
+  shafts not exposure-scaled (brighter than Momentum's); on a v25 map a baked static prop's $vertexalpha/$vertexcolor
+  unlit or animated surface reads the sun share as its alpha (gl_alias.c binds the bake to every surface); the
+  hl2_cubelight cube (off) loses local lights on v25; a dark room with nothing bright still opens to 2.0.
 - P1759 tint precision: colormod crosses the wire in 1/32 steps, so a dark tint is approximate (21 18 13 -> 24 16 16,
   pinkish); exact needs a protocol or CSQC path. Out-of-range rendercolor clamps (Source wraps bytes), as P1250.
 - P1760: casting Source models do not receive shadows (P1732), now including a cascade map's static props; under r_shadows
