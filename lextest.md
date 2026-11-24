@@ -1,5 +1,16 @@
 # lextest.md — things waiting on a human
 
+## 0.1.65 release -- PUBLISHED 24 Nov 04:54Z, lobbies on its progs 04:57Z; your dev install has it (P1765-P1771)
+1. bhop_canals save 17: the pillars throw sharp shadow wedges with a lit strip between, like Momentum; save 11 the canal
+   walls shadow the floor; save 16 the logs and planks.
+2. Run the map and watch shadows ahead of you: they should no longer switch off at a line (cascades blend, twice the
+   resolution). Thin poles/rails far away may still fade -- say where if one blinks.
+3. Save 12: the bushes cast branch shadows, not a square. Save 13: the oaks are dark bark. Save 18: the windows reflect.
+4. Saves 14/15: no white glow over the barn from afar; inside, the shafts are faint amber, not pink.
+5. vbsp_autoexposure 0 / 1 in the console switches the brightness adjustment at once.
+Not done: the basin smoke (func_smokevolume), the white/black street lamp (save 20), the barn brightening more than
+Momentum, the ramp's softer corrugation -- BACKLOG "P1758-P1761".
+
 ## 0.1.64 release -- PUBLISHED 24 Nov 01:50Z, lobbies on its progs 01:53Z; your dev install has it (P1762-P1764)
 1. The launcher offers 0.1.64; after updating, the corner reads World of Surf 0.1.64.
 2. bhop_canals save 6 (the barn): over a second or two the room brightens to about Momentum's level; save 7 (bright

@@ -21,6 +21,8 @@
 
 ## next
 
+## 0.1.65 2026-11-24
+
 ### P1771 Glass reflects on Strata maps
 - Windows and other reflective surfaces on maps like bhop_canals reflect the sky again: their own reflection images were black placeholders and the real ones are now used.
 
