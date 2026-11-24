@@ -534,6 +534,7 @@ void() Explode_LoadForMap;               // cl_explode.qc
 float(vector eye, vector fwd) Explode_Draw;
 float  sv_n, sv_matn;                     // P1772: cl_emit.qc's smoke-volume billboards (Sprite_Draw's early exit) and materials
 float(vector eye, vector fwd) SmokeVol_Draw;
+void() SmokeVol_Reset;
 float(vector lo, vector hi, float space, float width, float rot, float dens, string c1, string c2, string mat) SmokeVol_Add;
 void(entity e) Explode_FxNet;
 float  vbsp_fish_seen;                    // P1436: func_fish_pool in the lump

@@ -3726,8 +3726,7 @@ void() Emit_LoadForMap =
 		em_ratemax = EM_RATE_MAX;
 
 	em_n = 0;
-	sv_n = 0;	// P1772
-	sv_matn = 0;
+	SmokeVol_Reset();	// P1772
 	em_pinused = em_pinned = 0;
 	em_gen = em_gen + 1;                // P1432: a template copy's emitters went with them
 	tplr_n = 0;
@@ -4064,17 +4063,11 @@ void() Emit_LoadForMap =
 			bmin = probe.mins;
 			bmax = probe.maxs;
 		}
-		// P1772: a smoke volume as Source draws it -- a still grid of turning billboards -- unless the old particle
-		// look is asked for; one with no density draws nothing until its SetDensity input (not wired here)
-		if (kind == EK_SMOKE && cvar("vbsp_smokevol"))
-		{
-			if (density > 0 && SmokeVol_Add(bmin + org + '1 1 1', bmax + org - '1 1 1', svspace, svwidth, svrot, density,
-			                                 svc1, svc2, svmat))
-				em_live[kind] = em_live[kind] + 1;
-			else
-				em_off[kind] = em_off[kind] + 1;
-			continue;
-		}
+		// P1772: a smoke volume as Source draws it -- a still grid of turning billboards (vbsp_smokevol, read per frame
+		// by SmokeVol_Draw); the particle look below stays behind vbsp_emit_smoke.  One with no density draws nothing
+		// until its SetDensity input (not wired here).
+		if (kind == EK_SMOKE && density > 0)
+			SmokeVol_Add(bmin + org + '1 1 1', bmax + org - '1 1 1', svspace, svwidth, svrot, density, svc1, svc2, svmat);
 		if (kind == EK_PRECIP)
 		{
 			// setmodel's box is a unit larger each way than the brush, and a brush
@@ -5685,7 +5678,21 @@ float  sv_half[SV_MAX];
 float  sv_mat[SV_MAX];
 float  sv_ord[SV_MAX];
 float  sv_dist[SV_MAX];
+float  sv_dist2[SV_MAX];
+float  sv_perm[SV_MAX];
+float  sv_permn;
 string sv_mats[SV_MATMAX];
+
+void() SmokeVol_Reset =
+{
+	sv_n = 0;
+	sv_permn = 0;
+	while (sv_matn > 0)
+	{
+		sv_matn = sv_matn - 1;
+		strunzone(sv_mats[sv_matn]);
+	}
+};
 
 float(vector lo, vector hi, float space, float width, float rot, float dens, string c1, string c2, string mat) SmokeVol_Add =
 {
@@ -5735,41 +5742,53 @@ float(vector lo, vector hi, float space, float width, float rot, float dens, str
 
 float(vector eye, vector fwd) SmokeVol_Draw =
 {
-	local float i, j, n, d, al, an, c, s, h;
-	local vector o, r, u, rr, uu, pr, pu;
+	local float i, j, k, n, d, al, an, c, s, h;
+	local vector o, rr, uu, pr, pu;
 
-	if (!sv_n || !cvar("vbsp_smokevol"))
+	if (!sv_n || !cvar("vbsp_smokevol") || !cvar("vbsp_emit"))
 		return 0;
 	makevectors(getproperty(VF_ANGLES));
 	pr = v_right;
 	pu = v_up;
-	n = 0;
-	for (i = 0; i < sv_n; i = i + 1)
+	// far first, sorted from last frame's order (sv_perm): an insertion sort of a nearly sorted list is near-linear,
+	// where sorting from index order was O(n^2) at the worst vantage (QC's && does not short-circuit: no [j-1] at j 0)
+	if (sv_permn != sv_n)
 	{
-		o = sv_org[i] - eye;
-		h = sv_half[i];
-		if (o * fwd < -h)
-			continue;	// wholly behind the eye
-		d = vlen(o);
-		// insertion sort, far first (QC's && does not short-circuit: no [j-1] test at j 0)
-		j = n;
+		for (i = 0; i < sv_n; i = i + 1)
+			sv_perm[i] = i;
+		sv_permn = sv_n;
+	}
+	for (k = 0; k < sv_n; k = k + 1)
+	{
+		i = sv_perm[k];
+		d = vlen(sv_org[i] - eye);
+		j = k;
 		while (j > 0)
 		{
 			if (sv_dist[j-1] >= d)
 				break;
-			sv_ord[j] = sv_ord[j-1];
+			sv_perm[j] = sv_perm[j-1];
 			sv_dist[j] = sv_dist[j-1];
 			j = j - 1;
 		}
-		sv_ord[j] = i;
+		sv_perm[j] = i;
 		sv_dist[j] = d;
+	}
+	n = 0;
+	for (k = 0; k < sv_n; k = k + 1)
+	{
+		i = sv_perm[k];
+		if ((sv_org[i] - eye) * fwd < -sv_half[i])
+			continue;	// wholly behind the eye
+		sv_ord[n] = i;
+		sv_dist2[n] = sv_dist[k];
 		n = n + 1;
 	}
 	for (j = 0; j < n; j = j + 1)
 	{
 		i = sv_ord[j];
 		h = sv_half[i];
-		al = sv_alpha[i] * bound(0, sv_dist[j] / h - 0.5, 1);	// fades out inside its own radius
+		al = sv_alpha[i] * bound(0, sv_dist2[j] / h - 0.5, 1);	// fades out inside its own radius
 		if (al <= 0.004)
 			continue;
 		an = (sv_ang[i] + sv_rot[i] * time) * (M_PI / 180);
