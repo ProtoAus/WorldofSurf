@@ -261,7 +261,7 @@ void() Sun_MapLight =
 {
 	local string tok, key, cn, inp, amb, ambhdr, lt, lthdr;
 	local float bloom, bat, d, p, y, havesc, havecsm, csmle, havele, epitch, ehaspitch, emin, emax, eminat, emaxat;
-	local float ambscale, ltscale, hascol, hdr, hdrk, expo, csmdist, autoexp;
+	local float ambscale, ltscale, hascol, hdr, hdrk, expo, csmdist, emsd, autoexp;
 	local vector eang, scdir, csmdir, ledir, thr, ecol, sccol, skyamb, skyambhdr, v;
 
 	bloom = 1;
@@ -279,7 +279,7 @@ void() Sun_MapLight =
 		eang = ecol = '0 0 0';
 		epitch = ehaspitch = hascol = 0;
 		ambscale = ltscale = 1;
-		d = 0;
+		d = emsd = 0;
 		while ((key = getentitytoken()) != "" && key != "}")
 		{
 			tok = getentitytoken();
@@ -295,8 +295,8 @@ void() Sun_MapLight =
 			}
 			else if (key == "uselightenvangles")
 				d = stof(tok);
-			else if (key == "maxshadowdistance" && !csmdist)
-				csmdist = stof(tok);	// P1762: env_cascade_light's reach (the first one's)
+			else if (key == "maxshadowdistance")
+				emsd = stof(tok);	// P1762: env_cascade_light's reach
 			else if (key == "color")
 			{
 				ecol = stov(tok);
@@ -362,6 +362,7 @@ void() Sun_MapLight =
 			y = eang_y * (M_PI / 180);
 			csmdir = [cos(p) * cos(y), cos(p) * sin(y), sin(p)];
 			csmle = (d != 0);
+			csmdist = emsd;
 			havecsm = TRUE;
 		}
 	}
@@ -372,7 +373,7 @@ void() Sun_MapLight =
 	// serverkey("map"): that can still be "" or the previous map here (P948).
 	hdrk = 0;
 	autoexp = (cvar("vbsp_autoexposure") && cvar_type("r_autoexposure"));	// P1764 (an older engine has no r_autoexposure)
-	if (cvar("vbsp_exposure") || autoexp || skyamb != skyambhdr)
+	if (cvar("vbsp_exposure") || skyamb != skyambhdr)
 		hdrk = Emit_MapHDR(CL_WorldShortName());	// -1: not read (a map over EM_BSPREAD)
 	hdr = hdrk == 1;
 	if (hdr)
@@ -387,10 +388,11 @@ void() Sun_MapLight =
 	if (emin > emax)
 		emax = emin;
 	expo = hdr ? bound(emin, 1, emax) : 1;
-	// P1764: Source's auto-exposure in the map's band on a map lit in HDR; it replaces the fixed test exposure.
+	// P1764: Source's auto-exposure in the map's band; it replaces the fixed test exposure.  The engine applies it only
+	// on a Source map drawn with its HDR lighting (the plugin's own choice), so no BSP read here.
 	if (cvar_type("r_autoexposure"))
 	{
-		if (autoexp && hdr)
+		if (autoexp)
 		{
 			cvar_set("r_autoexposure_min", ftos(emin));
 			cvar_set("r_autoexposure_max", ftos(emax));
@@ -433,7 +435,7 @@ void() Sun_MapLight =
 	if (cvar_type("r_shadows_cascade_dist"))
 		cvar_set("r_shadows_cascade_dist", (havecsm && csmdist > 0) ? ftos(bound(512, csmdist, 8192)) : cvar_defstring("r_shadows_cascade_dist"));
 	dprint(sprintf("maplight: bloom %g; exposure %g (band %g..%g, %s lighting)%s\n", bloom, expo, emin, emax,
-		hdrk < 0 ? "unread" : hdr ? "HDR" : "LDR", (autoexp && hdr) ? ", auto" : cvar("vbsp_exposure") ? ", applied" : ", not applied"));
+		hdrk < 0 ? "unread" : hdr ? "HDR" : "LDR", autoexp ? ", auto where HDR" : cvar("vbsp_exposure") ? ", applied" : ", not applied"));
 	dprint(sprintf("maplight: shadows thrown %v (%s), colour %v, sun floor %v\n", thr,
 		havesc ? "shadow_control" : havecsm ? "env_cascade_light" : "engine default", sccol, v));
 };
