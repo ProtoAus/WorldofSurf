@@ -1,6 +1,12 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
 ## P1820 admin half -- READY for the next generation (worldofsurf-47, 25 Nov; Lex's site list)
+LIVE 24 Nov UTC (game main cbefd439, engine record 0a01afc05): site 19:08Z (src/release/sitepage.ps1 into releases/0.1.68;
+backups /srv/nvme/ftesurf-site/.sitepage-prev/0.1.68-20261124T190746Z), board 19:09Z (publish_board.py --commit e0905e56,
+cut from gen1745's source_ref c2cbe46f; holds until the next generation, which carries the same web/ bytes from main),
+reportd's reportd_reports.html + _admin_style.html + _admin_brand.html 19:09Z (HUP; backups templates/*.pre1820-20261124T190919Z).
+tasupd: in 8b's single root upgrade at cbefd439 (top entry). Until the generation, /admin pages other than Reports keep
+the old look.
 surfd/admin.py (runs list SQL ~10x faster, same rows: 88 state/search/page combos identical to gen1745's on the Pi's
 surfd.db.bak-pre1710, worst 2.55 s -> 0.19 s; key_for 0.55 -> 0.07 s; `reason` + `why` = explain_verdict on each row and
 verdict), templates/_admin_style.html, admin*.html (site look, sitenav admin menu, tooltips), ADDED
