@@ -19,7 +19,7 @@
   changed for the player; no file names, hashes or anti-cheat details.
 -->
 
-## next
+## 0.1.67 2026-11-25
 
 ### P1799 Map uploads: zones optional, a Zone editor tab
 - Map admins can upload a map without a zone file: the upload window asks "Are you sure? This map doesn't have a zone file." first.

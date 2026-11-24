@@ -1,5 +1,17 @@
 # lextest.md — things waiting on a human
 
+## 0.1.67 release -- PUBLISHED 25 Nov 13:27Z, lobbies on its progs 13:40Z; your dev install has it (P1772, P1781-P1785
+## + a3's P1796-P1799)
+1. Save 32: the world-cast wall shadow is one sharp edge all the way, no soft cut-off.
+2. Save 29: the ground and table sunlit, the overhang's shadow where Momentum's is.
+3. Save 16: the corrugated ramp's grooves go dark like Momentum's.
+4. Save 30 and 6: no visible shaft fan in the barn (Momentum shows none).
+5. Save 11: the basin smoke haze is back.
+6. Hills and displacements: shading follows their slopes (check for creases where two displacements meet).
+7. Dark gradients and soft glows: no colour banding (r_dither 1; r_dither 0 to compare).
+Not done: the walk-through ramp (save 5: needs mover 17), glass letting the sun through, VC props' normal-map sun --
+BACKLOG "P1758-P1761".
+
 ## P1796-P1799 TAS uploads, +jumpduck, map upload zones (worldofsurf-a3, 24 Nov) -- tasupd/mapupd need your root upgrade
 ## (commands in the session); game + engine with the next release
 1. Key config, Movement: a "Jump + duck" row. Bind a key to it, start a run with it: you jump and stay ducked while
