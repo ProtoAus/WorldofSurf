@@ -70,12 +70,9 @@ CREATE TABLE IF NOT EXISTS uploads(map TEXT PRIMARY KEY, steamid TEXT NOT NULL, 
 '''
 ZONES_SQL = 'CREATE TABLE IF NOT EXISTS upload_zones(map TEXT PRIMARY KEY, sha TEXT NOT NULL, aside TEXT NOT NULL)'
 SQL += ZONES_SQL + ';\n'
-# P1799: upload_zones is a table of its own, not columns on uploads: an older release still serving the store while
-# `init` of a newer one runs (install_mapupd.py --upgrade-from) inserts 12 values into uploads, and a 13th column would
-# fail its INSERT after its files were published. sha: the zone file this upload wrote ('' none); aside: JSON
-# [{"dir", "file", "sha"}], the files it replaced, kept in <store>/zones-aside. An upload published before P1799 has
-# no row here: uploads.zone says whether it wrote zones (and then nothing was there before it: names with zones
-# were refused).
+# P1799: sha = the zone file an upload wrote ('' none), aside = JSON [{dir, file, sha}] of what it replaced (in
+# <store>/zones-aside). A table, not uploads columns: the old release still serving during `init` (--upgrade-from)
+# inserts 12 values into uploads. Pre-P1799 uploads have no row: uploads.zone says whether they wrote zones.
 ASIDE = 'zones-aside'
 
 
