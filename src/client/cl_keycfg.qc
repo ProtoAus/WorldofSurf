@@ -37,7 +37,7 @@
 ===========================================================================
 */
 
-#define KC_N        40
+#define KC_N        41
 
 // FTE names it; #630 in the engine table. checkbuiltin-gated in KC_SetBind.
 void(float keynum, string bindcmd, optional float bindmap, optional float modifier) setkeybind = #0:setkeybind;
@@ -90,15 +90,20 @@ string(float i) KC_Def =
 	if (i == 37) return "journal|Patch notes|ui_journal|ui_updates|F2|Game|notes";
 	if (i == 38) return "screenshot|Screenshot|screenshot||F9|Game|screenshot";
 	if (i == 39) return "fullscreen|Fullscreen|fullscreen_toggle|vid_toggle|F11|Game|fullscreen";
+	if (i == 40) return "jumpduck|Jump + duck|+jumpduck|||Movement|jump+duck";   // P1796: listed after Duck (KC_Order)
 	return "";
 };
 
 // P1400: the order both tabs list the rows in, three columns from KC_COL1 and KC_COL2. Row 13
 // keeps its id and index (the hint strip and old binds read them) but is listed with the tools.
-#define KC_COL1 13
-#define KC_COL2 26
+// P1796: row 40 (Jump + duck) is listed after Duck; the rest move down one.
+#define KC_COL1 14
+#define KC_COL2 27
 float(float n) KC_Order =
 {
+	if (n < 6) return n;
+	if (n == 6) return 40;
+	n = n - 1;
 	if (n < 13) return n;
 	if (n < 28) return n + 1;
 	if (n == 28) return 13;

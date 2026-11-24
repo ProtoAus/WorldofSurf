@@ -122,7 +122,7 @@ float(string b) Rewind_MoveBind =
 {
 	if (b == "+forward" || b == "+back" || b == "+moveleft" || b == "+moveright")
 		return TRUE;
-	if (b == "+jump" || b == "+duck" || b == "+moveup" || b == "+movedown")
+	if (b == "+jump" || b == "+duck" || b == "+moveup" || b == "+movedown" || b == "+jumpduck")
 		return TRUE;
 	return FALSE;
 };

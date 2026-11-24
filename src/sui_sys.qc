@@ -1079,7 +1079,8 @@ float() sui_listen_confirm =
 	return sui_listen_scan(K_ENTER)
 		|| sui_listen_scan(K_GP_A)
 		|| sui_listen_command("+attack")
-		|| sui_listen_command("+jump");
+		|| sui_listen_command("+jump")
+		|| sui_listen_command("+jumpduck");
 }
 
 float() sui_listen_back =

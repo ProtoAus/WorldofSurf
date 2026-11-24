@@ -444,22 +444,9 @@ float() Keys_TurnHeld =
 	return Keys_Held(FSK_TRIGHT);
 };
 
-void(float scan, float down) Keys_Edge =
+void(float act, float scan, float down) Keys_ActEdge =
 {
-	local float act, i, base, free;
-	local string b;
-
-	if (scan <= 0)
-		return;
-
-	b = getkeybind(scan);
-	act = Keys_Action(b);
-	if (act < 0)
-	{
-		if (Keys_TurnBind(b))
-			Keys_LookEdge(scan, down);
-		return;
-	}
+	local float i, base, free;
 
 	base = act * FSK_SLOTS;
 	free = -1;
@@ -481,4 +468,29 @@ void(float scan, float down) Keys_Edge =
 	// nothing to do -- the set already says "not held".
 	if (down && free >= 0)
 		ui_kdown[base + free] = scan;
+};
+
+void(float scan, float down) Keys_Edge =
+{
+	local float act;
+	local string b;
+
+	if (scan <= 0)
+		return;
+
+	b = getkeybind(scan);
+	if (b == "+jumpduck")       // P1796: one key, both actions
+	{
+		Keys_ActEdge(FSK_JUMP, scan, down);
+		Keys_ActEdge(FSK_DUCK, scan, down);
+		return;
+	}
+	act = Keys_Action(b);
+	if (act < 0)
+	{
+		if (Keys_TurnBind(b))
+			Keys_LookEdge(scan, down);
+		return;
+	}
+	Keys_ActEdge(act, scan, down);
 };
