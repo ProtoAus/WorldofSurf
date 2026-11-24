@@ -62,7 +62,10 @@ HELD_CAP = 10                       # an account's runs waiting for the owner
 # run. create_app(review=True) / TASUPD_REVIEW=1 holds as before.
 REVIEW_DEFAULT = False
 STORE_CAP = 4 * 1024 ** 3
-SESSION_TTL, STATE_TTL = 12 * 3600, 600
+# P1806 (a player, 25 Nov: "Website doesn't save your steam login"): was 12 h. A page read more than SESSION_RENEW after
+# the cookie was made sets a fresh one, so a browser in use stays signed in; Sign out ends every browser's session
+# (meta 'signout <steamid>').
+SESSION_TTL, STATE_TTL, SESSION_RENEW = 30 * 86400, 600, 86400
 PEER_READS, PEER_SIGNINS = 120, 10  # a minute, per address (an IPv6 /64)
 REC_PEER_BYTES, REC_ALL_BYTES = 32 * 1024 ** 2, 128 * 1024 ** 2   # .rec downloads a minute: an address / everyone
 STEAM_ATONCE, STEAM_MINUTE = 2, 30  # Steam confirmations in flight / a minute, everyone (surfd: OUT_ATONCE 2)
@@ -558,16 +561,30 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
             hits[k] = hits.get(k, 0) + n
             return hits[k] > cap
 
+    def session_cookie(sid, now):
+        exp = str(int(now) + SESSION_TTL)
+        return '%s.%s.%s' % (sid, exp, mac('session', sid, exp))
+
     def session():
-        """The signed-in SteamID, or ''."""
+        """The signed-in SteamID, or ''. Once a request; a GET page may set g.renew (P1806)."""
+        if 'sid' in g: return g.sid
+        g.sid = ''
         v = request.cookies.get(sess_cookie, '')
         f = v.split('.')
         if len(f) != 3 or not steam.is_steamid64(f[0]) or not f[1].isdigit(): return ''
-        if int(f[1]) < clock() or not hmac.compare_digest(f[2], mac('session', f[0], f[1])): return ''
-        return f[0]
+        now = clock()
+        if int(f[1]) < now or not hmac.compare_digest(f[2], mac('session', f[0], f[1])): return ''
+        with connect(store) as db:
+            out = db.execute('SELECT v FROM meta WHERE k = ?', ('signout ' + f[0],)).fetchone()
+        if out is not None and int(f[1]) - SESSION_TTL < int(out['v']): return ''   # made before a Sign out
+        g.sid = f[0]
+        if request.method in ('GET', 'HEAD') and not g.get('game') and int(f[1]) - SESSION_TTL < now - SESSION_RENEW:
+            g.renew = session_cookie(f[0], now)
+        return g.sid
 
     def csrf():
-        return mac('csrf', request.cookies.get(sess_cookie, ''))
+        # a renewing page's forms come back with the new cookie
+        return mac('csrf', g.get('renew') or request.cookies.get(sess_cookie, ''))
 
     def read_surfd(sql, args=()):
         """Rows from surfd.db (accounts, the board's runs), read-only. P1618 (AGENT_NOTES): once surfd's last close deletes -wal/-shm this
@@ -757,6 +774,10 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
 
     @app.after_request
     def headers(resp):
+        if g.get('renew') and resp.status_code < 400 and not any(
+                h.startswith(sess_cookie + '=') for h in resp.headers.getlist('Set-Cookie')):
+            resp.set_cookie(sess_cookie, g.renew, max_age=SESSION_TTL, path='/', secure=secure, httponly=True,
+                            samesite='Lax')
         resp.headers['Cache-Control'] = 'no-store'
         resp.headers['X-Content-Type-Options'] = 'nosniff'
         resp.headers['Referrer-Policy'] = 'same-origin'
@@ -870,8 +891,9 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                        '<p><label>Tool or bot (optional)<br><input type="text" name="tool" maxlength="%d" '
                        'placeholder="e.g. my search bot v2" size="40"></label></p><p><button type="submit">Upload and check</button></p>'
                        '<p class="fine">The board is 66.67 tick (tickrate 0.015). Map and course come from the file\'s header. '
-                       'Your Steam name is shown with the run and anyone can download the file.</p></form></div>'
-                       % (base, csrf(), MAX_REC // 1024 ** 2, TOOL_MAX))
+                       'Your Steam name is shown with the run and anyone can download the file. This browser stays signed '
+                       'in for %d days, renewed each day you visit; Sign out ends it on every browser.</p></form></div>'
+                       % (base, csrf(), MAX_REC // 1024 ** 2, TOOL_MAX, SESSION_TTL // 86400))
         else:
             card.append('<div class="card"><p><a class="go" href="%s/steam">Sign in with Steam to upload</a></p>'
                        '<p class="fine">Uploading needs a Steam account linked to World of Surf. First time? '
@@ -1056,9 +1078,8 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                         'then <a href="%s/steam">sign in here again</a>.</p>' % (SITE, base), 403)
         if acct[1]:
             return refuse('This Steam account cannot upload.', 403)
-        exp = str(now + SESSION_TTL)
         resp = redirect(base + '/', 303)
-        resp.set_cookie(sess_cookie, '%s.%s.%s' % (sid, exp, mac('session', sid, exp)), max_age=SESSION_TTL,
+        resp.set_cookie(sess_cookie, session_cookie(sid, now), max_age=SESSION_TTL,
                         path='/', secure=secure, httponly=True, samesite='Lax')
         resp.delete_cookie(state_cookie, path='/', secure=secure, httponly=True, samesite='Lax')
         return resp
@@ -1072,6 +1093,10 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
     @app.post(base + '/signout')
     def signout():
         if not post_ok(): return refuse('That form is out of date; reload the page.', 403)
+        sid = session()
+        if sid:
+            with connect(store) as db, writing(db):
+                db.execute('INSERT OR REPLACE INTO meta(k, v) VALUES (?, ?)', ('signout ' + sid, str(int(clock()))))
         resp = redirect(base + '/', 303)
         resp.delete_cookie(sess_cookie, path='/', secure=secure, httponly=True, samesite='Lax')
         return resp

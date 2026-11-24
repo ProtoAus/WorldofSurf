@@ -241,6 +241,43 @@ class Service(unittest.TestCase):
         self.clock.t += svc.SESSION_TTL + 1
         self.assertEqual(self.upload(c, rec(), csrf='x').status_code, 401)
 
+    def signed_in(self, c):
+        return 'Signed in as' in c.get('/tasup/').get_data(as_text=True)
+
+    def test_session_lasts_thirty_days(self):   # P1806
+        c, back = self.sign_in(ALICE)
+        self.assertIn('Max-Age=%d' % (30 * 86400), back.headers['Set-Cookie'])
+        self.clock.t += svc.SESSION_TTL - 60
+        self.assertEqual(self.upload(c, rec(), csrf='x').status_code, 403)   # still signed in: only the form is wrong
+
+    def test_a_page_renews_the_session(self):
+        c, _ = self.sign_in(ALICE)
+        self.assertNotIn('Set-Cookie', c.get('/tasup/').headers)            # a fresh cookie is not re-sent
+        self.clock.t += 2 * 86400
+        page = c.get('/tasup/')
+        self.assertIn('ftup=', page.headers.get('Set-Cookie', ''))
+        self.clock.t += svc.SESSION_TTL - 86400                             # 31 days after signing in
+        self.assertTrue(self.signed_in(c))
+        r = self.upload(c, rec())                                           # the renewing page's form is accepted
+        self.assertEqual((r.status_code, r.get_json().get('ok')), (200, 1), r.get_json())
+        self.clock.t += svc.SESSION_TTL + 1
+        self.assertFalse(self.signed_in(c))
+
+    def test_sign_out_ends_every_browser(self):
+        c1, _ = self.sign_in(ALICE)
+        c2, _ = self.sign_in(ALICE)
+        c3, _ = self.sign_in(BOB)
+        self.clock.t += 5
+        r = c1.post('/tasup/signout', data={'csrf': self.csrf(c1)})
+        self.assertEqual(r.status_code, 303)
+        self.assertFalse(self.signed_in(c1))
+        self.assertFalse(self.signed_in(c2))
+        self.assertEqual(self.upload(c2, rec(), csrf='x').status_code, 401)
+        self.assertTrue(self.signed_in(c3))
+        self.clock.t += 61                                                  # PEER_STEAM: 3 confirmations a minute
+        c4, _ = self.sign_in(ALICE)                                         # signing in again works
+        self.assertTrue(self.signed_in(c4))
+
     # uploads
 
     def test_clean_run_is_shown(self):
