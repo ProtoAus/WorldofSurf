@@ -49,6 +49,12 @@ since, re-take its sha256 and re-run the dry run first. Rollback: `systemctl dis
 /etc/nginx/play.proto.bar.conf.pre-mapupd-99171e807f56 back over the site file, remove
 /etc/nginx/snippets/ftesurf-mapupd.conf and /etc/nginx/conf.d/ftesurf-mapupd-zones.conf, `nginx -t && systemctl reload
 nginx`. Pi task root /srv/nvme/agent-work/mapupd-20261123-cb (OWNER.md).
+## 24 Nov 2026 21:01Z: lobby ENGINE + plugin + progs = release 0.1.70 LIVE (worldofsurf-67) -- MOVER 17
+All 12 lobbies: arm64 engine 190160f1 + hl2 plugin 4f3208f5 (9fc09ffcb patch-1799-22, P1812 mover 17; = surfd's
+verifier) over the patch-1747 pair 54421115 / f642ceec; qwprogs 7dde97db / csprogs a6ec5be0 (= release 0.1.70, tag
+v0.1.70 = 89e2b7a1) over 2b8bfc7f / 1dd36f2c; backups *.pre0170-20261124T205537Z; codes.txt 190. Gated in
+nanopi:/srv/nvme/agent-work/eng1812-20261124-67 (delete once settled). Any future arm64 lobby engine starts from >= 9fc09ffcb.
+
 ## 24 Nov 2026 19:50Z: lobby progs = release 0.1.69 LIVE (worldofsurf-67)
 All 12 lobbies: qwprogs 2b8bfc7f / csprogs 1dd36f2c (= release 0.1.69, tag v0.1.69 = 65bb87b5; rebuilt for the version),
 over b442b030 / e5fb3ab9; backups *.pre0169-20261124T192817Z; codes.txt 189. Engine unchanged (patch-1747 arm64). See

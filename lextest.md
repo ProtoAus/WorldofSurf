@@ -1,5 +1,12 @@
 # lextest.md — things waiting on a human
 
+## 0.1.70 release -- PUBLISHED 24 Nov 20:53Z UTC; your dev install has it (P1812 mover 17); lobbies: engine + plugin + progs
+1. Save 5: walk at the corrugated metal ramp -- you go up and over it (and land on its slope from a drop) instead of
+   sinking into it, as in Momentum. Runs now record movement version 17 (lobbies verify it).
+2. Anywhere else with solid props (barrels, crates on canals and other Source maps): nothing should feel different
+   except that they are solid in their true shape. Report anything that snags.
+Not done: save 36's remaining reflection gap, save 37's sky -- BACKLOG.
+
 ## 0.1.69 release -- PUBLISHED 24 Nov 19:26Z UTC, lobbies on its progs 19:50Z; your dev install has it (P1810/P1811)
 1. Saves 40/41 and around the oak by the water tower: the tree switches to simpler models as you move away, as in
    Momentum (and the distant trees at save 13).

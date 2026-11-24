@@ -19,7 +19,7 @@
   changed for the player; no file names, hashes or anti-cheat details.
 -->
 
-## next
+## 0.1.70 2026-11-24
 
 ### P1812 Solid props are solid (mover 17)
 - Solid Source props such as bhop_canals' corrugated metal ramp now collide through their real physics shape, so you walk up and over them instead of sinking through or sticking inside. Runs record movement version 17.
