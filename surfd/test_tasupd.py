@@ -6,6 +6,7 @@ import contextlib
 import io
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -306,10 +307,7 @@ class Service(unittest.TestCase):
 
     def test_header_refusals(self):
         c, _ = self.sign_in(ALICE)
-        cases = [(rec(extra='foreign ksf 1 2 3'), 'imported'),
-                 (rec(extra='momdemo 4017998251465ca2'), 'imported'),
-                 (rec(extra='runid mom-4017998251465ca2'), 'imported'),
-                 (rec().replace(b'tickrate 0.015', b'tickrate 0.01'), '66.67 tick'),
+        cases = [(rec().replace(b'tickrate 0.015', b'tickrate 0.01'), '66.67 tick'),
                  (rec().replace(b'tickrate 0.015', b'tickrate nan'), 'not a number'),
                  (rec().replace(b'track 0\n', b'track 0\ntrack 1\n'), 'twice'),
                  (rec().replace(b'track 0\n', b'track 0\x0bmovetickrate 0.02\n'), 'other than newline, space and tab'),
@@ -1623,6 +1621,114 @@ class CourseFinder(Service):
         app = svc.create_app(self.store, self.accounts, self.zdirs, BASE, http=self.fake_http, clock=self.clock)
         self.assertEqual(app.test_client().get('/tasup/board?map=surf_sandtrap2').status_code, 200)
         self.assertIn('<datalist id="tasup-maps"></datalist>', app.test_client().get('/tasup/').get_data(as_text=True))
+
+
+KSF_HEAD = ('runid ksf-bdb1525ceaed47b6c518\nforeign ksf bdb1525ceaed47b6c5187c714efc65bf7c5d30e6c2927508519c32d52004f23b\n'
+            'mapbuild unknown\nksfdemo 2 93 615 FW\nksfground 0\nksfmoves 0\nksftime 1.200000000')
+
+
+class PublicReplays(Service):
+    """P1798: importer header lines are no refusal; an upload whose motion is a public replay's is (Rounin, 24 Nov).
+    Every Service test runs here too, with the comparison on."""
+
+    def setUp(self):
+        super().setUp()
+        d = Path(self.tmp.name)
+        self.roots = {k: d / ('rep_' + k) for k in ('run', 'ksf', 'momentum')}
+        with contextlib.closing(sqlite3.connect(self.accounts)) as db, db:
+            db.execute('CREATE TABLE replays (id INTEGER PRIMARY KEY, map TEXT, map_dir TEXT, track INTEGER, leg INTEGER, leaf TEXT,'
+                       ' tier TEXT, style TEXT, player TEXT, name TEXT, ticks INTEGER, tickrate REAL, runid TEXT, kind TEXT)')
+        self.app = svc.create_app(self.store, self.accounts, self.zdirs, BASE, http=self.fake_http, clock=self.clock,
+                                  replay_dirs={k: str(v) for k, v in self.roots.items()})
+        self.rid = 100
+
+    def public(self, body, kind='ksf', player='76561198057416875', name='agent flwrs', ticks=None, runid='', leaf=None,
+               track=0, tickrate=66.66666666666667, write=True):
+        """A surfd replays row and its file; ticks default to the file's own length."""
+        self.rid += 1
+        tp = svc.load_tasplaus()
+        if ticks is None: ticks = tp.read(text=body.decode()).end
+        leaf = leaf or '%07d_ksf%08x-d39734cf_run.rec' % (ticks, self.rid)
+        if write:
+            f = self.roots[kind] / 'synth' / ('main' if track == 0 else 'bonus_%d' % track) / leaf
+            f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(body)
+        with contextlib.closing(sqlite3.connect(self.accounts)) as db, db:
+            db.execute("INSERT INTO replays VALUES (?, 'synth', 'synth', ?, 0, ?, ?, 'clean', ?, ?, ?, ?, ?, ?)",
+                       (self.rid, track, leaf, kind, player, name, ticks, tickrate, runid, kind))
+        return self.rid
+
+    def test_importer_lines_alone_are_no_refusal(self):
+        """Rounin's case: a bot's run on a downloaded KSF replay's header, its own motion."""
+        self.public(rec(*variant(vw=3.0)))   # another motion on the course
+        c, _ = self.sign_in(ALICE)
+        for i, extra in enumerate((KSF_HEAD, 'momdemo 4017998251465ca2\nmomquality 1', 'runid mom-4017998251465ca2')):
+            r = self.upload(c, rec(extra=extra + '\ncomment %d' % i))
+            self.assertEqual((r.status_code, r.get_json().get('state')), (200, 'shown'), r.get_json())
+
+    def test_a_reheaded_public_replay_is_refused(self):
+        """BACKLOG P1640's falsifier: a board replay re-headed (importer lines gone) is "the motion of <player>'s run"."""
+        rid = self.public(rec(extra=KSF_HEAD))
+        c, _ = self.sign_in(ALICE)
+        for body in (rec(), rec(extra=KSF_HEAD), rec(extra='owner alice\ncomment mine')):
+            r = self.upload(c, body)
+            self.assertEqual(r.status_code, 409, r.get_json())
+            self.assertIn("motion of agent flwrs's KSF run on this course (replay %d)" % rid, r.get_json()['error'])
+        self.assertEqual(self.cli('list', '--state', 'all')[1], '')   # nothing kept
+
+    def test_each_kind_and_a_shifted_copy(self):
+        rows, fin = fx.simulate()
+        moved = [(t, [o[0] + 500.0, o[1] - 20.0, o[2] + 3.0], v) for t, o, v in rows]   # the same motion elsewhere
+        for kind, label in (('momentum', 'Momentum'), ('run', 'World of Surf')):
+            with self.subTest(kind=kind):
+                self.setUp()
+                self.public(rec(), kind=kind, name='Bob')
+                c, _ = self.sign_in(ALICE)
+                r = self.upload(c, rec(moved, fin))
+                self.assertEqual(r.status_code, 409, r.get_json())
+                self.assertIn("Bob's %s run" % label, r.get_json()['error'])
+
+    def test_the_named_replay_is_compared_whatever_its_length(self):
+        """The runid's replay even when its row's length is outside the window (the nearest-in-length list)."""
+        self.public(rec(extra=KSF_HEAD), ticks=5000, runid='ksf-bdb1525ceaed47b6c518')
+        c, _ = self.sign_in(ALICE)
+        self.assertEqual(self.upload(c, rec(extra=KSF_HEAD)).status_code, 409)
+        self.assertEqual(self.upload(c, rec(extra='comment no runid')).get_json().get('state'), 'shown')   # not named, not near
+
+    def test_own_public_replay_and_other_courses_are_not_claims(self):
+        self.public(rec(), player=ALICE, name='Alice')                       # the uploader's own run
+        self.public(rec(), track=2)                                          # another course
+        self.public(rec(), tickrate=100.0)                                   # another tick rate is another board
+        self.public(rec(), write=False)                                      # a row whose file is gone
+        self.public(rec(), leaf='../../../synth/main/escape_run.rec')        # outside the grammar
+        c, _ = self.sign_in(ALICE)
+        r = self.upload(c, rec())
+        self.assertEqual((r.status_code, r.get_json().get('state')), (200, 'shown'), r.get_json())
+
+    def test_an_unreadable_replay_is_passed_over(self):
+        self.public(b'FTESURF-REC 14\nmap synth\n' + b'\xff' * 64, ticks=80)   # no samples, not utf-8
+        self.public(rec(*variant(vw=3.0)))
+        c, _ = self.sign_in(ALICE)
+        self.assertEqual(self.upload(c, rec()).get_json().get('state'), 'shown')
+
+    def test_surfd_unreadable_holds(self):
+        with contextlib.closing(sqlite3.connect(self.accounts)) as db, db: db.execute('DROP TABLE replays')
+        c, _ = self.sign_in(ALICE)
+        r = self.upload(c, rec())
+        self.assertEqual(r.get_json().get('state'), 'held', r.get_json())
+        self.assertIn('not compared with the public replays', json.dumps(r.get_json()['reasons']))
+
+    def test_pub_file_stays_in_its_root(self):
+        roots = {k: str(v) for k, v in self.roots.items()}
+        row = dict(kind='ksf', map_dir='synth', track=3, leg=0, leaf='0000080_ksfabc-1_run.rec')
+        f = self.roots['ksf'] / 'synth' / 'bonus_3' / row['leaf']; f.parent.mkdir(parents=True); f.write_bytes(b'x')
+        self.assertEqual(svc.pub_file(roots, row), os.path.realpath(f))
+        for bad in (dict(row, kind='evidence'), dict(row, leaf='../x.rec'), dict(row, map_dir='..'), dict(row, leaf='a/b.rec'),
+                    dict(row, track=0)):
+            self.assertIsNone(svc.pub_file(roots, bad), bad)
+        (self.roots['ksf'] / 'synth' / 'main').mkdir()
+        os.symlink('/etc/hostname', self.roots['ksf'] / 'synth' / 'main' / 'link_run.rec')
+        self.assertIsNone(svc.pub_file(roots, dict(row, track=0, leaf='link_run.rec')))
+
 
 if __name__ == '__main__':
     unittest.main()

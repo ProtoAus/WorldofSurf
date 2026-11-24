@@ -52,8 +52,11 @@ generation change, 127.0.0.1:8093; 8091 is the twitch bot).
   only). Bans and names are read live (5-minute cache); a ban hides that player's rows.
 - **What**: a FTESURF-REC, 8 MB max, tickrate/movetickrate 0.015, map and track from its header,
   read by tasplaus's own header reader (a key given twice or a line break other than `\n`/`\r\n`
-  is refused). KSF/Momentum imports (`foreign` and the other import keys, `mom-`/`ksf-` run ids)
-  refused; stage legs (`leg`/`startseg`) refused (whole courses only); the header must end within
+  is refused). The KSF/Momentum importers' header lines (`foreign`, `ksfdemo`, `mom-`/`ksf-` run ids...)
+  are no claim (P1798, 24 Nov: Rounin's bot run on a downloaded KSF replay's header was refused); instead
+  each upload's motion is compared with the course's public replays (surfd's KSF, Momentum and World of Surf
+  runs: the one its runid names, then the 8 nearest in length, 2 a player, never the uploader's own; 10 s,
+  then the rest go unread) and the same motion is refused as "the motion of <player>'s <source> run"; stage legs (`leg`/`startseg`) refused (whole courses only); the header must end within
   64 KB and the samples must be plain ASCII. The same file twice is refused. Another player's motion
   is HELD for the owner with "the motion of run N (another player's)", never shown (two bots on one
   course may converge, so it is not refused as an accusation): rounded motion, or velocities on the

@@ -92,6 +92,9 @@ FILES = {'surfd/tasupd.py': 'tasupd.py', 'surfd/tasupd_wsgi.py': 'tasupd_wsgi.py
 # (a lobby deploy keeps the build it replaced as csprogs.dat.preNNNN-<when>: tasupd takes the newest two; .prev* are stale)
 GAME_FILES = ['/srv/nvme/ftesurf-server/game/ftesurf/csprogs.dat', '/srv/nvme/ftesurf-server/game/ftesurf/csprogs.dat.pre[0-9]*']
 SITE_RELEASES = '/srv/nvme/ftesurf-site/releases'
+# P1798: surfd's public replay files (surfd.py RUNS_DIR, KSF_DIR, MOMENTUM_DIR), read so an upload cannot be one of them
+REPLAY_DIRS = {'run': '/srv/nvme/ftesurf-server/game/ftesurf/data/runs', 'ksf': '/srv/nvme/surfd/data/ksfruns',
+               'momentum': '/srv/nvme/ftesurf-server/game/ftesurf/data/momentum'}
 MAPMETA = '/srv/nvme/ftesurf-site/media/mapmeta.txt'   # P1700: the course finder's maps and thumbnails   # <version>/update.json (not RELEASES, the installs)
 
 
@@ -206,7 +209,7 @@ def init_store(release):
 
 # P1696: environment an earlier installer did not write (a8efd378's has none of these); its unit is still its own
 # Environment each later installer added, in order: a8efd378 wrote none of it, 73229378 (P1696) the first group
-ENV_ADDED = (('TASUPD_GAMES', 'TASUPD_RELEASES'), ('TASUPD_MAPMETA',))
+ENV_ADDED = (('TASUPD_GAMES', 'TASUPD_RELEASES'), ('TASUPD_MAPMETA',), ('TASUPD_REPLAYS',))
 
 
 def old_units(old, account_db, commit):
@@ -225,6 +228,7 @@ def service_env(release, account_db, commit):
                 TASUPD_ZONES=os.pathsep.join(ZONE_DIRS), TASUPD_MAPCFG=os.pathsep.join(MAPCFG_DIRS),
                 TASUPD_URL=PUBLIC_URL, SURFD_TOOLS=str(release / 'tools'),
                 TASUPD_GAMES=json.dumps(GAME_FILES), TASUPD_RELEASES=SITE_RELEASES, TASUPD_MAPMETA=MAPMETA,
+                TASUPD_REPLAYS=json.dumps(REPLAY_DIRS, sort_keys=True),
                 TASUPD_SOURCE=commit)
 
 

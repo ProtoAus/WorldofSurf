@@ -409,11 +409,10 @@ once the reload clock is rebased -- scratchpad p1716_rebase.py), giving a "re-si
   every upload is judged by tools/tasplaus.py alone. Falsifier: a native TAS .rec gets "re-simulated", a
   one-row edit of it does not.
 - tools/tasplaus.py: map push/booster volumes and stage legs still HOLD (surf_classics/sodacity boosters).
-- Human replays passed off as TAS: tasupd refuses files with KSF/Momentum import keys or `mom-`/`ksf-` run ids
-  and copies of other uploads, but not a public surfd/KSF/Momentum replay with those keys stripped (it is real
-  motion, so it passes physics). Fix: compare each upload's motion signature (tasupd.motion_series/same_motion)
-  against that course's public replays before showing it. Falsifier: a board replay re-headed and uploaded is
-  refused as "the motion of <player>'s run". Until then: `tasupd.py remove <id>`.
+- P1798 compares each upload with the course's public replays, but only the 8 nearest in length (+ the one its
+  runid names) within 10 s, files up to 16 MB: a copy of a replay that is neither near in length (cut short) nor
+  named, or of a larger lobby file, is not caught; the comparison is reread from disk on every upload (no cached
+  signature). Falsifier: a public replay cut to 80% of its ticks and uploaded is refused.
 - tasupd limits not covered by unit tests: the two-at-once Steam confirmation slot (503), IPv6 /64 rate keys and
   the owner CLI's "changed meanwhile" race. Bans reach tasupd within surfd's 5-minute account cache at worst;
   signed-in sessions (12 h) cannot be revoked except by rotating the meta secret.

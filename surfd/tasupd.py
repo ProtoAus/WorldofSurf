@@ -18,6 +18,8 @@ OpenID through steam.py; each assertion's nonce is burned in this store.
   GET  /tasup/api/health              reads the store and surfd.db as the service (install probe)
 A run that reaches the best known time on its course (surfd's clean record in a trusted tier, or the
 best upload shown here), or the first on a course, is held: the checker cannot see the map's walls.
+A run whose motion is one of the course's public replays (surfd's KSF/Momentum/World of Surf runs) is
+refused as its player's (P1798); another upload's motion is held.
   GET  /tasup/steam, /tasup/steam/return
   POST /tasup/upload                  multipart: rec (file), tool (text), csrf
   POST /tasup/signout
@@ -95,9 +97,19 @@ _CTRL = re.compile(r'[\x00-\x1f\x7f]')
 # accounts._NAME_PUNCT: a tool name may be shown in game one day, so nothing the engine reads as markup.
 TOOL_PUNCT = frozenset(" ._-!?()[]+=*#@'~,|")
 STATES = ('shown', 'held', 'rejected', 'removed')
-# Header keys only surfd's KSF/Momentum importers write (117 imports against 164 of our recordings).
-IMPORT_KEYS = frozenset(('foreign', 'demodata', 'ksfdemo', 'ksfground', 'ksfmoves', 'ksftime', 'mapbuild',
-                         'momdemo', 'momquality'))
+# P1798 (Lex 24 Nov: Rounin's surf_sandtrap2 bonus 4 TAS was refused as "an imported run"): the KSF/Momentum importers'
+# header lines (foreign, ksfdemo, momdemo, a ksf-/mom- runid...) are no claim either way -- a bot may build its file on a
+# downloaded replay's header, and a copier deletes them. The motion decides: every upload is compared with the course's
+# public replays (surfd's KSF, Momentum and World of Surf runs) nearest in length, and the one its runid names; their
+# motion is their player's (BACKLOG P1640 "Human replays passed off as TAS").
+PUB_KINDS = {'run': 'World of Surf', 'ksf': 'KSF', 'momentum': 'Momentum'}   # surfd replays.kind; never 'evidence'
+PUB_CANDIDATES, PUB_PER_PLAYER = 8, 2   # nearest in length per upload; per player (beside the one the runid names)
+PUB_BYTES = 2 * MAX_REC                 # a larger replay file (a long lobby run with its input rows) is not read
+PUB_BUDGET = 10.0                       # s reading them (Pi: 6.9 MB in 1.2 s, 2x under CPUQuota); then the rest go unread,
+                                        # no hold: nearest first (a re-headed replay has its original's length)
+PUB_LEAF = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}\.rec')
+PUB_MAP = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}')   # surfd._MAPNAME_OK
+PUB_RUNID = re.compile(r'(?:ksf|mom)-[0-9a-f]{8,64}')
 # P1696: the game posts to /upload as GAME_MIME, the linked key's proof before the file (cl_tasupload.qc). Signed as zone
 # publishing signs (acct_sign kind -6, the site fixed) but over game_nonce(): this purpose and the file's hash, so neither
 # service takes the other's proof and no game code before P1696 can make one.
@@ -375,15 +387,17 @@ def unpack_sig(blob):
     return both[:half], both[half:]
 
 
-def copy_of(series, path, mask, rows):
+def copy_of(series, path, mask, rows, budget=None, late='the copy check ran out of time on this course: the owner compares it'):
     """(row, why) for the first row (id, steamid, state, sig) whose motion `series` or path `path` is,
     (None, why) when more candidates than COPY_FULL passed the cheap pass and failed the full one (a
-    person looks), (None, None) otherwise. Rows may be a cursor. Either matching is a copy."""
+    person looks), (None, late) past `budget` seconds (COPY_BUDGET), (None, None) otherwise. Rows may be a cursor or a
+    generator. Either matching is a copy."""
     sampled = [i for i in range(len(mask)) if mask[i]]
     steps, full, t0 = path_steps(sampled), 0, time.monotonic()
+    budget = COPY_BUDGET if budget is None else budget
     for r in rows:
-        if time.monotonic() - t0 > COPY_BUDGET:
-            return None, 'the copy check ran out of time on this course: the owner compares it'
+        if time.monotonic() - t0 > budget:
+            return None, late
 
         vel, pos = unpack_sig(r['sig'])
         for same, mine, theirs, kw in ((same_motion, series, vel, dict(sampled=sampled)),
@@ -396,6 +410,20 @@ def copy_of(series, path, mask, rows):
             if full > COPY_FULL:
                 return None, 'close to more than %d runs on this course: the owner compares them' % COPY_FULL
     return None, None
+
+
+def pub_file(roots, row):
+    """The file of a surfd replays row (P1798) as surfd.replay_file finds it -- <root of its kind>/<map_dir>/<leg dir>/<leaf>
+    -- or None: an unknown kind, a name outside the grammar, a path leaving the root, not a file."""
+    root = roots.get(row['kind']) if row['kind'] in PUB_KINDS else None
+    leaf, map_dir = row['leaf'] or '', row['map_dir'] or ''
+    if not root or not PUB_LEAF.fullmatch(leaf) or not PUB_MAP.fullmatch(map_dir): return None
+    track, leg = int(row['track']), int(row['leg'])
+    sub = ('main' if leg <= 0 else 'stage_%d' % leg) if track <= 0 else (
+        'bonus_%d' % track if leg <= 0 else 'bonus_%d_stage_%d' % (track, leg))   # surfd.leg_dir
+    root = os.path.realpath(root)
+    path = os.path.realpath(os.path.join(root, map_dir, sub, leaf))
+    return path if path.startswith(root + os.sep) and os.path.isfile(path) else None
 
 
 _MAXVEL = re.compile(r'^\s*(?:seta?\s+)?sv_maxvelocity\s+"?([0-9]+(?:\.[0-9]+)?)"?', re.M)
@@ -478,10 +506,12 @@ def label(r):
 
 
 def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=time.time, map_cfg_dirs=(),
-               game_files=(), releases=None, fetch=fetch_https, verify=None, mapmeta=None, review=None):
+               game_files=(), releases=None, fetch=fetch_https, verify=None, mapmeta=None, review=None, replay_dirs=None):
     """game_files: csprogs the lobbies serve; releases: the site's releases/ (<version>/update.json) -- the game code
     whose proofs are taken (P1696). verify: an ed25519 module (tests), else tools/ed25519.py. mapmeta: the site's
-    media/mapmeta.txt (tools/mapmeta.py) -- the course finder's maps, their courses and thumbnails (P1700)."""
+    media/mapmeta.txt (tools/mapmeta.py) -- the course finder's maps, their courses and thumbnails (P1700).
+    replay_dirs: {kind: root} of surfd's public replay files (run, ksf, momentum), which uploads must not copy (P1798)."""
+    replay_dirs = {k: v for k, v in (replay_dirs or {}).items() if k in PUB_KINDS and v}
     tp = load_tasplaus()
     review = REVIEW_DEFAULT if review is None else bool(review)
     app = Flask(__name__)
@@ -557,6 +587,52 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                          ' AND tier IN (%s) AND style IN (%s)' % (','.join('?' * len(TIERS_RECORD)), ','.join('?' * len(STYLES_RECORD))),
                          (mapname, track) + TIERS_RECORD + STYLES_RECORD)
         return got[0][0] if got and got[0][0] else None
+
+    def public_replays(mapname, track, end, sid, runid):
+        """surfd's replays an upload of `end` ticks is compared with (P1798): the one its header's ksf-/mom- runid names,
+        then the nearest in length on the course (at most PUB_PER_PLAYER a player); never the uploader's own. Raises
+        Unavailable."""
+        kinds = tuple(k for k in PUB_KINDS if k in replay_dirs)
+        if not kinds: return []
+        lo, hi = end - max(30, end // 10), end + max(30, end // 10)
+        sql = ('SELECT id, kind, map_dir, track, leg, leaf, player, name FROM replays WHERE map = ? AND track = ? AND leg = 0'
+               ' AND kind IN (%s) AND ABS(tickrate - ?) < 0.01 AND player != ? AND %%s ORDER BY ABS(ticks - ?), id LIMIT ?'
+               % ','.join('?' * len(kinds)))
+        head = (mapname, track) + kinds + (1 / TICK, sid)
+        named = read_surfd(sql % 'runid = ?', head + (runid, end, 2)) if PUB_RUNID.fullmatch(runid) else []
+        out, per, seen = list(named), {}, {r['id'] for r in named}
+        for r in read_surfd(sql % 'ticks BETWEEN ? AND ?', head + (lo, hi, end, PUB_CANDIDATES * 4)):
+            if len(out) >= len(named) + PUB_CANDIDATES: break
+            if r['id'] in seen or per.get(r['player'], 0) >= PUB_PER_PLAYER: continue
+            per[r['player']] = per.get(r['player'], 0) + 1
+            out.append(r)
+        return out
+
+    def public_copy(series, trail, mask, rows):
+        """copy_of over `rows` (public_replays), each file read and turned into a motion signature only when its turn
+        comes, one at a time; a file missing, too big or unreadable is passed over. Out of time: the rest go unread."""
+        t0 = time.monotonic()
+
+        def sigs():
+            for r in rows:
+                if time.monotonic() - t0 > PUB_BUDGET: return
+                p = pub_file(replay_dirs, r)
+                if p is None: continue
+                try:
+                    with open(p, 'rb') as fh: body = fh.read(PUB_BYTES + 1)
+                    if len(body) > PUB_BYTES or not body.startswith(b'FTESURF-REC '): continue
+                    run = tp.read(text=body.decode('utf-8', 'replace'))
+                    del body
+                    if run.end is None or len(run.samples) < 3: continue
+                    pos = array('f')
+                    vel = motion_series(run, None, pos)
+                    del run
+                except Exception:   # one unreadable replay is not the uploader's fault
+                    app.logger.exception('tasupd: replay %s did not read', r['id'])
+                    continue
+                yield {'id': r['id'], 'kind': r['kind'], 'name': r['name'], 'state': 'public',
+                       'sig': zlib.compress(vel.tobytes() + pos.tobytes(), 1)}
+        return copy_of(series, trail, mask, sigs(), budget=PUB_BUDGET + 5, late=None)
 
     def accounts_of(steamids):
         """{steamid: (name, banned)} for the ones World of Surf knows; raises Unavailable."""
@@ -1272,8 +1348,7 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         if not 0 <= track <= MAX_TRACK: return refuse('The header names no usable track.', 400)
         if tp.hdr_int(hdr, 'leg') or tp.hdr_int(hdr, 'startseg'):
             return refuse('This board takes whole courses: a stage leg (leg or startseg in the header) cannot be uploaded.', 400)
-        if IMPORT_KEYS.intersection(hdr) or (hdr.get('runid') or '').startswith(('mom-', 'ksf-')):
-            return refuse('That is an imported run (KSF or Momentum): it is its player\'s, not an upload.', 400)
+        runid = (hdr.get('runid') or '').strip().lower()   # P1798: importer lines are no claim; the motion check below decides
         rates = []
         for k in ('movetickrate', 'tickrate'):   # movetickrate 0 is "no engine value" (grammar)
             try: x = float((hdr.get(k) or '0').split()[0])
@@ -1403,13 +1478,23 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
             unspend(sid, now)
             return refuse('The checker is busy; try again in a minute.', 503)
         try:
-            with connect(store) as db:
-                seen = db.execute('SELECT COALESCE(MAX(id), 0) FROM runs').fetchone()[0]
-                owns = owns_motion(db)
-                copy = copied(db, 0, owns)
+            try:
+                pub, pub_why = public_copy(series, trail, mask, public_replays(mapname, track, end, sid, runid))
+                pub_why = pub_why and 'public replays: ' + pub_why
+            except Unavailable as e:
+                pub, pub_why = None, 'not compared with the public replays: %s' % e
+            if pub is None:
+                with connect(store) as db:
+                    seen = db.execute('SELECT COALESCE(MAX(id), 0) FROM runs').fetchone()[0]
+                    owns = owns_motion(db)
+                    copy = copied(db, 0, owns)
         finally:
             heavy.release()
+        if pub is not None:
+            return refuse('That is the motion of %s\'s %s run on this course (replay %d): it is its player\'s, not an'
+                          ' upload.' % (pub['name'] or 'another player', PUB_KINDS[pub['kind']], pub['id']), 409)
         if copy is not None and not isinstance(copy, str): return copy
+        if pub_why: copy = pub_why if copy is None else copy   # held for the owner, as a close copy is
         record, record_why = None, None
         try: record = course_record(mapname, track)
         except Unavailable as e: record_why = str(e)

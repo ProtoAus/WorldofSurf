@@ -60,7 +60,7 @@ class Upgrade(unittest.TestCase):
     def install_old(self, root):
         old = root / OLD; old.mkdir(parents=True)
         (old / 'SOURCE.json').write_text(json.dumps(dict(commit=OLD, files={})))
-        # as 73229378's installer wrote it (the live unit since P1696): without the newest group of ENV_ADDED
+        # as da9042b3's installer wrote it (the live unit since P1700): without the newest group of ENV_ADDED (P1798)
         t.UNIT.write_bytes(t.old_units(old, Path('/srv/nvme/surfd/data/surfd.db'), OLD)[1])
 
     def tearDown(self):
@@ -213,12 +213,15 @@ class Upgrade(unittest.TestCase):
         self.assertEqual((t.RELEASES / NEW / 'unit.prev').read_bytes(), old)
 
     def test_each_earlier_installers_unit_is_its_own(self):
-        """a8efd378's unit (no added environment) and 73229378's (the game codes, no mapmeta) both upgrade."""
+        """a8efd378's unit (no added environment), 73229378's (the game codes, no mapmeta) and da9042b3's (mapmeta, no
+        replay dirs) all upgrade."""
         forms = t.old_units(t.ROOT / OLD, Path('/srv/nvme/surfd/data/surfd.db'), OLD)
         self.assertEqual(len(forms), len(t.ENV_ADDED) + 1)
-        self.assertIn(b'TASUPD_GAMES=', forms[1]); self.assertNotIn(b'TASUPD_MAPMETA=', forms[1])
-        self.assertNotIn(b'TASUPD_GAMES=', forms[2])
-        t.UNIT.write_bytes(forms[2])
+        self.assertIn(b'TASUPD_REPLAYS=', forms[0])
+        self.assertIn(b'TASUPD_MAPMETA=', forms[1]); self.assertNotIn(b'TASUPD_REPLAYS=', forms[1])
+        self.assertIn(b'TASUPD_GAMES=', forms[2]); self.assertNotIn(b'TASUPD_MAPMETA=', forms[2])
+        self.assertNotIn(b'TASUPD_GAMES=', forms[3])
+        t.UNIT.write_bytes(forms[3])
         self.main('--apply')
         self.assertEqual(self.serving, NEW)
 
