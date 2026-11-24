@@ -28,6 +28,8 @@ string sun_mat, sun_omat;
 float  sun_vis;                 // 0..1, the obstruction fade
 entity sun_probe;               // the trace's mask: brush glass (WINDOW) shows the sun, glass props do not
 float  sun_seen;                // the last visibility printed: -1 none yet
+float  sun_traced, sun_target;   // P1804: the last nine-ray answer, kept while the eye stays put
+vector sun_tracedeye;
 
 string(string m) Sun_Shader =
 {
@@ -59,6 +61,7 @@ void() Sun_LoadForMap =
 
 	sun_have = FALSE;
 	sun_vis = 0;
+	sun_traced = FALSE;
 	sun_seen = -1;
 	if (sun_mat != "") strunzone(sun_mat);
 	if (sun_omat != "") strunzone(sun_omat);
@@ -567,8 +570,8 @@ void() Sun_MapLight =
 
 void() Sun_Draw =
 {
-	local vector eye, fwd, se, rt, up, d;
-	local float dot, ga, target, i;
+	local vector eye, fwd, se, rt, up, d, fov;
+	local float dot, ga, target, i, sky, sksc;
 
 	if (!sun_have || !cvar("vbsp_sun"))
 		return;
@@ -579,39 +582,60 @@ void() Sun_Draw =
 	if (dot <= 0)
 	{
 		sun_vis = 0;
+		sun_traced = FALSE;
 		return;                 // behind the view: nothing of it is on screen
 	}
 	Sun_ProbeInit();
 	// P1804: the fraction of the disc's core that reaches the sky, in the world and then through the 3D skybox (its eye
-	// sky_camera + view / scale) -- Source fades the noz sprite by a pixel query (C_Sun's glow overlay), so hills, skybox
-	// geometry and solid props cover it part-way (Lex 25 Nov: "sun sprite should be blocked by 3d skybox geometry").
-	// Nine rays: the centre and eight at half the quad's radius.
-	rt = normalize(crossproduct(sun_dir, '0 0 1'));
-	if (rt == '0 0 0')
-		rt = '1 0 0';
-	up = normalize(crossproduct(rt, sun_dir));
-	se = eye;
-	if (vbsp_skyroom_have && vbsp_skyroom_scale > 0)
-		se = vbsp_skyroom_pos + eye * (1 / vbsp_skyroom_scale);
-	target = 0;
-	for (i = 0; i < 9; i = i + 1)
+	// sky_camera + view / scale, as cl_main.qc draws it) -- Source fades the noz sprite by a pixel query (C_Sun's glow
+	// overlay), so hills, skybox geometry and solid props cover it part-way (Lex 25 Nov: "sun sprite should be blocked by
+	// 3d skybox geometry"). Nine rays: the centre and eight at half the quad's radius. Traced only with the sun near the
+	// screen, and again only once the eye has moved.
+	fov = getproperty(VF_FOV);
+	if (dot < cos(min(89, sqrt(fov_x * fov_x + fov_y * fov_y) * 0.5 + 12) * M_PI / 180))
 	{
-		d = sun_dir;
-		if (i)
-			d = normalize(sun_dir + (rt * cos(i * 45 * M_PI / 180) + up * sin(i * 45 * M_PI / 180)) * (sun_size * 0.5 / 100));
-		traceline(eye, eye + d * 32768, MOVE_NOMONSTERS, sun_probe);
-		// SURF_SKY does not come through a VBSP trace; the side's name does (cl_emit.qc's rain).
-		if (trace_fraction < 1 && substring(strtolower(trace_surfacename), 0, 4) != "sky/")
-			continue;
-		if (se != eye)
+		sun_vis = 0;
+		sun_traced = FALSE;
+		return;                 // well off screen
+	}
+	if (sun_traced && vlen(eye - sun_tracedeye) < 0.5)
+		target = sun_target;
+	else
+	{
+		sky = vbsp_skyroom_have && cvar("vbsp_skyroom");
+		se = eye;
+		if (sky)
 		{
-			traceline(se, se + d * 32768, MOVE_NOMONSTERS, sun_probe);
+			sksc = (vbsp_skyroom_scale > 0) ? vbsp_skyroom_scale : 16;
+			se = vbsp_skyroom_pos + eye * (1 / sksc);
+		}
+		rt = normalize(crossproduct(sun_dir, '0 0 1'));
+		if (rt == '0 0 0')
+			rt = '1 0 0';
+		up = normalize(crossproduct(rt, sun_dir));
+		target = 0;
+		for (i = 0; i < 9; i = i + 1)
+		{
+			d = sun_dir;
+			if (i)
+				d = normalize(sun_dir + (rt * cos(i * 45 * M_PI / 180) + up * sin(i * 45 * M_PI / 180)) * (sun_size * 0.5 / 100));
+			traceline(eye, eye + d * 32768, MOVE_NOMONSTERS, sun_probe);
+			// SURF_SKY does not come through a VBSP trace; the side's name does (cl_emit.qc's rain).
 			if (trace_fraction < 1 && substring(strtolower(trace_surfacename), 0, 4) != "sky/")
 				continue;
+			if (sky)
+			{
+				traceline(se, se + d * 32768, MOVE_NOMONSTERS, sun_probe);
+				if (trace_fraction < 1 && substring(strtolower(trace_surfacename), 0, 4) != "sky/")
+					continue;
+			}
+			target = target + 1 / 9;
 		}
-		target = target + 1 / 9;
+		target = (target > 0.99) ? 1 : target;
+		sun_traced = TRUE;
+		sun_tracedeye = eye;
+		sun_target = target;
 	}
-	target = (target > 0.99) ? 1 : target;
 	if ((target > 0) != sun_seen)
 	{
 		sun_seen = (target > 0);
