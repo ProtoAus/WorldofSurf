@@ -1,5 +1,16 @@
 # lextest.md — things waiting on a human
 
+## 0.1.66 release -- PUBLISHED 24 Nov 08:43Z, lobbies on its progs 08:46Z; your dev install has it (P1773-P1780)
+1. bhop_canals saves 22-25: walk/noclip toward the log -- its shadow should stay put, no fade-out and snap back.
+2. Save 21 and 29: the world-cast shadows are dark and neutral, no blue-green.
+3. Saves 26-28: no blood and no light squares in the corridor; the barrels, cans and crates are dark like Momentum's.
+4. Save 30: the barn shafts lean from the skylights down toward the floor's sun patches (still more visible than
+   Momentum's: they are not dimmed by auto-exposure).
+5. Save 31: the street lamp is plain grey metal with a warm sunlit side; other props outdoors catch the sun too.
+6. The barn and shade auto-expose to about 1.0-1.2 instead of 2.0.
+Not done: save 29's wall (baked shade where Strata shows sun), the shafts' brightness, the basin smoke
+(func_smokevolume), the ramp's softer corrugation -- BACKLOG "P1758-P1761".
+
 ## 0.1.65 release -- PUBLISHED 24 Nov 04:54Z, lobbies on its progs 04:57Z; your dev install has it (P1765-P1771)
 1. bhop_canals save 17: the pillars throw sharp shadow wedges with a lit strip between, like Momentum; save 11 the canal
    walls shadow the floor; save 16 the logs and planks.

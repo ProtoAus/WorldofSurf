@@ -21,6 +21,8 @@
 
 ## next
 
+## 0.1.66 2026-11-24
+
 ### P1780 Sunlit props on Strata maps
 - Static props on maps like bhop_canals catch the sun on their lit side again (Strata keeps that light apart from the rest of their lighting); shadows still fall across them.
 
