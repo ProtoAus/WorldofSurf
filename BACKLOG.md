@@ -410,9 +410,14 @@ once the reload clock is rebased -- scratchpad p1716_rebase.py), giving a "re-si
   one-row edit of it does not.
 - tools/tasplaus.py: map push/booster volumes and stage legs still HOLD (surf_classics/sodacity boosters).
 - P1798 compares each upload with the course's public replays, but only the 8 nearest in length (+ the one its
-  runid names) within 6 s, files up to 16 MB: a copy of a replay that is neither near in length (cut short) nor
-  named, or of a larger lobby file, is not caught; the comparison is reread from disk on every upload (no cached
-  signature). Falsifier: a public replay cut to 80% of its ticks and uploaded is refused.
+  runid names) within 6 s, files up to 16 MB, reread from disk every upload. What passes (review 2, measured on the
+  fixture): a copy filed under another map/track (map and track are the header's; a course without zones only gives
+  unseen notes, published since P1716 -- uploads-vs-uploads has the same hole); its `end` nudged ~14 ticks later on a
+  busy course so 8 other replays sit nearer; the last ~8% of the run changed, or every tick ~1.2% faster (the
+  95%/2 u/s + 1% match band); a time shift past 16 ticks on a course without zones; a lobby file over 16 MB with its
+  input rows stripped. Fix: a cached motion fingerprint per replay (surfd sweep) searched by course and shape, not
+  nearest length; refuse uploads on courses with no zones and no map in mapmeta. Falsifier: a public replay with
+  `end` +14 among 8 nearer replays is refused.
 - tasupd limits not covered by unit tests: the two-at-once Steam confirmation slot (503), IPv6 /64 rate keys and
   the owner CLI's "changed meanwhile" race. Bans reach tasupd within surfd's 5-minute account cache at worst;
   signed-in sessions (12 h) cannot be revoked except by rotating the meta secret.

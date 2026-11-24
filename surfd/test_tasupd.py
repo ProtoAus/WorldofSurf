@@ -1638,7 +1638,9 @@ class PublicReplays(Service):
         for r in self.roots.values(): r.mkdir()
         with contextlib.closing(sqlite3.connect(self.accounts)) as db, db:
             db.execute('CREATE TABLE replays (id INTEGER PRIMARY KEY, map TEXT, map_dir TEXT, track INTEGER, leg INTEGER, leaf TEXT,'
-                       ' tier TEXT, style TEXT, player TEXT, name TEXT, ticks INTEGER, tickrate REAL, runid TEXT, kind TEXT)')
+                       ' tier TEXT, style TEXT, player TEXT, name TEXT, ticks INTEGER, tickrate REAL, runid TEXT, kind TEXT,'
+                       ' submitted INTEGER NOT NULL DEFAULT 10)')
+            db.execute('CREATE TABLE reviews (id INTEGER PRIMARY KEY, replay_id INTEGER, decision TEXT, at INTEGER)')
         self.end = svc.load_tasplaus().read(text=rec().decode()).end
         self.app = svc.create_app(self.store, self.accounts, self.zdirs, BASE, http=self.fake_http, clock=self.clock,
                                   replay_dirs={k: str(v) for k, v in self.roots.items()})
@@ -1655,7 +1657,7 @@ class PublicReplays(Service):
             f = self.roots[kind] / 'synth' / ('main' if track == 0 else 'bonus_%d' % track) / leaf
             f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(body)
         with contextlib.closing(sqlite3.connect(self.accounts)) as db, db:
-            db.execute("INSERT INTO replays VALUES (?, 'synth', 'synth', ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            db.execute("INSERT INTO replays VALUES (?, 'synth', 'synth', ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 10)",
                        (self.rid, track, leaf, tier, style, player, name, ticks, tickrate, runid, kind))
         return self.rid
 
@@ -1738,6 +1740,30 @@ class PublicReplays(Service):
         self.assertEqual((r.status_code, r.get_json().get('state')), (200, 'held'), r.get_json())
         self.assertIn('public replay %d' % rid, json.dumps(r.get_json()['reasons']))
         self.assertNotIn('Bot', json.dumps(r.get_json()))
+
+    def test_hidden_replays_are_compared_but_never_named(self):
+        """Review 2: a banned owner's replay, or one rejected in review, is not served by surfd: held, unnamed."""
+        self.public(rec(), player=BANNED, name='Mallory')
+        rid = self.public(rec(extra='comment 2'), name='Rejected', ticks=self.end + 1)
+        with contextlib.closing(sqlite3.connect(self.accounts)) as db, db:
+            db.execute("INSERT INTO reviews (replay_id, decision, at) VALUES (?, 'reject', 20)", (rid,))
+        c, _ = self.sign_in(ALICE)
+        r = self.upload(c, rec())
+        self.assertEqual((r.status_code, r.get_json().get('state')), (200, 'held'), r.get_json())
+        self.assertNotIn('Mallory', json.dumps(r.get_json())); self.assertNotIn('Rejected', json.dumps(r.get_json()))
+        self.assertIn('close to the motion of public replay', json.dumps(r.get_json()['reasons']))
+
+    def test_faster_than_the_replay_it_follows_is_held_not_refused(self):
+        """Review 2: a tool improving a seed run may stay within the match band; a copy is never faster."""
+        body = rec()
+        slower = body.replace(b'\nend %d ' % self.end, b'\nend %d ' % (self.end + 5))
+        self.assertNotEqual(slower, body)
+        rid = self.public(slower, runid='ksf-bdb1525ceaed47b6c518')
+        c, _ = self.sign_in(ALICE)
+        r = self.upload(c, rec(extra=KSF_HEAD))
+        self.assertEqual((r.status_code, r.get_json().get('state')), (200, 'held'), r.get_json())
+        self.assertIn('public replay %d (another player\'s), and faster' % rid, json.dumps(r.get_json()['reasons']))
+        self.assertEqual(self.upload(c, slower.replace(b'track 0\n', b'track 0\ncomment slower\n')).status_code, 409)   # not faster
 
     def test_a_replay_that_fails_to_read_is_logged_and_passed_over(self):
         self.public(rec())

@@ -596,7 +596,10 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         kinds = tuple(k for k in PUB_KINDS if k in replay_dirs)
         if not kinds: return []
         lo, hi = end - max(30, end // 10), end + max(30, end // 10)
-        cols = 'id, kind, map_dir, track, leg, leaf, player, name, tier, style'
+        # hidden: rows surfd's /api/replay does not serve (a current review reject, a banned owner): compared, never named
+        cols = ('id, kind, map_dir, track, leg, leaf, player, name, tier, style, (EXISTS (SELECT 1 FROM reviews w WHERE'
+                " w.replay_id = replays.id AND w.decision = 'reject' AND w.at >= replays.submitted) OR EXISTS (SELECT 1 FROM"
+                ' accounts a WHERE a.steamid = replays.player AND a.banned_at > 0)) AS hidden')
         where = ('map = ? AND track = ? AND leg = 0 AND kind IN (%s) AND ABS(tickrate - ?) < 0.01 AND player != ?'
                  % ','.join('?' * len(kinds)))
         head = (mapname, track) + kinds + (1 / TICK, sid)
@@ -604,9 +607,10 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                            head + (runid,)) if PUB_RUNID.fullmatch(runid) else []
         # the per-player cap before the limit (review 1: one grinder's 32 nearest rows hid the rest), and three rows a
         # file to read so missing or oversized files do not use up the count (public_copy stops at PUB_CANDIDATES)
-        near = read_surfd('SELECT %s FROM (SELECT %s, ticks, ROW_NUMBER() OVER (PARTITION BY player ORDER BY ABS(ticks - ?), id)'
-                          ' AS rk FROM replays WHERE %s AND ticks BETWEEN ? AND ?) WHERE rk <= ? ORDER BY ABS(ticks - ?), id LIMIT ?'
-                          % (cols, cols, where), (end,) + head + (lo, hi, PUB_PER_PLAYER, end, PUB_CANDIDATES * 3))
+        near = read_surfd('SELECT id, kind, map_dir, track, leg, leaf, player, name, tier, style, hidden FROM (SELECT %s, ticks,'
+                          ' ROW_NUMBER() OVER (PARTITION BY player ORDER BY ABS(ticks - ?), id) AS rk FROM replays WHERE %s AND'
+                          ' ticks BETWEEN ? AND ?) WHERE rk <= ? ORDER BY ABS(ticks - ?), id LIMIT ?'
+                          % (cols, where), (end,) + head + (lo, hi, PUB_PER_PLAYER, end, PUB_CANDIDATES * 3))
         seen = {r['id'] for r in named}
         return [dict(r, named=True) for r in named] + [dict(r, named=False) for r in near if r['id'] not in seen]
 
@@ -616,8 +620,11 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         t0, read, skipped = time.monotonic(), [0], []
 
         def sigs():
-            for r in rows:
-                if time.monotonic() - t0 > PUB_BUDGET or (read[0] >= PUB_CANDIDATES and not r['named']): return
+            for i, r in enumerate(rows):
+                if read[0] >= PUB_CANDIDATES and not r['named']: return
+                if time.monotonic() - t0 > PUB_BUDGET:
+                    app.logger.warning('tasupd: public replay check out of time after %d file(s); %d not compared', read[0], len(rows) - i)
+                    return
                 p = pub_file(replay_dirs, r)
                 body = None
                 try:
@@ -632,12 +639,12 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                     if run.end is None or len(run.samples) < 3: continue
                     pos = array('f')
                     vel = motion_series(run, None, pos)
-                    run = None
+                    their_end, run = run.end, None
                 except Exception as e:   # one unreadable replay is not the uploader's fault
                     skipped.append(r['id'])
                     app.logger.warning('tasupd: replay %s did not read (%s)', r['id'], type(e).__name__)
                     continue
-                yield dict(r, state='public', sig=zlib.compress(vel.tobytes() + pos.tobytes(), 1))
+                yield dict(r, state='public', end=their_end, sig=zlib.compress(vel.tobytes() + pos.tobytes(), 1))
         got = copy_of(series, trail, mask, sigs(), budget=PUB_BUDGET + 2, late=None)
         if skipped: app.logger.warning('tasupd: %d public replay file(s) not read (missing, too big or bad): %s',
                                        len(skipped), ' '.join(map(str, skipped[:10])))
@@ -1496,9 +1503,11 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                 pub_why = pub_why and 'public replays: ' + pub_why
             except Unavailable as e:
                 pub, pub_why = None, 'not compared with the public replays: %s' % e
-            if pub is not None and ('tas' in (pub['style'] or '').lower() or (pub['tier'] or '').startswith('banned')):
-                # another bot's motion may converge (held, as an upload's copy is), and a banned row is not named
-                pub_why, pub = 'the motion of public replay %d (another player\'s): the owner decides whose it is' % pub['id'], None
+            if pub is not None and ('tas' in (pub['style'] or '').lower() or pub['hidden'] or end < pub['end'] - 1):
+                # held, not refused (review 2): another bot's motion may converge; a hidden row is not named; and a run
+                # faster than the replay it follows may be a tool's improvement on it (a copy is never faster)
+                pub_why, pub = ('close to the motion of public replay %d (another player\'s)%s: the owner decides whose it is'
+                                % (pub['id'], ', and faster' if end < pub['end'] - 1 else '')), None
             if pub is None:
                 with connect(store) as db:
                     seen = db.execute('SELECT COALESCE(MAX(id), 0) FROM runs').fetchone()[0]
