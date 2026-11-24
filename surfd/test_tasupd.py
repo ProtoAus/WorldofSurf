@@ -1742,28 +1742,58 @@ class PublicReplays(Service):
         self.assertNotIn('Bot', json.dumps(r.get_json()))
 
     def test_hidden_replays_are_compared_but_never_named(self):
-        """Review 2: a banned owner's replay, or one rejected in review, is not served by surfd: held, unnamed."""
-        self.public(rec(), player=BANNED, name='Mallory')
-        rid = self.public(rec(extra='comment 2'), name='Rejected', ticks=self.end + 1)
-        with contextlib.closing(sqlite3.connect(self.accounts)) as db, db:
-            db.execute("INSERT INTO reviews (replay_id, decision, at) VALUES (?, 'reject', 20)", (rid,))
+        """Review 2/3: a lobby replay surfd does not serve (banned owner; a review reject at or after it was submitted) is
+        held unnamed; an older reject, or an import, is public and refused by name."""
         c, _ = self.sign_in(ALICE)
-        r = self.upload(c, rec())
-        self.assertEqual((r.status_code, r.get_json().get('state')), (200, 'held'), r.get_json())
-        self.assertNotIn('Mallory', json.dumps(r.get_json())); self.assertNotIn('Rejected', json.dumps(r.get_json()))
-        self.assertIn('close to the motion of public replay', json.dumps(r.get_json()['reasons']))
+        cases = [(dict(kind='run', player=BANNED, name='Mallory'), None, 'held'),
+                 (dict(kind='run', name='Rejected'), 20, 'held'),
+                 (dict(kind='run', name='Before'), 5, 409),     # the review is older than the replay's submission
+                 (dict(kind='ksf', player=BANNED, name='Imported'), None, 409)]
+        for i, (row, reject_at, want) in enumerate(cases):
+            with self.subTest(row=row['name']):
+                with contextlib.closing(sqlite3.connect(self.accounts)) as db, db: db.execute('DELETE FROM replays')
+                rid = self.public(rec(), **row)
+                if reject_at is not None:
+                    with contextlib.closing(sqlite3.connect(self.accounts)) as db, db:
+                        db.execute("INSERT INTO reviews (replay_id, decision, at) VALUES (?, 'reject', ?)", (rid, reject_at))
+                r = self.upload(c, rec(extra='comment %d' % i))
+                got = r.get_json().get('state') if r.status_code == 200 else r.status_code
+                self.assertEqual(got, want, r.get_json())
+                if want == 'held':
+                    self.assertNotIn(row['name'], json.dumps(r.get_json()))
+                    self.assertIn('close to the motion of public replay %d' % rid, json.dumps(r.get_json()['reasons']))
+                else:
+                    self.assertIn(row['name'], r.get_json()['error'])
 
-    def test_faster_than_the_replay_it_follows_is_held_not_refused(self):
-        """Review 2: a tool improving a seed run may stay within the match band; a copy is never faster."""
-        body = rec()
-        slower = body.replace(b'\nend %d ' % self.end, b'\nend %d ' % (self.end + 5))
+    def test_much_shorter_than_the_replay_it_follows_is_held_not_refused(self):
+        """Review 2: a tool improving a seed run may stay within the match band; review 3: only past the matcher's shift
+        window (a copy's end line can be moved within it)."""
+        body, far = rec(), svc.COPY_SHIFTS + 8
+        slower = body.replace(b'\nend %d ' % self.end, b'\nend %d ' % (self.end + far))
         self.assertNotEqual(slower, body)
         rid = self.public(slower, runid='ksf-bdb1525ceaed47b6c518')
         c, _ = self.sign_in(ALICE)
         r = self.upload(c, rec(extra=KSF_HEAD))
         self.assertEqual((r.status_code, r.get_json().get('state')), (200, 'held'), r.get_json())
-        self.assertIn('public replay %d (another player\'s), and faster' % rid, json.dumps(r.get_json()['reasons']))
-        self.assertEqual(self.upload(c, slower.replace(b'track 0\n', b'track 0\ncomment slower\n')).status_code, 409)   # not faster
+        self.assertIn("public replay %d (another player's, %d ticks long against %d)" % (rid, self.end + far, self.end),
+                      json.dumps(r.get_json()['reasons']))
+        self.assertEqual(self.upload(c, slower.replace(b'track 0\n', b'track 0\ncomment slower\n')).status_code, 409)   # its own length
+        near = slower.replace(b'\nend %d ' % (self.end + far), b'\nend %d ' % (self.end + far - svc.COPY_SHIFTS))
+        self.assertEqual(self.upload(c, near.replace(b'track 0\n', b'track 0\ncomment near\n')).status_code, 409)   # within the window
+
+    def test_the_time_budget_and_size_cap_pass_files_over(self):
+        self.public(rec())
+        c, _ = self.sign_in(ALICE)
+        for name, value in (('PUB_BUDGET', -1.0), ('PUB_BYTES', 64)):
+            with self.subTest(name=name):
+                keep = getattr(svc, name); setattr(svc, name, value)
+                try:
+                    with self.assertLogs(self.app.logger, 'WARNING') as logs:
+                        r = self.upload(c, rec(extra='comment %s' % name))
+                finally:
+                    setattr(svc, name, keep)
+                self.assertEqual(r.get_json().get('state'), 'shown', r.get_json())   # not compared: no claim
+                self.assertIn('out of time' if name == 'PUB_BUDGET' else 'not read', '\n'.join(logs.output))
 
     def test_a_replay_that_fails_to_read_is_logged_and_passed_over(self):
         self.public(rec())

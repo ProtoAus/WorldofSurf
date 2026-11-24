@@ -596,10 +596,11 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
         kinds = tuple(k for k in PUB_KINDS if k in replay_dirs)
         if not kinds: return []
         lo, hi = end - max(30, end // 10), end + max(30, end // 10)
-        # hidden: rows surfd's /api/replay does not serve (a current review reject, a banned owner): compared, never named
-        cols = ('id, kind, map_dir, track, leg, leaf, player, name, tier, style, (EXISTS (SELECT 1 FROM reviews w WHERE'
-                " w.replay_id = replays.id AND w.decision = 'reject' AND w.at >= replays.submitted) OR EXISTS (SELECT 1 FROM"
-                ' accounts a WHERE a.steamid = replays.player AND a.banned_at > 0)) AS hidden')
+        # hidden: lobby rows surfd's /api/replay does not serve (a current review reject, a banned owner; surfd.py
+        # replay_hidden -- imports stay public): compared, never named
+        cols = ("id, kind, map_dir, track, leg, leaf, player, name, tier, style, (kind = 'run' AND (EXISTS (SELECT 1 FROM"
+                " reviews w WHERE w.replay_id = replays.id AND w.decision = 'reject' AND w.at >= replays.submitted) OR EXISTS"
+                ' (SELECT 1 FROM accounts a WHERE a.steamid = replays.player AND a.banned_at > 0))) AS hidden')
         where = ('map = ? AND track = ? AND leg = 0 AND kind IN (%s) AND ABS(tickrate - ?) < 0.01 AND player != ?'
                  % ','.join('?' * len(kinds)))
         head = (mapname, track) + kinds + (1 / TICK, sid)
@@ -626,26 +627,30 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                     app.logger.warning('tasupd: public replay check out of time after %d file(s); %d not compared', read[0], len(rows) - i)
                     return
                 p = pub_file(replay_dirs, r)
-                body = None
+                body = run = None
                 try:
                     if p is not None:
                         with open(p, 'rb') as fh: body = fh.read(PUB_BYTES + 1)
                     if body is None or len(body) > PUB_BYTES or not body.startswith(b'FTESURF-REC '):
                         skipped.append(r['id'])
                         continue
-                    read[0] += 1
                     run = tp.read(text=body.decode('utf-8', 'replace'))
                     body = None
-                    if run.end is None or len(run.samples) < 3: continue
+                    if run.end is None or len(run.samples) < 3:
+                        skipped.append(r['id'])
+                        continue
                     pos = array('f')
                     vel = motion_series(run, None, pos)
-                    their_end, run = run.end, None
+                    their_end = run.end
                 except Exception as e:   # one unreadable replay is not the uploader's fault
                     skipped.append(r['id'])
                     app.logger.warning('tasupd: replay %s did not read (%s)', r['id'], type(e).__name__)
                     continue
+                finally:
+                    body = run = None   # review 3: not alive while the next file is read
+                read[0] += 1   # review 3: only a file that read counts toward PUB_CANDIDATES
                 yield dict(r, state='public', end=their_end, sig=zlib.compress(vel.tobytes() + pos.tobytes(), 1))
-        got = copy_of(series, trail, mask, sigs(), budget=PUB_BUDGET + 2, late=None)
+        got = copy_of(series, trail, mask, sigs(), budget=PUB_BUDGET + 60, late=None)   # sigs() keeps the time
         if skipped: app.logger.warning('tasupd: %d public replay file(s) not read (missing, too big or bad): %s',
                                        len(skipped), ' '.join(map(str, skipped[:10])))
         return got
@@ -921,7 +926,9 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
             read_surfd('SELECT steamid, name, banned_at FROM accounts LIMIT 1')
             read_surfd('SELECT map, track, leg, style, millis FROM runs LIMIT 1')
             if replay_dirs:   # P1798 (review 1): a root this service cannot list would turn the copy check off unseen
-                read_surfd('SELECT id, kind, map_dir, leaf, runid, tier, style FROM replays LIMIT 1')
+                read_surfd('SELECT id, map, kind, map_dir, track, leg, leaf, runid, tier, style, player, name, ticks, tickrate,'
+                           ' submitted FROM replays LIMIT 1')
+                read_surfd('SELECT replay_id, decision, at FROM reviews LIMIT 1')
                 bad = [k for k, d in sorted(replay_dirs.items()) if not (os.path.isdir(d) and os.access(d, os.R_OK | os.X_OK))]
                 if bad: raise Unavailable('replay folders cannot be read: %s' % ', '.join(bad))
         except (sqlite3.Error, Unavailable) as e:
@@ -1503,11 +1510,13 @@ def create_app(store, account_db, zone_dirs, base_url, http=steam.http, clock=ti
                 pub_why = pub_why and 'public replays: ' + pub_why
             except Unavailable as e:
                 pub, pub_why = None, 'not compared with the public replays: %s' % e
-            if pub is not None and ('tas' in (pub['style'] or '').lower() or pub['hidden'] or end < pub['end'] - 1):
+            if pub is not None and ('tas' in (pub['style'] or '').lower() or pub['hidden']
+                                    or end < pub['end'] - COPY_SHIFTS - 1):
                 # held, not refused (review 2): another bot's motion may converge; a hidden row is not named; and a run
-                # faster than the replay it follows may be a tool's improvement on it (a copy is never faster)
-                pub_why, pub = ('close to the motion of public replay %d (another player\'s)%s: the owner decides whose it is'
-                                % (pub['id'], ', and faster' if end < pub['end'] - 1 else '')), None
+                # shorter than the replay it follows by more than the matcher's shift window may be a tool's improvement
+                # on it (review 3: within the window the copy's end can simply be moved)
+                pub_why, pub = ('close to the motion of public replay %d (another player\'s, %d ticks long against %d):'
+                                ' the owner decides whose it is' % (pub['id'], pub['end'], end)), None
             if pub is None:
                 with connect(store) as db:
                     seen = db.execute('SELECT COALESCE(MAX(id), 0) FROM runs').fetchone()[0]

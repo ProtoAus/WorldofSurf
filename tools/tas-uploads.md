@@ -57,8 +57,9 @@ generation change, 127.0.0.1:8093; 8091 is the twitch bot).
   each upload's motion is compared with the course's public replays (surfd's KSF, Momentum and World of Surf
   runs: the one its runid names, then the 8 nearest in length whose files read, 2 a player, never the uploader's own;
   6 s, then the rest go unread) and the same motion is refused as "the motion of <player>'s <source> run". Held for
-  the owner instead: a match with a lobby TAS-style row, with a row surfd hides (banned owner, rejected in review;
-  never named), or an upload faster than the replay it matches (a tool improving a seed run; a copy is never faster).
+  the owner instead: a match with a lobby TAS-style row, with a lobby row surfd hides (banned owner, rejected in
+  review; never named), or an upload shorter than the replay it matches by more than the matcher's 16-tick shift
+  window (a tool improving a seed run; within the window a copy's end line can simply be moved).
   /api/health fails while a replay folder cannot be read; stage legs (`leg`/`startseg`) refused (whole courses only); the header must end within
   64 KB and the samples must be plain ASCII. The same file twice is refused. Another player's motion
   is HELD for the owner with "the motion of run N (another player's)", never shown (two bots on one
