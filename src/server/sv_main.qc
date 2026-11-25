@@ -1,3 +1,6 @@
+// P1838: queue is armed at worldspawn, never on pre-worldspawn StartFrame.
+float sv_maint_pending, sv_maint_next, sv_maint_resume_done;
+
 /*
 ===========================================================================
   sv_main.qc -- world setup and the per-frame server hook.
@@ -169,6 +172,28 @@ void() EndFrame =
 };
 
 float sf_cvreg;
+void() SV_IdleMaintenanceFrame =
+{
+	local float began;
+
+	if (!sv_maint_pending) return;
+	if (!zone_entsready || !zone_loaded) return;
+	if (strlen(cvar_string("lobby_master")))
+	if (!lobby_hb_ready || lobby_hb_pending) return;
+	if (!Lobby_IdleEmpty()) return;
+	if (time < sv_maint_next) return;
+	sv_maint_next = time + 0.1;
+	began = gettime(1);
+	if (!sv_maint_resume_done)
+		sv_maint_resume_done = SV_MsSweepStep();
+	else if (SV_EvidenceSweepStep())
+	{
+		sv_maint_pending = FALSE;
+		dprint("maintenance: retention complete\n");
+	}
+	dprint(sprintf("maintenance: turn %.6fs\n", gettime(1) - began));
+};
+
 void() StartFrame =
 {
 	sv_plok = sv_acok = FALSE;      // P1406: no stale chain while the lump work below runs
@@ -230,6 +255,7 @@ void() StartFrame =
 	SV_BrushRenderTestFrame();
 	SV_UpdateMovementServerInfo();
 	SV_ZoneFrame();
+	if (zone_entsready && zone_loaded) lobby_map_ready = TRUE;
 	SV_HeldFrame();                // previous message/callback closure is now complete
 	SV_TASShareFrame();            // deferred local project open, outside its HTTP callback
 
@@ -270,6 +296,9 @@ void() StartFrame =
 	  in the directory without turning on avatars -- and returns immediately
 	  unless lobby_master names a URL, so a listen server sends nothing.
 	*/
+	// Give an acknowledged slow heartbeat one guarded idle-work opportunity
+	// before its already-due replacement sets pending again.
+	SV_IdleMaintenanceFrame();
 	Lobby_Heartbeat();
 	Social_Frame();
 	Tour_Frame();
@@ -1014,7 +1043,10 @@ void() worldspawn =
 	registercvar("run_resume_countdown", "3");
 	registercvar("run_resume_copylines", "2000");   // recording lines restored per packet
 	registercvar("run_resume_recmb", "512");    // a larger recording resumes unrecorded
-	SV_MsSweep();
+	if (Lobby_DeferredMaintenance())
+		sv_maint_pending = TRUE;
+	else
+		SV_MsSweep();
 
 	// Patch 382: spectate's countdown back into the body, seconds.  Read only by
 	// client commands and player thinks, which come after this.  Patch 784: 0 (Lex).

@@ -54,6 +54,11 @@
 ===========================================================================
 */
 
+// P1838: policy is opt-in in the ordinary lobby cfg, never inferred from a URL.
+float lobby_hb_pending, lobby_hb_ready, lobby_hb_sent, lobby_hb_last;
+float lobby_map_pending, lobby_map_ready, lobby_hb_ready_sent;
+float() Tour_Occupants;
+
 /*
   Fields.
 
@@ -2033,13 +2038,14 @@ float(string body) Lobby_Directed =
 	if (strtolower(want) == strtolower(mapname))
 		return TRUE;            // already there; a reload is not a move
 
-	if (Lobby_PlayerCount() > 0)
+	if (Tour_Occupants() > 0)
 	{
 		print(sprintf("^3lobby:^7 directory wants %s, but somebody is here -- "
 		              "staying on %s\n", want, mapname));
 		return TRUE;
 	}
 
+	lobby_map_pending = time + 1;
 	print(sprintf("^5lobby:^7 directory sends this server to %s\n", want));
 	localcmd(sprintf("changelevel %s\n", want));
 	return TRUE;
@@ -2064,6 +2070,15 @@ float(float reqid, float code, string body) Inv_SVReply;
 float(float reqid, float code, string body) SV_TASShareReply;
 float(float reqid, float code, string body) PublicTime_Reply;
 float(float reqid, float code, string body) PlayStats_Reply;
+// A timed-out request may reply after its replacement. It cannot direct a map.
+float(float reqid) Lobby_HeartbeatAnswered =
+{
+	local float matched;
+	matched = (reqid == lobby_hb_id && lobby_hb_pending);
+	if (matched) lobby_hb_pending = FALSE;
+	return matched;
+};
+
 void(float reqid, float responsecode, string resourcebody) URI_Get_Callback =
 {
 	if (reqid >= ACCT_ID_BASE)
@@ -2124,8 +2139,12 @@ void(float reqid, float responsecode, string resourcebody) URI_Get_Callback =
 	  instruction, and running the parser over one is how a body that happens to
 	  begin "map " becomes a console command.
 	*/
+	if (!Lobby_HeartbeatAnswered(reqid)) return;
 	if (!responsecode)
+	{
+		if (lobby_hb_ready_sent) lobby_hb_ready = TRUE;
 		Lobby_Directed(resourcebody);
+	}
 
 	if (lobby_hb_seen && responsecode == lobby_hb_lastcode)
 		return;
@@ -2284,10 +2303,68 @@ float() Lobby_BoardAnswers =
 	return lobby_board_said == "ranked";
 };
 
+// Uses native slots, including connecting clients and spectators, not the pose chain.
+float() Lobby_IdleEmpty =
+{
+	local float empty;
+	empty = FALSE;
+	if (!Tour_Owns())
+	if (time >= lobby_map_pending)
+	if (Tour_Occupants() == 0)
+		empty = TRUE;
+	return empty;
+};
+
+float() Lobby_DeferredMaintenance =
+{
+	local float enabled;
+	registercvar("lobby_idle_maintenance", "0");
+	enabled = (Lobby_Active() && cvar("lobby_idle_maintenance"));
+	return enabled;
+};
+
+float() Lobby_HeartbeatPeriod =
+{
+	local float per;
+	registercvar("lobby_master_rate", "5");
+	registercvar("lobby_empty_fast", "0");
+	per = cvar("lobby_master_rate");
+	if (per < 1) per = 5;
+	if (per > 25) per = 25;
+	if (Lobby_Active())
+	if (cvar("lobby_empty_fast"))
+	if (Lobby_IdleEmpty())
+		per = 1;
+	return per;
+};
+
+float() Lobby_HeartbeatDue =
+{
+	local float per;
+	// Recompute from the last send: an arriving client immediately restores the
+	// active cadence. A lost callback permits only one replacement per 25s.
+	if (lobby_hb_pending)
+	if (time >= lobby_hb_last + 25)
+	{
+		lobby_hb_pending = FALSE;
+		print("lobby: heartbeat callback timed out; retrying\n");
+	}
+	per = Lobby_HeartbeatPeriod();
+	if (lobby_hb_sent)
+		lobby_hb_next = lobby_hb_last + per;
+	if (time < lobby_hb_next || lobby_hb_pending)
+		return FALSE;
+	lobby_hb_last = time;
+	lobby_hb_sent = TRUE;
+	lobby_hb_pending = TRUE;
+	lobby_hb_ready_sent = lobby_map_ready;
+	return TRUE;
+};
+
 void() Lobby_Heartbeat =
 {
 	local string url, body;
-	local float  per, pflags;
+	local float  pflags;
 	local entity pl;
 
 	/*
@@ -2391,19 +2468,7 @@ void() Lobby_Heartbeat =
 		}
 	}
 
-	if (time < lobby_hb_next)
-		return;
-
-	/*
-	  Clamped, and the LOW end is the one that matters.  surfd expires a lobby
-	  after 30s, so anything up to ~25 is safe; below 1 this would hammer the
-	  directory once per frame if the cvar were ever set to 0 by accident, and
-	  a 66 Hz HTTP POST loop is a denial of service against your own server.
-	*/
-	per = cvar("lobby_master_rate");
-	if (per < 1)  per = 5;
-	if (per > 25) per = 25;
-	lobby_hb_next = time + per;
+	if (!Lobby_HeartbeatDue()) return;
 
 	/*
 	  The node id is the PORT and nothing else.
@@ -2437,7 +2502,9 @@ void() Lobby_Heartbeat =
 	// STEPS BY TWO, so heartbeat ids stay EVEN and can never collide with a run
 	// submission's odd ones.  See the parity note on URI_Get_Callback.
 	lobby_hb_id = lobby_hb_id + 2;
-	uri_post(url, lobby_hb_id, "application/x-www-form-urlencoded", body);
+	if (!uri_post(url, lobby_hb_id, "application/x-www-form-urlencoded", body))
+		lobby_hb_pending = FALSE; // failed enqueue has no callback; keep the send deadline
+
 };
 
 /*

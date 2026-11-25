@@ -2323,6 +2323,86 @@ def zone_file_index(now=None):
         return names
 
 
+# Admission never waits for the full-library timer scan. Only directory names
+# are shared here; each request checks its selected files again before claiming.
+_join_names_lock = threading.Lock()
+_join_names_cache = {}
+
+
+def _join_dir_sig(path):
+    st = os.stat(path)
+    if not stat.S_ISDIR(st.st_mode):
+        raise NotADirectoryError(path)
+    return (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_ctime_ns, st.st_mode)
+
+
+def _join_names(path, suffix):
+    """Case-folded names, with the same deterministic first spelling as _scan_maps.
+
+    Cache only stable listings. Recent directory timestamps are relisted to cover
+    multiple changes in a filesystem timestamp tick; failures never reuse names.
+    The mutex covers cache lookup/publication only, never filesystem IO.
+    """
+    key = (path, suffix)
+    with _join_names_lock:
+        cached = _join_names_cache.get(key)
+    try:
+        sig = _join_dir_sig(path)
+        now = time.monotonic()
+        settled = abs(time.time() - sig[2] / 1e9) >= ZONE_DIR_RACY
+        if cached and cached[0] == sig and settled and 0 <= now - cached[1] < MAPS_TTL:
+            return cached[2]
+        names = {}
+        with os.scandir(path) as entries:
+            for entry in entries:
+                if not entry.name.lower().endswith(suffix):
+                    continue
+                if suffix == ".json" and not entry.is_file():
+                    continue
+                stem = entry.name[:-len(suffix)]
+                if not _MAPNAME_OK.match(stem):
+                    continue
+                name = stem.lower()
+                candidate = (stem, entry.name)
+                if name not in names or candidate < names[name]:
+                    names[name] = candidate
+        if _join_dir_sig(path) != sig:
+            return {}       # mutation during listing: retry on the next request
+        with _join_names_lock:
+            # A concurrent caller may have published while this one did IO.
+            # Neither older results nor failures may replace that publication.
+            if _join_names_cache.get(key) is cached:
+                if settled:
+                    _join_names_cache[key] = (sig, now, names)
+                else:
+                    _join_names_cache.pop(key, None)
+        return names
+    except OSError:
+        with _join_names_lock:
+            if _join_names_cache.get(key) is cached:
+                _join_names_cache.pop(key, None)
+        return {}
+
+
+def _join_map_files(mapname):
+    """Current requested BSP and authoritative zone files, without timer/library scans."""
+    choice = _join_names(MAPS_DIR, ".bsp").get(mapname)
+    if choice is None:
+        return None, None, frozenset()
+    stem, filename = choice
+    path = os.path.join(MAPS_DIR, filename)
+    try:
+        if not stat.S_ISREG(os.stat(path).st_mode):
+            return None, None, frozenset()
+    except OSError:
+        return None, None, frozenset()
+    for zdir in (ZONES_DIR, ZONES_LOCAL_DIR, ZONES_MOMLOCAL_DIR):
+        zone = _join_names(zdir, ".json").get(mapname)
+        if zone is not None and os.path.isfile(os.path.join(zdir, zone[1])):
+            return stem, path, frozenset((mapname,))
+    return stem, path, frozenset()
+
+
 def _scan_maps():
     """Read the library off disk.  Returns (bsp_index, zone_set).
 
@@ -2490,6 +2570,8 @@ def map_index_cached():
 
 def maps_reset():
     """Drop the cached library.  For tests, and for a future admin control."""
+    with _join_names_lock:
+        _join_names_cache.clear()
     with _maps_lock:
         _maps_cache.update(at=None, sig=None, settled=False, bsp={}, zone=frozenset())
         _zone_files_cache.update(at=None, sig=None, settled=False, names=frozenset())
@@ -2867,8 +2949,7 @@ def join_map():
     if not mapname:
         return _join_reply(400, {"error": "bad map"})
 
-    bsp, zoned = map_index()
-    map_dir = bsp.get(mapname)
+    map_dir, map_path, zone_files = _join_map_files(mapname)
     if not map_dir:
         # A SENTENCE, NOT A 404 WITH NO BODY.  This is the single most likely
         # refusal -- 781 of the library's names are only a typo away from each
@@ -2878,12 +2959,12 @@ def join_map():
 
     import mapmanifest
     try:
-        if mapname in mapmanifest.disabled(get_db(), (mapname,), zone_file_index()):
+        if mapname in mapmanifest.disabled(get_db(), (mapname,), zone_files):
             return _join_reply(403, {"error": "that map is disabled in the map pool",
                                      "map": mapname})
     except sqlite3.Error:
         return _join_reply(503, {"error": "map pool unavailable"})
-    timed = 1 if mapname in zoned else 0
+    timed = 1 if zone_files else int(bool(zonefit.timer_read(map_path)))
 
     db = get_db()
     try:

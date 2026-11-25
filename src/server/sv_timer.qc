@@ -1,3 +1,7 @@
+// P1838: deferred evidence iterator, one search or one result per turn.
+float ev_maint_phase, ev_maint_open, ev_maint_handle, ev_maint_index, ev_maint_native_done;
+string ev_maint_day;
+
 /*
 ===========================================================================
   sv_timer.qc -- the run timer, its splits, and the tick recorder.
@@ -6750,15 +6754,29 @@ float(entity e) SV_RecKeepEvidence =
   this server states, and it was only being applied to whatever happened to be
   loaded.
 */
+void(string fn) SV_EvidenceSweepOne =
+{
+	local float cut, d, days, today;
+	days = cvar("run_evidence_days");
+	if (days <= 0) return;
+	today = FS_DayNumOf(strftime(TRUE, "%Y%m%d"));
+	cut = strlen(fn) - 1;
+	while (cut >= 0 && str2chr(fn, cut) != 47)
+		cut = cut - 1;
+	d = FS_DayNumOf(substring(fn, cut + 1, 8));
+	if (d >= 0)
+	if (today - d > days)
+		fremove(fn);
+};
+
 void(string pat) SV_EvidenceSweepPat =
 {
-	local float h, n, i, today, days, d, cut;
+	local float h, n, i, days;
 	local string fn;
 
 	days = cvar("run_evidence_days");
 	if (days <= 0)
 		return;
-	today = FS_DayNumOf(strftime(TRUE, "%Y%m%d"));
 	/*
 	  Patch 417: `.rc*` rather than `.rec`, so the run RECEIPTS this directory
 	  now also holds expire on the same clock as the recordings they attest.
@@ -6781,13 +6799,7 @@ void(string pat) SV_EvidenceSweepPat =
 	for (i = 0; i < n; i = i + 1)
 	{
 		fn = search_getfilename(h, i);
-		cut = strlen(fn) - 1;
-		while (cut >= 0 && str2chr(fn, cut) != 47)     // '/'
-			cut = cut - 1;
-		d = FS_DayNumOf(substring(fn, cut + 1, 8));
-		if (d >= 0)
-		if (today - d > days)
-			fremove(fn);
+		SV_EvidenceSweepOne(fn);
 	}
 	if (SV_DevOn())
 		dprint(sprintf("timer: evidence sweep %s (%g file(s) considered)\n", pat, n));
@@ -6833,6 +6845,88 @@ void() SV_EvidenceSweep =
 	if (checkbuiltin(held_metadata))
 		held_metadata(world, 6, "", "all");
 	SV_EvidenceSweepPat("data/evidence/*/*.*");
+};
+
+// The daily all-tree stamp is committed only after the last result was processed.
+float() SV_EvidenceSweepStep =
+{
+	local string pat;
+	local float began;
+
+	if (ev_maint_phase >= 2) return TRUE;
+	if (!ev_maint_open)
+	{
+		if (ev_maint_phase == 1)
+		{
+			if (!cvar("run_evidence_sweepall") || !strcmp(infokey(world, "fs_evswept"), strftime(TRUE, "%Y%m%d")))
+			{
+				if (ev_maint_native_done) strunzone(ev_maint_day);
+				ev_maint_day = "";
+				ev_maint_native_done = FALSE;
+				ev_maint_phase = 2;
+				return TRUE;
+			}
+		}
+		// Native policy maintenance has its own retention controls, even when
+		// run_evidence_days is disabled. It is synchronous, in its own idle turn.
+		if (!ev_maint_native_done)
+		{
+			ev_maint_day = strzone(strftime(TRUE, "%Y%m%d"));
+			began = gettime(1);
+			if (checkbuiltin(held_metadata))
+			{
+				if (ev_maint_phase == 0) held_metadata(world, 6, mapname, "map");
+				else held_metadata(world, 6, "", "all");
+			}
+			dprint(sprintf("maintenance: native policy phase %g %.6fs\n", ev_maint_phase, gettime(1) - began));
+			ev_maint_native_done = TRUE;
+			return FALSE;
+		}
+		if (cvar("run_evidence_days") <= 0)
+		{
+			if (ev_maint_phase == 1)
+				localcmd(sprintf("localinfo fs_evswept %s\n", ev_maint_day));
+			strunzone(ev_maint_day);
+			ev_maint_day = "";
+			ev_maint_native_done = FALSE;
+			ev_maint_phase = ev_maint_phase + 1;
+			return (ev_maint_phase >= 2);
+		}
+		pat = sprintf("data/evidence/%s/*.*", mapname);
+		if (ev_maint_phase == 1) pat = "data/evidence/*/*.*";
+		began = gettime(1);
+		ev_maint_handle = search_begin(pat, FS_NAMESORT, TRUE);
+		dprint(sprintf("maintenance: evidence phase %g scan %.6fs\n", ev_maint_phase, gettime(1) - began));
+		if (ev_maint_handle < 0)
+		{
+			strunzone(ev_maint_day);
+			ev_maint_day = "";
+			ev_maint_native_done = FALSE;
+			ev_maint_phase = ev_maint_phase + 1;
+			return FALSE;
+		}
+		ev_maint_index = 0;
+		ev_maint_open = TRUE;
+		return FALSE;
+	}
+	// Revoking whole-tree ownership must also stop an already-open snapshot.
+	if (ev_maint_phase == 0 || cvar("run_evidence_sweepall"))
+	if (ev_maint_index < search_getsize(ev_maint_handle))
+	{
+		SV_EvidenceSweepOne(search_getfilename(ev_maint_handle, ev_maint_index));
+		ev_maint_index = ev_maint_index + 1;
+		return FALSE;
+	}
+	search_end(ev_maint_handle);
+	ev_maint_open = FALSE;
+	ev_maint_native_done = FALSE;
+	if (ev_maint_phase == 1)
+	if (cvar("run_evidence_sweepall"))
+		localcmd(sprintf("localinfo fs_evswept %s\n", ev_maint_day));
+	strunzone(ev_maint_day);
+	ev_maint_day = "";
+	ev_maint_phase = ev_maint_phase + 1;
+	return (ev_maint_phase >= 2);
 };
 
 void(entity e) SV_RecDiscard =
@@ -18250,7 +18344,8 @@ void() SV_TimerMapInit =
 	*/
 	run_t_evul = bound(0, rint(cvar("run_evidence_ul")), 2);
 	localcmd(sprintf("serverinfo fs_ul %g\n", run_t_evul));
-	SV_EvidenceSweep();
+	if (!Lobby_DeferredMaintenance())
+		SV_EvidenceSweep();
 	run_t_runclass    = cvar("run_class");
 	run_t_cheatwatch  = cvar("run_cheatwatch");
 	run_t_startjit    = SV_MapCfgFloat("run_startjitter", cvar("run_startjitter"));   // build 83; a hands-off map turns it off

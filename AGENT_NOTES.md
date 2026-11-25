@@ -1,5 +1,14 @@
 # AGENT_NOTES.md
 
+## P1838 lobby load/index qualification (25 Nov 2026)
+
+- Filesystem hash sizing is not just an allocation change. The old generic removal hashes case-sensitively while this index inserts/looks up case-insensitively. Act mixed-case duplicate deletion, reinsertion and shallower replacement before accepting a larger table; the initial timing-only result did not catch this. Keep an old-unlink negative control.
+- A successful native boot is not typed inspection. FTE32/QTEST `ED_FindLocalOrGlobal` formerly paired the correct value address with a stale 16-bit static definition, yielding `void type`. Return the actual `def32`; the 16-bit branch already points it at the converted static object. Do not bypass cheat/write guards or replace real queue/parser state to make a fixture pass.
+- QC-owned policy cfgs require `set` before the first map. Query actual effective cvars, reservation/profile state, raw-map `mapname`, readiness and queue arming. The native raw-map spelling retains `.map`, while a directed-map protocol payload must independently satisfy its stricter name grammar; an invalid-name refusal is not an occupied-client guard test.
+- `test_p1834_native.py --case all` runs eight cases; repeated `--case` flags select only the last, not a list. Its real HTTP/file-oracle cases passed with connecting/spectator slots but not fully spawned gameplay. The date arm uses yesterday's payload plus `owner_nextday`; it is not a literal clock rollover. Keep unreached native transport/policy-object/cadence cases explicit.
+- One deferred search or metadata slot is bounded work count, not bounded wall time. Maintenance waits for a successful ready ACK, pauses for pending HTTP/real clients, rereads metadata and closes an all-tree iterator when ownership is revoked. Do not describe that as a hard millisecond scheduler.
+- The default-off dedicated PHY candidate declined the selected real models (zero optimized models); matching legacy/off-on hashes do not qualify its fast path. Keep `hl2_dedicatedphy 0` until an actually eligible real-model arm proves collision/bounds parity and benefit. ARM extracted-hash timing is not a full ARM engine/map benchmark.
+
 ## P1832 static Source prop lighting references (25 Nov 2026)
 
 - `cl_lightingorigin.qc` resolves names and full `H_world * inverse(L_world)` rigid matrices at map load, then binds unique model/origin consumers on first sight; no per-frame name scans. Missing landmark is identity. Static/unparented/unanimated/body-zero only; authored incoming I/O, ambiguous bindings and combined absolute+relative inputs fall back. Exact tint/visibility/ordinary submission are preserved.

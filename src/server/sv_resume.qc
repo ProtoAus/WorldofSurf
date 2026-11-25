@@ -14,6 +14,9 @@
 ===========================================================================
 */
 
+// P1838: one search or one slot per idle maintenance turn, not a time budget.
+float ms_maint_root, ms_maint_open, ms_maint_handle, ms_maint_index;
+
 #define MS_NONE   0
 #define MS_WAIT   1     // a stream copy is due; another player's copy holds the lobby
 #define MS_COPY   2     // copying run.rec into this run's part file
@@ -1443,43 +1446,93 @@ float(string dir) SV_MsSweepProtected =
 	return FALSE;
 };
 
-// worldspawn: slots on this map past run_resume_days, in closed known roots.
-void(string profile) SV_MsSweepProfile =
+// Shared by the legacy synchronous sweep and the deferred ordinary-lobby queue.
+void(string profile, string fn) SV_MsSweepOne =
 {
-	local float h, n, i, days, cut;
-	local string fn, dir, leaf;
+	local float days, cut;
+	local string dir, leaf;
 
 	days = cvar("run_resume_days");
-	if (days <= 0 || !FS_MovementProfileKnown(profile))
-		return;
+	if (days <= 0 || !FS_MovementProfileKnown(profile)) return;
+	if (!SV_MsReadMeta(fn)) return;
+	if (ms_day <= 0) return;
+	if (FS_DayNumOf(strftime(TRUE, "%Y%m%d")) - ms_day <= days) return;
+	cut = strlen(fn) - 1;
+	while (cut >= 0 && str2chr(fn, cut) != 47)
+		cut = cut - 1;
+	dir = substring(fn, 0, cut + 1);
+	leaf = substring(fn, cut + 1, strlen(fn) - cut - 1);
+	if (strlen(profile))
+	{
+		if (strcmp(leaf, "ms.txt")) return;
+		if (SV_MsSweepProtected(dir)) return;
+	}
+	if (!SV_MsSlotCleanMain(strcat(dir, "state.txt"))) return;
+	SV_MsWipeDirProfile(dir, leaf, profile);
+};
+
+void(string profile) SV_MsSweepProfile =
+{
+	local float h, n, i;
+
+	if (cvar("run_resume_days") <= 0 || !FS_MovementProfileKnown(profile)) return;
 	h = search_begin(FS_MovementProfilePath(profile, sprintf("data/resume/%s/*/save000/ms*.txt", mapname)), FS_NAMESORT, TRUE);
-	if (h < 0)
-		return;
+	if (h < 0) return;
 	n = search_getsize(h);
 	for (i = 0; i < n; i = i + 1)
-	{
-		fn = search_getfilename(h, i);
-		if (!SV_MsReadMeta(fn))
-			continue;
-		if (ms_day <= 0)
-			continue;
-		if (FS_DayNumOf(strftime(TRUE, "%Y%m%d")) - ms_day <= days)
-			continue;
-		cut = strlen(fn) - 1;
-		while (cut >= 0 && str2chr(fn, cut) != 47)     // '/'
-			cut = cut - 1;
-		dir = substring(fn, 0, cut + 1);
-		leaf = substring(fn, cut + 1, strlen(fn) - cut - 1);
-		if (strlen(profile))
-		{
-			if (strcmp(leaf, "ms.txt")) continue;
-			if (SV_MsSweepProtected(dir)) continue;
-		}
-		if (!SV_MsSlotCleanMain(strcat(dir, "state.txt")))
-			continue;
-		SV_MsWipeDirProfile(dir, leaf, profile);
-	}
+		SV_MsSweepOne(profile, search_getfilename(h, i));
 	search_end(h);
+};
+
+// TRUE only after every original root has completed. Handles survive idle pauses.
+float() SV_MsSweepStep =
+{
+	local string profile;
+	local float began;
+
+	if (ms_maint_root >= 7) return TRUE;
+	profile = "";
+	if (ms_maint_root == 1) profile = "ag-100-v1";
+	if (ms_maint_root == 2) profile = "ag-250-v1";
+	if (ms_maint_root == 3) profile = "ag-1000-v1";
+	if (ms_maint_root == 4) profile = "cs16-v1";
+	if (ms_maint_root == 5) profile = "hl2-pre-v1";
+	if (ms_maint_root == 6) profile = "hl2-post-v1";
+	if (!ms_maint_open)
+	{
+		if (ms_maint_root == 0 && strlen(serverkey("*movementprofile")))
+		{
+			ms_maint_root = ms_maint_root + 1;
+			return FALSE;
+		}
+		if (cvar("run_resume_days") <= 0 || !FS_MovementProfileKnown(profile))
+		{
+			ms_maint_root = ms_maint_root + 1;
+			return FALSE;
+		}
+		// search_begin materializes the glob synchronously; measure, never call it bounded.
+		began = gettime(1);
+		ms_maint_handle = search_begin(FS_MovementProfilePath(profile, sprintf("data/resume/%s/*/save000/ms*.txt", mapname)), FS_NAMESORT, TRUE);
+		dprint(sprintf("maintenance: resume root %g scan %.6fs\n", ms_maint_root, gettime(1) - began));
+		if (ms_maint_handle < 0)
+		{
+			ms_maint_root = ms_maint_root + 1;
+			return FALSE;
+		}
+		ms_maint_index = 0;
+		ms_maint_open = TRUE;
+		return FALSE;
+	}
+	if (ms_maint_index < search_getsize(ms_maint_handle))
+	{
+		SV_MsSweepOne(profile, search_getfilename(ms_maint_handle, ms_maint_index));
+		ms_maint_index = ms_maint_index + 1;
+		return FALSE;
+	}
+	search_end(ms_maint_handle);
+	ms_maint_open = FALSE;
+	ms_maint_root = ms_maint_root + 1;
+	return (ms_maint_root >= 7);
 };
 
 void() SV_MsSweep =

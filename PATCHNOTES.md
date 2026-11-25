@@ -21,6 +21,11 @@
 
 ## next
 
+### P1838 Faster lobby map changes
+- Large map libraries use a larger filename index, reducing filesystem work during map changes without changing collision or movement.
+- Empty ordinary lobbies announce readiness faster. Routine cleanup waits until the map is ready and pauses while a client is joining or playing.
+- Joining a requested map no longer waits for an unrelated whole-library timer scan. Reserved and custom lobby policies remain unchanged.
+
 ### P1837 Faster leaderboards and zoning
 - Leaderboards keep a saved catalogue ready while one background refresh updates it. The map list starts with 100 rows; Show more adds the next 100. Search and sorting still cover every map.
 - Player and picture indexes are primed before the new website worker accepts traffic. Searches retain full counts without copying an unbounded result list.
