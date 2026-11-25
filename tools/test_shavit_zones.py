@@ -269,6 +269,82 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(len(ring["transformations"]), 1)
         self.assertEqual(ring["transformations"][0]["added_z_above"], 72)
 
+    def catalogue(self, rows):
+        path = self.root/"catalogue.txt"
+        path.write_text("FTESURF-MAPDL 1\n# of zoned enabled\n"+"".join(
+            f"dl {name} {mode} m 1 100 2026-11-25 0 1 1 {base} 0 {enabled}\n"
+            for name, mode, base, enabled in rows), encoding="ascii")
+        return path
+
+    def test_catalogue_nonprefix_modes_original_case_and_no_of_alias(self):
+        source = self.source(name="Ab_Baume")
+        self.source(name="agtricks")
+        self.source(name="surf_regular")
+        catalogue = self.catalogue([("ab_baume", "bhop", "surf_base", 0),
+                                    ("agtricks", "bhop", "-", 1),
+                                    ("surf_regular", "surf", "-", 1)])
+        before = (source/"Ab_Baume.json").read_bytes()
+        existing = self.root/"existing"; existing.mkdir()
+        upstream = existing/"AGTRICKS.json"; upstream.write_bytes(b"keep")
+        report = sz.export([source], self.root/"out", catalogue=catalogue, existing=existing)
+        rows = {row["map"]: row for row in report["maps"]}
+        self.assertEqual(set(rows), {"ab_baume", "agtricks", "surf_regular"})
+        self.assertEqual(rows["ab_baume"]["mode"], "bhop")
+        self.assertEqual(rows["surf_regular"]["mode"], "surf")
+        self.assertEqual(rows["ab_baume"]["catalogue_of"], "surf_base")
+        self.assertEqual(rows["ab_baume"]["source_filename"], "Ab_Baume.json")
+        self.assertEqual(rows["ab_baume"]["catalogue_map"], "ab_baume")
+        self.assertEqual(rows["ab_baume"]["source_index"], 0)
+        self.assertEqual((self.root/"out/native/Ab_Baume.json").read_bytes(), before)
+        self.assertEqual(rows["ab_baume"]["native_sha256"], sz.hashlib.sha256(before).hexdigest())
+        self.assertTrue((self.root/"out/z/ab_baume.json").exists())
+        self.assertFalse((self.root/"out/z/surf_base.json").exists())
+        self.assertFalse((self.root/"out/z/agtricks.json").exists())
+        self.assertEqual(upstream.read_bytes(), b"keep")
+        self.assertEqual(report["input_selection"], "catalogue")
+        self.assertEqual(report["catalogue_sha256"], sz.hashlib.sha256(catalogue.read_bytes()).hexdigest())
+        # Without the explicit catalogue, the inherited prefix selection remains.
+        default = sz.export([source], self.root/"default")
+        self.assertEqual([row["map"] for row in default["maps"]], ["surf_regular"])
+
+    def test_catalogue_unlisted_inputs_not_copied_named_or_aliased(self):
+        source = self.source(name="surf_public")
+        self.source(name="surf_private_draft")
+        self.source(name="private.draft")
+        catalogue = self.catalogue([("surf_public", "surf", "-", 1),
+                                    ("public_missing", "bhop", "-", 0)])
+        report = sz.export([source], self.root/"out", catalogue=catalogue, geometry_candidates=True)
+        self.assertEqual(report["ignored_inputs"], {"unlisted_stem": 1, "unsafe_stem": 1})
+        self.assertEqual(report["catalogue_entries_without_input"], ["public_missing"])
+        for folder in ("native", "z"):
+            self.assertEqual([p.name for p in (self.root/"out"/folder).iterdir()], ["surf_public.json"])
+        text = (self.root/"out/report.json").read_text()
+        self.assertNotIn("surf_private_draft", text)
+        self.assertNotIn("private.draft", text)
+        # An all-ignored input still gets a useful, non-disclosing catalogue report.
+        catalogue = self.catalogue([("public_missing", "bhop", "-", 0)])
+        empty = sz.export([source], self.root/"all-ignored", catalogue=catalogue)
+        self.assertEqual(empty["maps"], [])
+        self.assertEqual(empty["ignored_inputs"], {"unlisted_stem": 2, "unsafe_stem": 1})
+        self.assertEqual(list((self.root/"all-ignored/native").iterdir()), [])
+
+    def test_catalogue_malformed_and_colliding_rows_refused_before_output(self):
+        catalogue = self.catalogue([("ab_baume", "bhop", "-", 1)])
+        raw = catalogue.read_bytes()
+        bad = [b"FTESURF-MAPDL1\n", raw.replace(b"MAPDL 1", b"MAPDL 2"),
+               raw.replace(b"bhop", b"other"), raw.replace(b"ab_baume", b"../secret"),
+               raw.replace(b"ab_baume", b"a"*101), raw.replace(b"ab_baume", b"a/b"),
+               raw.replace(b"ab_baume", "nonascii_é".encode()),
+               raw.replace(b" - 0 1", b" - 0"), raw.replace(b" - 0 1", b" - 0 1 extra"),
+               raw+raw.splitlines()[-1]+b"\n", raw+raw.splitlines()[-1].replace(b"ab_baume", b"AB_BAUME")+b"\n"]
+        source = self.source(name="ab_baume")
+        for value in bad:
+            with self.subTest(raw=value):
+                catalogue.write_bytes(value)
+                with self.assertRaises(ValueError):
+                    sz.export([source], self.root/"out", catalogue=catalogue)
+                self.assertFalse((self.root/"out").exists())
+
     def test_json_duplicate_and_nonfinite_rejected(self):
         for raw in (b'{"formatVersion":1,"formatVersion":1}', b'{"x":NaN}', b'{"x":Infinity}', b'{"x":1e9999}', b'\xff', b'{' ):
             with self.subTest(raw=raw), self.assertRaises(sz.Unsupported):

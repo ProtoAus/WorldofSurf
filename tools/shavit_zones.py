@@ -16,6 +16,8 @@ import re
 import sys
 
 MAP = re.compile(r"(?:surf|bhop)_[a-z0-9_+\-]{1,100}\Z", re.ASCII)
+CATALOGUE_MAP = re.compile(r"[A-Za-z0-9_+\-]{1,100}\Z", re.ASCII)
+MAX_CATALOGUE_BYTES = 1_000_000
 MAX_BYTES = 2 * 1024 * 1024
 MAX_ZONES = 128
 TARGET_REF = "bhopppp/Shavit-Surf-Timer@71e4beb680407870239c9fd889ac5d29d527536d"
@@ -255,7 +257,39 @@ def load_native(raw):
         raise Unsupported(f"invalid native JSON: {error}") from error
 
 
-def inventory(directories):
+def load_catalogue(raw):
+    """Read public FTESURF-MAPDL 1 rows, not a zone-file availability manifest."""
+    if len(raw) > MAX_CATALOGUE_BYTES:
+        raise ValueError("catalogue exceeds 1 MB limit")
+    try:
+        text = raw.decode("ascii")
+    except UnicodeError as error:
+        raise ValueError("catalogue must be ASCII") from error
+    lines = text.splitlines()
+    if not lines or lines[0] != "FTESURF-MAPDL 1":
+        raise ValueError("expected catalogue header FTESURF-MAPDL 1")
+    rows = {}
+    for line_number, line in enumerate(lines[1:], 2):
+        fields = line.split()
+        if not fields or line.lstrip().startswith("#"):
+            continue
+        if len(fields) != 13 or fields[0] != "dl":
+            raise ValueError(f"catalogue line {line_number}: expected dl and 13 columns")
+        stem, mode, base = fields[1], fields[2], fields[10]
+        if not CATALOGUE_MAP.fullmatch(stem) or (base != "-" and not CATALOGUE_MAP.fullmatch(base)):
+            raise ValueError(f"catalogue line {line_number}: unsafe map stem or of field")
+        if mode not in ("surf", "bhop") or any(fields[i] not in ("0", "1") for i in (11, 12)):
+            raise ValueError(f"catalogue line {line_number}: invalid mode or pool flags")
+        name = stem.lower()
+        if name in rows:
+            raise ValueError(f"catalogue line {line_number}: duplicate/case-colliding map stem")
+        rows[name] = dict(catalogue_map=stem, mode=mode, catalogue_of=base)
+    if not rows:
+        raise ValueError("empty catalogue")
+    return rows
+
+
+def inventory(directories, *, catalogue=None, ignored=None):
     chosen, shadowed = {}, []
     for source_index, directory in enumerate(directories):
         if not directory.is_dir():
@@ -263,8 +297,17 @@ def inventory(directories):
         local = set()
         for path in sorted(directory.glob("*.json")):
             name = path.stem.lower()
-            if not MAP.fullmatch(name):
-                continue
+            if catalogue is None:
+                if not MAP.fullmatch(name):
+                    continue
+            else:
+                reason = "unsafe_stem" if not CATALOGUE_MAP.fullmatch(path.stem) else (
+                    "unlisted_stem" if name not in catalogue else None)
+                if reason:
+                    # Counts only: unlisted filenames may identify private drafts.
+                    if ignored is not None:
+                        ignored[reason] += 1
+                    continue
             if path.is_symlink() or not path.is_file():
                 raise ValueError(f"not a regular source JSON file: {path}")
             if name in local:
@@ -277,9 +320,15 @@ def inventory(directories):
     return chosen, shadowed
 
 
-def export(directories, output, *, existing=None, approximate=False, geometry_candidates=False):
-    chosen, shadowed = inventory(directories)
-    if not chosen:
+def export(directories, output, *, existing=None, approximate=False, geometry_candidates=False, catalogue=None):
+    catalogue_rows, catalogue_raw = None, None
+    ignored = dict(unlisted_stem=0, unsafe_stem=0)
+    if catalogue is not None:
+        with catalogue.open("rb") as source:
+            catalogue_raw = source.read(MAX_CATALOGUE_BYTES+1)
+        catalogue_rows = load_catalogue(catalogue_raw)
+    chosen, shadowed = inventory(directories, catalogue=catalogue_rows, ignored=ignored)
+    if not chosen and catalogue_rows is None:
         raise ValueError("no surf_/bhop_ native JSON files found; nothing exported")
     if existing is not None and not existing.is_dir():
         raise ValueError("--existing must be the actual upstream z/ directory")
@@ -295,10 +344,23 @@ def export(directories, output, *, existing=None, approximate=False, geometry_ca
               "input_precedence": "first --source wins; no suffix aliases",
               "approximate_bounds_enabled": approximate, "geometry_candidates_enabled": geometry_candidates,
               "shadowed_inputs": shadowed, "maps": []}
+    report["input_selection"] = "catalogue" if catalogue_rows is not None else "surf_/bhop_-prefix"
+    if catalogue_rows is not None:
+        report["catalogue_sha256"] = hashlib.sha256(catalogue_raw).hexdigest()
+        report["ignored_inputs"] = ignored
+        report["ignored_input_policy"] = "counts only; unlisted/unsafe source stems are not disclosed or copied"
+        report["catalogue_entries_without_input"] = [row["catalogue_map"] for name, row in sorted(catalogue_rows.items())
+                                                      if name not in chosen]
     for name, (path, source_index) in sorted(chosen.items()):
         with path.open("rb") as source:
             raw = source.read(MAX_BYTES+1)
-        row = {"map": name, "source_index": source_index, "source_filename": path.name}
+        copy_filename = path.name if catalogue_rows is not None else name+".json"
+        row = {"map": name, "source_index": source_index, "source_filename": path.name,
+               "native_copy_filename": copy_filename}
+        if catalogue_rows is not None:
+            row.update(catalogue_rows[name])
+        else:
+            row["mode"] = name.split("_", 1)[0]
         if len(raw) > MAX_BYTES:
             row.update(status="blocked-no-partial-map", reason="native JSON exceeds 2 MiB; not read or copied whole",
                        native_sha256=None, native_copy_written=False)
@@ -307,7 +369,7 @@ def export(directories, output, *, existing=None, approximate=False, geometry_ca
         row.update(native_sha256=hashlib.sha256(raw).hexdigest(), native_copy_written=True)
         # Keep selected bounded inputs byte-for-byte, even unconvertible maps;
         # this is a LOCAL review copy, not a redistribution license.
-        (output/"native"/(name+".json")).write_bytes(raw)
+        (output/"native"/copy_filename).write_bytes(raw)
         if name in known:
             row["status"] = "existing-upstream-untouched"
         else:
@@ -339,6 +401,8 @@ def main(argv=None):
     parser.add_argument("--source", type=Path, action="append", required=True,
                         help="explicit native directory; repeat in precedence order, highest first")
     parser.add_argument("--existing", type=Path, help="upstream z/ directory; existing case-folded map names are skipped")
+    parser.add_argument("--catalogue", type=Path,
+                        help="local FTESURF-MAPDL 1 public catalogue; select only listed stems using its surf/bhop mode")
     parser.add_argument("--output", type=Path, required=True, help="fresh local review directory")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--geometry-candidates", action="store_true",
@@ -348,7 +412,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         report = export(args.source, args.output, existing=args.existing, approximate=args.approximate_bounds,
-                        geometry_candidates=args.geometry_candidates)
+                        geometry_candidates=args.geometry_candidates, catalogue=args.catalogue)
     except (OSError, ValueError) as error:
         print(f"shavit_zones: {error}", file=sys.stderr)
         return 1

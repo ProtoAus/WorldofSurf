@@ -22,6 +22,7 @@
 ## next
 
 ### P1831 Broader zone review proposals
+- A retained public map catalogue can select native bhop names without the usual filename prefix. Unlisted source files are excluded and reported by count only.
 - An explicit offline mode can propose boxes for concave or unusual native zone rings and pad thin heights, with exact changed bounds and prominent timing-risk reports. Strict conversion remains unchanged.
 - Review downloads are not calibrated ranked zones. Unsupported routes stay blocked with original backups; existing upstream zones remain untouched.
 

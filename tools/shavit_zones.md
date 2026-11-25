@@ -29,7 +29,7 @@ python3 tools/shavit_zones.py \
   blocked reasons and per-map semantic warnings. It has no absolute source paths.
 - `REVIEW-REQUIRED.txt`: calibration and redistribution warning.
 
-Only `surf_*.json` and `bhop_*.json` names are selected. Names are lowercased for the
+By default only `surf_*.json` and `bhop_*.json` names are selected. Names are lowercased for the
 target's lowercase map lookup; suffixes such as `_ksf`, `_css`, `_fix` are **never
 aliased or removed**. First `--source` wins; shadowed inputs are reported. Source
 symlinks and case-colliding names within a directory are refused. When `--existing`
@@ -43,6 +43,42 @@ them. `--approximate-bounds` explicitly permits their enclosing boxes, marked
 that option to imply an exact conversion. Strict rectangle edges must match the
 input's axis-aligned boundaries exactly; even tiny slants need explicit
 approximation. All output still needs in-engine review.
+
+## Public catalogue selection
+
+Pass `--catalogue /path/to/retained-public-catalogue.txt` to select by public
+catalogue membership and its `surf`/`bhop` mode, not filename prefixes. Native
+bhop stems such as `ab_baume` and `agtricks` are otherwise excluded by the legacy
+prefix filter. This option is independent of the geometry mode. The converter
+never fetches a URL: the caller must retain the public response from
+`https://play.proto.bar/api/board?maps=1` and pass the local file explicitly.
+
+The bounded (1 MB) ASCII text must have header `FTESURF-MAPDL 1`, followed by
+13-column `dl` rows (blank/comment lines allowed): exact map stem at column index1,
+mode at index2, `of` at index10, zoned/enabled flags at indices11/12. Malformed
+rows, unsupported modes, invalid flags and duplicate/case-colliding names refuse
+before creating output. Map and `of` stems must use only ASCII letters/digits,
+underscore, plus or minus, with length1..100; no path separators/dots/traversal.
+Disabled pool rows remain eligible. Neither `zoned` nor `enabled` proves a JSON
+file exists; an embedded BSP timer can set `zoned` too. The `of` field is recorded,
+**never** followed as an alias or a claim of compatible zone geometry.
+
+Catalogue mode selects only safely named listed source files. Unlisted/unsafe
+input stems are not read, copied, hashed or named in the public report:
+`ignored_inputs` contains counts only. This avoids leaking private unknown names;
+it does not make an arbitrary source directory an approved public source.
+`input_selection` records `catalogue` versus `surf_/bhop_-prefix`, and
+`catalogue_sha256` binds the supplied catalogue bytes. Public catalogue entries
+without a selected input appear in `catalogue_entries_without_input`; that is
+not a claim of HTTP404 or unavailable zone data. An all-ignored catalogue pass
+still emits an empty candidate set and these counts/status fields.
+
+Each selected row records `mode`, original `catalogue_map` and `catalogue_of`,
+plus exact-case `source_filename`, `source_index`, `native_copy_filename` and
+native SHA256. In catalogue mode the native copy preserves source filename case;
+target JSON uses the lowercase stem matching the target's `GetLowercaseMapName`.
+The existing case-folded upstream skip and source-collision gates still apply.
+Without the flag, prefix selection and lowercase native-copy paths stay as before.
 
 ## Explicit geometry proposals (P1831)
 
