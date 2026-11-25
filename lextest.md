@@ -3,12 +3,13 @@
 ## P1831 Shavit geometry proposals (pending CS:S acceptance)
 - Explicit `--geometry-candidates` outputs enclosing-box/short-height proposals, never live zone installation. Inspect exact per-region transformations and native backups in each review bundle.
 - Pending per-map human checks: actual CS:S map revision, standing/crouched edge crossings, thin-Z entry/exit timing, every stage/checkpoint/bonus and restart, filters/speed settings/map I/O. No timing equivalence or ranked-record compatibility has been verified.
-- Owner authorized source redistribution on 25 Nov 2026; preserve original credits/terms. That permission is not a public-domain dedication. Public downloads/draft contributions must remain visibly review-only until calibrated.
+- Owner authorized source redistribution on 25 Nov 2026; preserve original credits/terms. That permission is not a public-domain dedication. Public downloads/draft contributions remain visibly review-only until calibrated.
+- Published [native/surf/bhop review downloads](https://github.com/ProtoAus/surf-zones/releases/tag/wos-zones-20261125-725567e8b6b9) and [upstream draft PR #1](https://github.com/wrldspawn/surf-zones/pull/1):1,769 native backups,924surf+554bhop review candidates,200whole-map refusals retained native-only,76existing upstream names left alone. All8 assets anonymously downloaded/hash-verified; no live timer/style/stripper configs changed. These automated publication checks do not replace the pending human checks above.
 
 ## P1829 Shavit zone review exporter (offline only)
 - `python3 tools/shavit_zones.py --source <published-native-zones> --existing <surf-zones/z> --output <fresh-review-directory>` keeps native inputs unchanged and skips existing map names. See tools/shavit_zones.md.
 - Local conservative pass: 1,140 selected files, excluding personal editor drafts; 414 review candidates (114 surf / 300 bhop), 63 upstream names left alone, 663 whole-map refusals. These are local stored inputs, not proof of complete/current Source coverage.
-- All candidates need actual CS:S map-build, hull/touch timing, stage/bonus restart and omitted-settings checks. No public corpus upload or new download endpoint; source rights and required credits still need approval before redistribution.
+- All candidates need actual CS:S map-build, hull/touch timing, stage/bonus restart and omitted-settings checks. This earlier local pass did not publish a corpus; the later authorized P1831 public snapshot/downloads/draft PR are above and do not certify these older local inputs.
 
 ## P1828 Counter-Strike: Source labels (pending full human check)
 Parent smoke: compiled final CSQC with zero warnings and confirmed `CS:S tier 3` in the HUD screenshot on surf_bikini_bottom; local CSQC/menu installed. Remaining checks below are not certified by that one screenshot.

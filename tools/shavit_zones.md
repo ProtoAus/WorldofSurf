@@ -188,6 +188,33 @@ Keep source provenance and required credits; do not upload BSPs, Valve content,
 private maps, user editor drafts or account data. No bulk corpus is committed or
 published by the converter code itself; packaging/publication is a separate step.
 
+## Published review snapshot (P1831)
+
+- [Public prerelease: native backups, surf/bhop review ZIPs, manifest and SHA256SUMS](https://github.com/ProtoAus/surf-zones/releases/tag/wos-zones-20261125-725567e8b6b9).
+- [Upstream draft PR #1](https://github.com/wrldspawn/surf-zones/pull/1), isolated
+  under `proposals/worldofsurf-20261125-725567e8b6b9/`; no root `z/` or existing
+  upstream file/config changes. Contribution commit `50cccbad40170c8a92735ad653cea35f6283e123`.
+- 1,769 observed public native JSONs fetched and size/SHA256 verified; opening and
+  closing manifest zone inventories/catalogue bytes matched. This is an observed
+  published snapshot, not an atomic freeze of the latest origin filesystem.
+- 924 surf candidates (222 unchanged rectangular geometry / 702 explicit geometry
+  proposals) and 554 optional bhop candidates (340 / 214), with original natives,
+  warnings and per-region transformation reports. No CS:S timing certification.
+- 200 unsupported surf/bhop maps retained native-only with whole-map refusal
+  reasons; 76 existing upstream names skipped. Another 15 other/unheld native
+  files are retained only in the full native archive, not misclassified as surf.
+- 516 held-map native URLs returned origin HTTP404 in the capture window. This
+  does not prove no embedded timer or no unpublished native copy exists.
+- All eight release assets independently downloaded anonymously with HTTP200 and
+  matched to local full-file SHA256s. ZIP members were read back byte-for-byte;
+  all candidate hashes/schema/profile paths and original upstream bytes checked.
+
+Dataset fingerprint:
+`725567e8b6b97e7563ffe4eaf4225edaca267fc2c1258d761b7fb62b9d0d74dc`.
+Source redistribution permission is recorded in the bundles; third-party terms
+remain applicable. Ranked deployment and the upstream README's actual
+`sm_dumpzones` / in-game acceptance requirement are **not** claimed as met.
+
 ## Bounded regression tests
 
 Use a new owned test root (not a default system temporary folder):
