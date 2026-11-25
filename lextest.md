@@ -1,5 +1,11 @@
 # lextest.md — things waiting on a human
 
+## P1832 static Source prop lighting references (25 Nov)
+
+- On bhop_canals compare `vbsp_lightingorigin 0/1` at the two vent props. Their pose/tint/visibility should not change; only ordinary world-light sampling is redirected. Compare the appearance with the same map revision in Source when available. This engine still uses its existing origin+24Z base sample; exact closed-Source illumination-centre/attachment/bone/scale and attenuation parity is NOT certified, and no brightness/quality tuning was used to conceal that boundary. Restore 1 afterward.
+- Automated native O0/O2 production-body and mutation tests, nine QC matrix/eligibility tests, all-three-QC zero-warning builds and actual rendered controls passed. Both real consumers bound/submitted; hiding/re-enabling, native entity hiding, video restart and cold map reload acted. A private incoming-bodygroup fixture declined that consumer while the other submitted. Old engine: both bound, no missing API calls, exactly one warning, ordinary appearance retained. Metadata-only/outside-PVS attempts and a warned diagnostic build were retained but not counted as acceptance.
+- `lightingorigin_info` reports binding attempts/submissions/model bounds and full matrices; `cfg/test/p1832-lightingorigin.cfg` supplies the fixed-view toggle control. See `tools/lightingorigin.md` for the static subset and fallback contract. Runtime moving/parented/animated/body-changing references and combined-input precedence are not claimed. This feature makes no whole-map FPS claim and does not alter physics or Build.
+
 ## P1831 Shavit geometry proposals (pending CS:S acceptance)
 - Explicit `--geometry-candidates` outputs enclosing-box/short-height proposals, never live zone installation. Inspect exact per-region transformations and native backups in each review bundle.
 - Pending per-map human checks: actual CS:S map revision, standing/crouched edge crossings, thin-Z entry/exit timing, every stage/checkpoint/bonus and restart, filters/speed settings/map I/O. No timing equivalence or ranked-record compatibility has been verified.

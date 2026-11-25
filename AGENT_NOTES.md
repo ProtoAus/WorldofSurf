@@ -1,5 +1,11 @@
 # AGENT_NOTES.md
 
+## P1832 static Source prop lighting references (25 Nov 2026)
+
+- `cl_lightingorigin.qc` resolves names and full `H_world * inverse(L_world)` rigid matrices at map load, then binds unique model/origin consumers on first sight; no per-frame name scans. Missing landmark is identity. Static/unparented/unanimated/body-zero only; authored incoming I/O, ambiguous bindings and combined absolute+relative inputs fall back. Exact tint/visibility/ordinary submission are preserved.
+- Optional float-returning native sample-only APIs carry a pending point to normal late model lighting. The relative path transforms this engine's existing origin+24Z query; closed Source sample-centre/attachment/bone/scale and attenuation parity are NOT established. Do not invent a bbox/illumination-centre policy or change brightness to match an attractive image. Physical/baked/dlight inputs stay separate. Rebuild the complete engine and matching plugins after the internal renderer-vector addition.
+- `vbsp_lightingorigin 0` restores old drawing. `lightingorigin_info` distinguishes metadata, actual bindings and accepted submissions (not GPU draws). A resolved-but-unbound control is vacuous. `cfg/test/p1832-lightingorigin.cfg` and `tools/lightingorigin.md` describe acted controls and limitations. Nine Python matrix/eligibility tests are not QC execution; separate live new/old-engine controls actually bound both props and exercised visibility/restarts and unsafe incoming-body fallback.
+
 ## P1830 smoke-volume visibility and exact-view caches (25 Nov 2026)
 
 - Smoke-volume probes cover the generated particle centres plus their full rotating billboard radius, not merely the authored brush. Density-zero volumes create no probes. Reset removes probes and clears sort/filter validity; retained buffers are bounded and reused.

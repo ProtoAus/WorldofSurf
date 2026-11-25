@@ -27,6 +27,9 @@
 - Run-viewer code downloads only when you open a run. Retry stays on the requested run, even after a failed navigation.
 - Zoning fetches lightweight availability and independent history updates, skips unchanged redraws, and keeps last-good status if a live service fails.
 
+### P1832 Map-authored prop lighting references
+- Safe static map props can follow their authored lighting reference without moving or drawing twice. Unsupported references and older engines keep normal rendering.
+
 ### P1831 Broader zone review proposals
 - A retained public map catalogue can select native bhop names without the usual filename prefix. Unlisted source files are excluded and reported by count only.
 - An explicit offline mode can propose boxes for concave or unusual native zone rings and pad thin heights, with exact changed bounds and prominent timing-risk reports. Strict conversion remains unchanged.

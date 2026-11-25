@@ -220,6 +220,7 @@ void() CSQC_WorldLoaded =
 	Sun_LoadForMap();               // Patch 874
 	Sun_MapLight();                 // P1723/P1724/P1725
 	Tint_Load();                    // P1769: tinted props drawn with their exact rendercolor
+	LO_Load();                      // P1832: static authored lighting references, composed with tint
 	Ropes_LoadForMap();
 
 	// Build 66.  env_soundscape, out of the same lump and here for the same
@@ -397,6 +398,8 @@ void(float apilevel, string enginename, float engineversion) CSQC_Init =
 	WarpOp_RegisterCvars();         // Patch 753: goto_start, goto_spawn, cl_warpop
 	PE_RegisterCvars();             // Patch 1195: prederror reports
 	CR_Init();                      // P1418: a crash report waiting to be offered
+	registercvar("vbsp_lightingorigin", "1");
+	registercommand("lightingorigin_info");
 	registercommand("sp_dump");     // P1387: the server's `cmd spdump` asks for it
 	Gfx_RegisterCvars();
 	GameMode_RegisterCvars();     // P1598: hud_gamemode
@@ -958,7 +961,7 @@ void(float apilevel, string enginename, float engineversion) CSQC_Init =
 	print("FTESurf CSQC loaded\n");
 };
 
-void() CSQC_Shutdown = { VRec_Shutdown(); Tour_Shutdown(); Weather_Free(); TASUI_Close(); TASShare_Reset(); TimeScale_PredictRelease(); TimeScale_ThreadRelease(); MA_Shutdown(); Archive_ClientCancel(); Friends_MenuClear(); Scores_NativeClose(); if (obc_dirty) OBC_Save(); };
+void() CSQC_Shutdown = { LO_Reset(); VRec_Shutdown(); Tour_Shutdown(); Weather_Free(); TASUI_Close(); TASShare_Reset(); TimeScale_PredictRelease(); TimeScale_ThreadRelease(); MA_Shutdown(); Archive_ClientCancel(); Friends_MenuClear(); Scores_NativeClose(); if (obc_dirty) OBC_Save(); };
 
 /*
   Forced view angles from the server -- svc_setangle, its relative form, and
@@ -2525,6 +2528,7 @@ float(string cmd) CSQC_ConsoleCommand =
 	// next thing to run is very likely a command.  Nothing real is nested here.
 	cl_input_real = FALSE;
 	cmdargc = tokenize(cmd);
+	if (!strcmp(argv(0), "lightingorigin_info")) { LO_Info(); return TRUE; }
 	if (VRec_ConsoleCommand()) return TRUE;     // P1747
 	if (Tour_Command(cmdargc, cmd)) return TRUE;
 	if (RampWear_Command(cmdargc)) return TRUE;

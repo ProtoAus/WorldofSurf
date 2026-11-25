@@ -268,6 +268,15 @@ repair this generated asset catalogue.
 
 ---
 
+## Source prop lighting references
+
+Static safe prop references use a separate world-light query rather than moving the model.
+`vbsp_lightingorigin 0` restores the old drawing path; `lightingorigin_info` reports actual
+bindings and accepted submissions as well as metadata. Old engines retain ordinary rendering.
+See [scope, diagnostics and test controls](tools/lightingorigin.md). The full relative matrix
+follows the released SDK helper; this engine's existing sample-point policy is retained, not
+claimed as exact closed-Source renderer parity. No physics or quality setting is changed.
+
 ## Source water and colour controls
 
 Source water supports swimming input, drag, sinking and jump-to-rise. Underwater
