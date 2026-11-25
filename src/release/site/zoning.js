@@ -1,5 +1,5 @@
 // P1176: the zoning page. zoning.json is the list as tools/zoningpage.py found it;
-// board/api/maps says which maps have zones now (`have` = BSP and zones on the Pi).
+// board/api/availability says which maps have zones now (`have` = BSP and zones on the Pi).
 // P1180: the zone service's history says who published what, and when.
 (function () {
   'use strict';
@@ -15,7 +15,10 @@
   var tierBox = document.getElementById('ztier');
   var data = null, zoned = null, checked = 0, liveFailed = false, tierMin = 0, timer = 0;
   var byMap = {}, recent = [], serverNow = 0, fetchedAt = 0;
-  var names = {};       // lower-case key -> the BSP's own name (board/api/maps), for the downloads
+  var polling = false, historyPending = false, renderTimer = 0, searchTimer = 0;
+  var revision = 0, renderedKey = '', availabilityKey = '', historyKey = '';
+  var ageLabels = [];
+  var names = {};       // lower-case key -> the BSP's own name (board/api/availability), for the downloads
   var DL = window.wosDownload;
 
   function el(tag, cls, text) {
@@ -61,7 +64,11 @@
     if (isDone(r)) {
       var h = byMap[r.n];
       name.appendChild(el('span', 'zok', 'Zoned'));
-      if (h) { name.appendChild(el('span', 'zby', (h.by ? 'by ' + h.by + ', ' : '') + ago(h.at))); }
+      if (h) {
+        var label = el('span', 'zby');
+        ageLabels.push({ label: label, entry: h });
+        name.appendChild(label);
+      }
     }
     main.appendChild(name);
     var bits = [];
@@ -89,6 +96,11 @@
     return li;
   }
 
+  function scheduleRender() {
+    if (renderTimer) { return; }
+    renderTimer = setTimeout(function () { renderTimer = 0; render(); }, 0);
+  }
+
   function render() {
     if (!data) { return; }
     var term = q.value.trim().toLowerCase();
@@ -105,13 +117,23 @@
       if (key === 'n') { return a.n < b.n ? -1 : a.n > b.n ? 1 : 0; }
       return b.p - a.p || (a.n < b.n ? -1 : 1);
     });
-    var frag = document.createDocumentFragment();
-    rows.forEach(function (r) { frag.appendChild(row(r)); });
-    list.textContent = '';
-    list.appendChild(frag);
+    var nextKey = JSON.stringify([term, key, showDone.checked, tierMin, revision]);
+    if (nextKey !== renderedKey) {
+      ageLabels = [];
+      var frag = document.createDocumentFragment();
+      rows.forEach(function (r) { frag.appendChild(row(r)); });
+      list.textContent = '';
+      list.appendChild(frag);
+      renderedKey = nextKey;
+    }
+
+    ageLabels.forEach(function (item) {
+      var h = item.entry;
+      item.label.textContent = (h.by ? 'by ' + h.by + ', ' : '') + ago(h.at);
+    });
 
     var total = data.rows.length;
-    var done = zoned ? data.rows.filter(isDone).length : 0;
+    var done = data.rows.filter(isDone).length;
     stats.textContent = plural(total - done, 'map', 'maps') + ' to zone' +
       (done ? ' · ' + done.toLocaleString() + ' zoned since ' + since() : '');
     bar.style.width = (total ? 100 * done / total : 0).toFixed(1) + '%';
@@ -145,6 +167,8 @@
   }
 
   function history() {
+    if (historyPending) { return; }
+    historyPending = true;
     fetch(HISTORY, { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'text/plain' }, body: '{}' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (doc) {
@@ -154,31 +178,43 @@
         recent = doc.rows.filter(function (h) {
           var first = !seen[h.map]; seen[h.map] = 1; return first;    // newest per map
         });
+        var nextKey = JSON.stringify(recent);
+        if (nextKey !== historyKey) { revision++; historyKey = nextKey; }
         byMap = {};
         recent.forEach(function (h) { if (h.kind !== 'rollback') { byMap[String(h.map).toLowerCase()] = h; } });
-        drawRecent(); render();
+        drawRecent(); scheduleRender();
       })
-      .catch(function () { /* the page works without it */ });
+      .catch(function () { /* the page works without it */ })
+      .then(function () { historyPending = false; });
   }
 
   function poll() {
+    if (polling) { return; }
+    polling = true;
     clearTimeout(timer);
-    fetch('board/api/maps', { credentials: 'omit' }).then(function (r) {
+    history();
+    fetch('board/api/availability', { credentials: 'omit' }).then(function (r) {
       if (!r.ok) { throw new Error('HTTP ' + r.status); }
       return r.json();
     }).then(function (doc) {
-      var z = {};
-      (doc.maps || []).forEach(function (m) {
+      if (doc.v !== 1 || !Array.isArray(doc.maps)) { throw new Error('Invalid availability'); }
+      var z = {}, nextNames = {};
+      doc.maps.forEach(function (m) {
         var k = String(m.map).toLowerCase();
-        names[k] = m.map;
+        nextNames[k] = m.map;
         if (m.have) { z[k] = 1; }
       });
+      var nextKey = JSON.stringify(Object.keys(nextNames).sort().map(function (k) {
+        return [k, nextNames[k], z[k] || 0];
+      }));
+      if (nextKey !== availabilityKey) { revision++; availabilityKey = nextKey; }
+      names = nextNames;
       zoned = z; checked = Date.now(); liveFailed = false;
     }).catch(function () {
       liveFailed = true;
     }).then(function () {
-      render();
-      history();
+      polling = false;
+      scheduleRender();
       if (!document.hidden) { timer = setTimeout(poll, POLL_MS); }
     });
   }
@@ -186,9 +222,12 @@
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden && data && Date.now() - checked > POLL_MS) { poll(); }
   });
-  q.addEventListener('input', render);
-  sortSel.addEventListener('change', render);
-  showDone.addEventListener('change', render);
+  q.addEventListener('input', function () {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(scheduleRender, 150);
+  });
+  sortSel.addEventListener('change', scheduleRender);
+  showDone.addEventListener('change', scheduleRender);
   tierBox.addEventListener('click', function (e) {
     var b = e.target.closest('button');
     if (!b) { return; }
@@ -196,7 +235,7 @@
     Array.prototype.forEach.call(tierBox.querySelectorAll('button'), function (x) {
       x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
     });
-    render();
+    scheduleRender();
   });
 
   fetch('zoning.json', { credentials: 'omit' }).then(function (r) {

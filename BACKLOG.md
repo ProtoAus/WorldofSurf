@@ -1,25 +1,27 @@
 # BACKLOG.md
 
-## Public web load audit (25 Nov, QuickPhoenix; root FTESurf-worktrees/webperf-20261125-phoenix)
-- Chromium on the local connection: first measured board list 3.48 s (maps API 3.16 s), players 1.64 s
-  (players API 1.57 s), zoning 0.19 s; repeat navigations 0.23/0.05/0.16 s. Browser cache was cleared for
-  first visits, not the backend cache; these are individual observations, not cold-server benchmarks or p95.
-- Main candidate: /board/api/maps rebuilds its aggregate synchronously after its 60 s process-local cache expires;
-  the cache lock does not single-flight builds. Serve a persisted last-good public snapshot while ONE background
-  refresh runs, including worker recycle/startup. Keep freshness observable; do not merely increase TTL. Falsifier:
-  expired-cache and recycled-worker concurrent requests remain fast, one refresh runs, new runs appear on schedule,
-  and a failed refresh retains last-good bytes without losing retry ownership. Needs a tested backend generation.
-- Players already has background refresh and a persisted directory; its first-request snapshot load/install is
-  synchronous. Measure worker-start snapshot/index and avatar-index costs before attributing the observed 1.57 s
-  to a specific function. Warm after fork/startup, not by rebuilding the entire directory on every request.
-- Board builds 2,158 map rows / 11,301 DOM elements; observed render long tasks 173-193 ms. Test an initial row
-  cap/load-more (preserve full-catalogue search/counts) before virtualization. Falsifier: filtering and initial list
-  paint produce no >50 ms task on a representative slower CPU, without silently hiding map search matches.
-- Zoning unnecessarily requests the full maps catalogue (~199 KB decoded / 35 KB gzipped) only for availability,
-  then fetches history serially; snapshot/maps/history can each rebuild the list. Add a cheap availability response,
-  independent history fetch and coalesced renders. Preserve useful snapshot output when either live service fails.
-- Static site JS was demonstrably not gzipped (zoning.js 9,016 bytes); MIME opt-in added beside the /wos redirect.
-  Keep unversioned assets no-cache; immutable caching needs content-versioned URLs and atomic publication first.
+## P1837 public web performance (25 Nov, QuickPhoenix; root FTESurf-worktrees/webperf-20261125-phoenix)
+- Audit baseline: local browser-cold board 3.48 s (maps API 3.16 s), players 1.64 s (API 1.57 s), zoning 0.19 s;
+  repeat 0.23/0.05/0.16 s. Backend cache uncontrolled; individual observations, not cold-server benchmarks or p95.
+- Implemented: validated persisted public maps snapshot, exception-safe single-flight SWR and a nonblocking
+  availability projection of already-public names/have flags. No-snapshot availability returns quick 503/no-store
+  while warming, never scans on its request thread. A first-ever maps request without a snapshot can still wait
+  for one cold build. Per-worker snapshot/picture priming belongs in the qualified generation startup hook.
+- Implemented: full-catalogue map search/sort/counts with initial 100-row DOM, append-only load-more and keyboard
+  focus/status; lazy route-safe run viewer; bounded player search retention; independent history, debounced zoning
+  input and unchanged-row preservation. No long caching of unversioned scripts or join-admission freshness change.
+- Tests: 18 cache/startup/error controls, frontend VM controls including callback-faithful navigation retry and
+  incomplete canonical names, existing web/profile/backend/site suites. Baseline test_surfd FakeClock lacked
+  monotonic() (also fails unchanged base); fixture corrected without changing product clock behavior.
+- Chromium synthetic 2,500-map fixture: DOM 16,391 -> 792; normal CPU list paint 369 -> 81 ms, no >50 ms task
+  after the change. At 4x CPU slowdown paint 1,357 -> 277 ms, but 79/60 ms long tasks remain. Zoning CPU paint is
+  essentially unchanged (~525 vs 534 ms at 4x); backend payload/waterfall wins do not prove low-end rendering solved.
+  Live backend/worker-recycle measurements remain a delivery gate, not an assertion made by these fixtures.
+- Further work, if measurements justify it: split more initial JS and reduce zoning row/layout work on weak CPUs;
+  keep all search matches/counts and test keyboard/find-in-page behavior. Current single-flight is process-local:
+  a future multi-worker deployment needs cross-process refresh ownership/monotonic snapshot publication tests.
+- /wos canonical redirects and static JS gzip are live after owner nginx install. Keep unversioned assets no-cache;
+  immutable caching still requires content-versioned URLs and atomic publication first.
 
 ## P1806 TAS uploads on the boards' TAS tab -- what it leaves (25 Nov, worldofsurf-8b)
 - An upload row has no replay (rep 0): the game cannot watch or race it from the board. Needs surfd to serve a

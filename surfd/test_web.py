@@ -336,7 +336,7 @@ def new_worker(m):
 
 def join_rebuilds():
     for t in threading.enumerate():
-        if t.name == "people":
+        if t.name in ("people", "web-maps", "web-people-warm"):
             t.join(30)
 
 
@@ -593,7 +593,9 @@ def main():
     kit = lambda: {x["map"]: x for x in body(get(m, "/board/api/maps"))["maps"]}["surf_kitsune"]["runs"]
     check("within 60 s the list is the cached one", kit(), 0)
     m.time.now += 2
-    check("control: after 60 s the new run shows", kit(), 1)
+    kit()                       # stale answer schedules the single refresh
+    join_rebuilds()
+    check("control: after background refresh the new run shows", kit(), 1)
 
     # ---- 4. one map ---------------------------------------------------------
     print("\n--- 4. one map --")
@@ -785,6 +787,8 @@ def main():
     conn.commit()
     conn.close()
     m.time.now += m.WEB_MAPS_TTL + 1
+    get(m, "/board/api/maps")
+    join_rebuilds()
     mp = {x["map"]: x for x in body(get(m, "/board/api/maps"))["maps"]}
     check("...and how many of them have a recording: the two Momentum demos, not the KSF row "
           "and not our own ranked rows",
@@ -1162,6 +1166,8 @@ def main():
     m.WEB_PROFILE_HELD = keep
     check("the pages held are bounded by their rows", held_rows <= 3, True)
     m.time.now += m.WEB_MAPS_TTL + 1       # the maps body is cached for a minute
+    get(m, "/board/api/maps")
+    join_rebuilds()
     check("the maps list now reports a difficulty",
           {x["map"]: x.get("mt") for x in body(get(m, "/board/api/maps"))["maps"]}
           .get("bhop_eazy"), 2)

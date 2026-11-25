@@ -1,4 +1,7 @@
 # The engine build this QuakeC requires.
+# P1837: public web catalogue snapshots refresh off the request path; worker startup primes directory/picture
+# indexes; list rows expand in batches and the viewer loads on demand; zoning uses projected availability.
+# Backend/site-only: no engine/QC/native/schema change. Guarded-generation activation is recorded separately.
 # P1831: explicit offline geometry proposals enclose bounded native rings and report exact short-Z padding.
 # Explicit public catalogue selection includes nonprefix bhop stems without leaking unlisted source names.
 # Strict mode/routes/caps unchanged; no timing calibration, live installation, engine pin or qcbuild change.

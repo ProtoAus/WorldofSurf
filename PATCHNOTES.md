@@ -21,6 +21,12 @@
 
 ## next
 
+### P1837 Faster leaderboards and zoning
+- Leaderboards keep a saved catalogue ready while one background refresh updates it. The map list starts with 100 rows; Show more adds the next 100. Search and sorting still cover every map.
+- Player and picture indexes are primed before the new website worker accepts traffic. Searches retain full counts without copying an unbounded result list.
+- Run-viewer code downloads only when you open a run. Retry stays on the requested run, even after a failed navigation.
+- Zoning fetches lightweight availability and independent history updates, skips unchanged redraws, and keeps last-good status if a live service fails.
+
 ### P1831 Broader zone review proposals
 - A retained public map catalogue can select native bhop names without the usual filename prefix. Unlisted source files are excluded and reported by count only.
 - An explicit offline mode can propose boxes for concave or unusual native zone rings and pad thin heights, with exact changed bounds and prominent timing-risk reports. Strict conversion remains unchanged.

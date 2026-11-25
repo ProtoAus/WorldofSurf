@@ -6974,7 +6974,10 @@ WEB_DEFAULT_BOARDS = ((0, 0, STYLE_CLEAN), (0, 0, STYLE_SEGMENTED), (0, 0, STYLE
 WEB_READ_TIERS = (TIER_RANKED, TIER_IMPORTED, TIER_COMBINED) + TIERS_IMPORTED
 
 _web_lock = threading.Lock()
-_web_maps = {"at": None, "body": b""}
+_web_maps = {"at": None, "body": b"", "busy": False}
+_web_maps_cold = threading.Lock()
+WEB_MAPS_SNAPSHOT = os.environ.get("SURFD_WEB_MAPS",
+                                  os.path.join(DATA_DIR, "web_maps.json"))
 
 
 def _json(payload, cache):
@@ -7047,7 +7050,7 @@ def web_shot(name):
     return resp.make_conditional(request)
 
 
-def _web_maps_body(now):
+def _web_maps_body(now, db=None):
     """Every zoned map with a BSP, every map with ranked runs, and every map we
     hold imported times for, with its main ranked clean WR.  The WR window
     orders by BOARD_ORDER, so it is always /api/board's row 1.
@@ -7058,7 +7061,7 @@ def _web_maps_body(now):
     600.  `have` says whether it can actually be loaded here.
     """
     bsp, zoned = map_index()
-    db = get_db()
+    db = get_db() if db is None else db
     stats = {r["map"]: r for r in db.execute(
         "SELECT map, COUNT(*) AS runs, MAX(submitted) AS last"
         "  FROM runs WHERE tier=? GROUP BY map", (TIER_RANKED,)).fetchall()}
@@ -7110,21 +7113,197 @@ def _web_maps_body(now):
                       separators=(",", ":")).encode("utf-8")
 
 
+def _web_maps_payload(doc):
+    """Validate the persisted PUBLIC allowlist before serving any saved bytes."""
+    def uint(value):
+        return type(value) is int and value >= 0
+
+    if (not isinstance(doc, dict) or set(doc) != {"v", "t", "tiers", "maps"}
+            or type(doc["v"]) is not int or doc["v"] != 1
+            or not uint(doc["t"]) or type(doc["tiers"]) is not bool
+            or not isinstance(doc["maps"], list)):
+        return False
+    seen = set()
+    required = {"map", "runs", "last", "imp", "reps", "have", "wr"}
+    for row in doc["maps"]:
+        if (not isinstance(row, dict) or not required <= set(row)
+                or set(row) - required - {"mt"}
+                or not isinstance(row["map"], str)):
+            return False
+        key = clean_map(row["map"])
+        if key is None or key in seen:
+            return False
+        seen.add(key)
+        if (any(not uint(row[k]) for k in ("runs", "last", "imp", "reps", "have"))
+                or row["have"] not in (0, 1)
+                or ("mt" in row and (not uint(row["mt"]) or not 1 <= row["mt"] <= 20))):
+            return False
+        wr = row["wr"]
+        if wr is not None:
+            if (not isinstance(wr, dict) or not {"name", "ms", "ver"} <= set(wr)
+                    or set(wr) - {"name", "ms", "ver", "plat", "pad", "oldgame"}
+                    or not isinstance(wr["name"], str)
+                    or any(not uint(wr[k]) for k in set(wr) - {"name"})
+                    or wr["ver"] not in (0, 1)
+                    or any(wr[k] != 1 for k in ("pad", "oldgame") if k in wr)):
+                return False
+    return True
+
+
+def _web_maps_load():
+    try:
+        with open(WEB_MAPS_SNAPSHOT, "r", encoding="utf-8") as fh:
+            doc = json.load(fh)
+        if (not isinstance(doc, dict) or set(doc) != {"v", "at", "payload"}
+                or type(doc["v"]) is not int or doc["v"] != 1
+                or not _web_maps_payload(doc["payload"])
+                or type(doc["at"]) is not int or doc["at"] != doc["payload"]["t"]):
+            return None
+        return doc["at"], json.dumps(doc["payload"], separators=(",", ":")).encode("utf-8")
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _web_maps_save(at, body):
+    tmp = "%s.%d.%d.tmp" % (WEB_MAPS_SNAPSHOT, os.getpid(), threading.get_ident())
+    try:
+        payload = json.loads(body)
+        if not _web_maps_payload(payload) or payload["t"] != at:
+            raise ValueError("invalid public maps payload")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"v": 1, "at": at, "payload": payload}, fh, separators=(",", ":"))
+        os.replace(tmp, WEB_MAPS_SNAPSHOT)
+    except Exception:
+        log.exception("web maps snapshot not written")
+    finally:
+        try:
+            os.remove(tmp)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            log.warning("web maps snapshot temp not removed")
+
+
+def _web_maps_held():
+    with _web_lock:
+        return _web_maps["at"], _web_maps["body"]
+
+
+def _web_maps_install(at, body):
+    with _web_lock:
+        _web_maps["at"], _web_maps["body"] = at, body
+
+
+def _web_maps_restore():
+    # Caller holds the cold lock: one load/build even for concurrent first requests.
+    if _web_maps_held()[0] is None:
+        snap = _web_maps_load()
+        if snap is not None:
+            _web_maps_install(*snap)
+
+
+def _web_maps_build(now):
+    # No Flask request context or connection may escape into the refresh thread.
+    conn = connect()
+    try:
+        body = _web_maps_body(now, conn)
+    finally:
+        conn.close()
+    _web_maps_install(now, body)
+    _web_maps_save(now, body)
+
+
+def _web_maps_kick(now):
+    with _web_lock:
+        if _web_maps["busy"]:
+            return
+        _web_maps["busy"] = True
+
+    def work():
+        try:
+            with _web_maps_cold:
+                _web_maps_restore()
+                at, _body = _web_maps_held()
+                if at is None or not _within(at, now, WEB_MAPS_TTL):
+                    _web_maps_build(now)
+        except Exception:
+            log.exception("web maps rebuild failed")
+        finally:
+            with _web_lock:
+                _web_maps["busy"] = False
+
+    try:
+        threading.Thread(target=work, name="web-maps", daemon=True).start()
+    except Exception:
+        log.exception("web maps rebuild not started")
+        with _web_lock:
+            _web_maps["busy"] = False
+
+
+def _web_maps_current(now):
+    at, body = _web_maps_held()
+    if at is None:
+        with _web_maps_cold:
+            _web_maps_restore()
+            at, body = _web_maps_held()
+            if at is None:
+                _web_maps_build(now)
+                at, body = _web_maps_held()
+    if not _within(at, now, WEB_MAPS_TTL):
+        _web_maps_kick(now)
+    return body
+
+
 @app.get("/board/api/maps")
 def web_maps():
     now = int(time.time())
     if not rate_ok(rate_key(), now, WEB_RATE_MAX, "web"):
         return fail(429, "rate limited")
-    with _web_lock:
-        at, body = _web_maps["at"], _web_maps["body"]
-    if at is None or not 0 <= now - at < WEB_MAPS_TTL:
+    try:
+        body = _web_maps_current(now)
+    except Exception:
+        log.exception("web maps build failed")
+        return fail(500, "storage error")
+    resp = Response(body, status=200, mimetype="application/json")
+    resp.headers["Cache-Control"] = "max-age=60"
+    return resp
+
+
+@functools.lru_cache(maxsize=1)
+def _web_availability_body(body):
+    doc = json.loads(body)
+    return json.dumps({"v": 1, "t": doc["t"],
+                       "maps": [{"map": row["map"], "have": row["have"]}
+                                for row in doc["maps"]]},
+                      separators=(",", ":")).encode("utf-8")
+
+
+def _web_availability_current(now):
+    # Non-authoritative UI metadata must never run a library scan or wait behind
+    # a cold aggregate. Restore optional public bytes only if the cold lock is free.
+    at, body = _web_maps_held()
+    if at is None and _web_maps_cold.acquire(blocking=False):
         try:
-            body = _web_maps_body(now)
-        except sqlite3.Error as exc:
-            log.exception("web maps db error: %s", exc)
-            return fail(500, "storage error")
-        with _web_lock:
-            _web_maps["at"], _web_maps["body"] = now, body
+            _web_maps_restore()
+        finally:
+            _web_maps_cold.release()
+        at, body = _web_maps_held()
+    if at is None or not _within(at, now, WEB_MAPS_TTL):
+        _web_maps_kick(now)
+    return _web_availability_body(body) if at is not None else None
+
+
+@app.get("/board/api/availability")
+def web_availability():
+    now = int(time.time())
+    if not rate_ok(rate_key(), now, WEB_RATE_MAX, "web"):
+        return fail(429, "rate limited")
+    body = _web_availability_current(now)
+    if body is None:
+        resp = fail(503, "availability warming; try again")
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
     resp = Response(body, status=200, mimetype="application/json")
     resp.headers["Cache-Control"] = "max-age=60"
     return resp
@@ -7739,7 +7918,7 @@ def _people_load():
                 if "marker" not in _people:
                     _people["marker"], _people["built"] = doc["marker"], doc["built"]
         return (doc["players"], doc["list"], set(doc["main_maps"]), int(doc["at"]))
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, OverflowError):
         return None
 
 
@@ -7820,6 +7999,71 @@ def _people_current(db, now):
     return cur
 
 
+_web_warm_lock = threading.Lock()
+
+
+def warm_web_cache(*, load_only=False):
+    """Explicit per-worker startup priming; never called at arbitrary import.
+
+    load_only restores optional files synchronously before traffic, with no SQL,
+    threads, aggregates or subprocesses, including while admission is CLOSED.
+    The default schedules single-flight refreshes; threads own their connections.
+    Missing/invalid optional files leave ordinary request retry paths intact.
+    """
+    if load_only:
+        with _web_maps_cold:
+            _web_maps_restore()
+        with _people_cold:
+            if _people_held()[3] < 0:
+                try:
+                    snap = _people_load()
+                    if snap is not None:
+                        _people_install(*snap)
+                except (OSError, ValueError, TypeError, KeyError, AttributeError):
+                    log.exception("people startup snapshot not restored")
+        return
+    now = int(time.time())
+    _web_maps_kick(now)
+    if not _web_warm_lock.acquire(blocking=False):
+        return
+
+    def work():
+        try:
+            conn = connect()
+            try:
+                _people_current(conn, now)
+            finally:
+                conn.close()
+        except Exception:
+            log.exception("people cache warm-up failed")
+        finally:
+            _web_warm_lock.release()
+
+    try:
+        threading.Thread(target=work, name="web-people-warm", daemon=True).start()
+    except Exception:
+        log.exception("people cache warm-up not started")
+        _web_warm_lock.release()
+
+
+def warm_web_avatars():
+    """Prime picture indexes once after fork, before traffic, using an owned reader.
+
+    On a new worker the imported picture index is cold, so its initial build is
+    synchronous and in-memory. Nothing is saved or launched; accounts/bans still
+    use avatars' normal invalidation and TTL after startup. Failure is optional.
+    """
+    conn = None
+    try:
+        conn = connect()
+        avatars(int(time.time()), db=conn)
+    except Exception:
+        log.exception("picture startup cache not primed")
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def web_people(db, now):
     """The player directory: (by_handle, list)."""
     by_handle, lst, _maps, _at = _people_current(db, now)
@@ -7870,7 +8114,16 @@ def web_players():
     except sqlite3.Error as exc:
         log.exception("web players db error: %s", exc)
         return fail(500, "storage error")
-    hits = [e for e in people if not q or q in e["key"]]
+    if not q:
+        total = len(people)
+        hits = people[:WEB_SEARCH_MAX]
+    else:
+        total, hits = 0, []
+        for e in people:
+            if q in e["key"]:
+                total += 1
+                if len(hits) < WEB_SEARCH_MAX:
+                    hits.append(e)
     out = [{"who": e["who"], "name": e["name"], "n": e["n"], "maps": e["maps"],
             "last": e["last"], "src": e["src"], "ranked": e["ranked"],
             "mom": e["mom"], "ksf": e["ksf"]}
@@ -7882,7 +8135,7 @@ def web_players():
     for e in out:
         if e["who"] in pics:
             e["av"] = 1
-    return _json({"v": 1, "t": now, "q": q, "n": len(hits),
+    return _json({"v": 1, "t": now, "q": q, "n": total,
                   "limit": WEB_SEARCH_MAX, "players": out}, "max-age=30")
 
 

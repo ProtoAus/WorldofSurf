@@ -8,6 +8,8 @@
   'use strict';
 
   var PAGE = 50;
+  var MAP_PAGE = 100, mapLimit = MAP_PAGE, listKey = null;
+  var runviewLoad = null;
   var state = {
     maps: null, sort: 'active', mt: 0, view: null, seq: 0, run: null
   };
@@ -193,11 +195,17 @@
     return null;
   }
 
+  function disposeRun() {
+    var viewer = state.run;
+    state.run = null;   // destroy() pauses; its callback no longer owns the URL.
+    if (viewer) { viewer.destroy(); }
+  }
+
   function showOnly(id) {
     ['list', 'map', 'run', 'player', 'people'].forEach(function (k) {
       $(k).hidden = k !== id;
     });
-    if (state.run && id !== 'run') { state.run.destroy(); state.run = null; }
+    if (state.run && id !== 'run') { disposeRun(); }
   }
 
   // WHICH TAB IS LIT IS PART OF THE ROUTE.  aria-current was written into
@@ -263,21 +271,25 @@
     return m.mt === state.mt;
   }
 
-  function renderList() {
+  function renderList(append) {
     var maps = state.maps;
     if (!maps) { return; }
     var q = $('q').value.trim().toLowerCase();
-    var list = maps.slice().sort(SORTS[state.sort]);
+    var key = JSON.stringify([q, state.sort, state.mt]);
+    var same = key === listKey;
+    if (!same) { mapLimit = MAP_PAGE; listKey = key; }
+    var list = maps.filter(function (m) {
+      return (!q || m.map.toLowerCase().indexOf(q) >= 0) && passTier(m);
+    }).sort(SORTS[state.sort]);
+    var ul = $('maps');
+    var start = append === true && same ? ul.children.length : 0;
     var frag = document.createDocumentFragment();
-    var timed = 0, watch = 0, shown = 0;
+    var timed = 0, watch = 0, shown = Math.min(list.length, mapLimit);
     maps.forEach(function (m) {
       if (m.runs > 0 || m.imp > 0) { timed++; }
       watch += n0(m.reps);
     });
-    list.forEach(function (m) {
-      if (q && m.map.toLowerCase().indexOf(q) < 0) { return; }
-      if (!passTier(m)) { return; }
-      shown++;
+    list.slice(start, shown).forEach(function (m) {
       var has = m.runs > 0 || m.imp > 0;
       var li = el('li', has ? '' : 'opt');
       var a = el('a');
@@ -313,12 +325,13 @@
       li.appendChild(a);
       frag.appendChild(li);
     });
-    var ul = $('maps');
-    ul.textContent = '';
+    if (!start) { ul.textContent = ''; }
     ul.appendChild(frag);
     var bits = [maps.length + ' maps', timed + ' with times',
                 watch.toLocaleString() + ' runs to watch'];
-    if (q || state.mt) { bits.push(shown + ' matching'); }
+    if (q || state.mt) { bits.push(list.length + ' matching'); }
+    if (shown < list.length) { bits.push('showing ' + shown + ' of ' + list.length); }
+    $('mapsmore').hidden = shown >= list.length;
     $('summary').textContent = bits.join(' · ');
   }
 
@@ -737,16 +750,19 @@
     add('samples', body.n + (body.stride > 1 ? ' /' + body.stride : ''),
         body.stride > 1 ? 'Plotted every ' + body.stride + 'th sample' : '');
 
-    if (state.run) { state.run.destroy(); }
-    state.run = new window.FSRun.View($('runcanvas'), body, {
+    disposeRun();
+    var viewer = new window.FSRun.View($('runcanvas'), body, {
       tint: imported ? 0.45 : 0,
       at: at,
       onpause: function (t) {
-        if (!history.replaceState) { return; }
+        if (!history.replaceState || state.run !== viewer ||
+            location.hash.split('&')[0] !== '#r=' + body.rid) { return; }
         history.replaceState(null, '', '#r=' + body.rid +
           (Math.abs(t) > 0.05 ? '&at=' + t.toFixed(2) : ''));
       }
     });
+
+    state.run = viewer;
 
     // The imported caveat goes next to the line, not in a footnote: the shape
     // is reconstructed from a demo that was never meant to be replayed here.
@@ -801,11 +817,35 @@
     });
   }
 
+  function loadRunview() {
+    if (window.FSRun) { return Promise.resolve(); }
+    if (runviewLoad) { return runviewLoad; }
+    runviewLoad = new Promise(function (resolve, reject) {
+      var script = el('script');
+      script.src = 'runview.js';
+      script.onload = function () {
+        if (window.FSRun) { resolve(); }
+        else { failed(); }
+      };
+      function failed() {
+        script.remove();
+        runviewLoad = null;
+        reject(new Error('The run viewer could not load. Please retry.'));
+      }
+      script.onerror = failed;
+      document.head.appendChild(script);
+    });
+    return runviewLoad;
+  }
+
   function showRun(rid, at) {
     showOnly('run');
     var seq = ++state.seq;
+    disposeRun();
+    $('runretry').hidden = true;
     $('runtitle').textContent = 'Loading…';
-    get('api/run/' + encodeURIComponent(rid)).then(function (body) {
+    Promise.all([get('api/run/' + encodeURIComponent(rid)), loadRunview()]).then(function (results) {
+      var body = results[0];
       if (seq !== state.seq) { return; }
       showError('');
       // undefined, not 0: the viewer opens at t0 (which is negative --
@@ -816,6 +856,7 @@
     }, function (e) {
       if (seq !== state.seq) { return; }
       $('runtitle').textContent = '';
+      $('runretry').hidden = false;
       showError(e.message === 'Not found'
         ? 'That run is not available to watch' : e.message);
     });
@@ -1239,6 +1280,14 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     $('q').addEventListener('input', renderList);
+    $('mapsmore').addEventListener('click', function () {
+      var shown = $('maps').children.length;
+      mapLimit += MAP_PAGE;
+      renderList(true);
+      var next = $('maps').children[shown];
+      if (next) { next.querySelector('a').focus(); }
+    });
+    $('runretry').addEventListener('click', route);
     var chips = document.querySelectorAll('.chip[data-sort]');
     Array.prototype.forEach.call(chips, function (c) {
       c.addEventListener('click', function () {

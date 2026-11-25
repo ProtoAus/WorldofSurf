@@ -12,7 +12,6 @@
 <meta name="description" content="Times on every zoned World of Surf map, from the official servers, alongside imported Momentum and KSF records.">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="board.css">
-<script src="runview.js" defer></script>
 <script src="board.js" defer></script>
 </head>
 <body>
@@ -61,8 +60,9 @@
       </div>
     </div>
     <div id="tiers" class="chips tierrow" role="group" aria-label="Filter by difficulty tier" hidden></div>
-    <p id="summary" class="summary">Loading maps&hellip;</p>
+    <p id="summary" class="summary" role="status" aria-live="polite" aria-atomic="true">Loading maps&hellip;</p>
     <ul id="maps" class="req"></ul>
+    <button id="mapsmore" class="more" type="button" aria-controls="maps" hidden>Show more maps</button>
   </section>
 
   <section id="map" hidden>
@@ -96,6 +96,7 @@
 
   <section id="run" hidden>
     <a class="back" href="#">&larr; All maps</a>
+    <button id="runretry" class="more" type="button" hidden>Retry run viewer</button>
     <h2 id="runtitle" class="runtitle"></h2>
     <p id="runsub" class="runsub"></p>
     <p id="runwarn" class="note note-imported" hidden></p>
