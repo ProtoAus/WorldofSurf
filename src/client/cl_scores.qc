@@ -326,7 +326,7 @@ string() Scores_ImpWord =
 
 	f = Scores_ImpState();
 	if (f == SB_IMP_MOM)  return "Momentum";
-	if (f == SB_IMP_KSF)  return "KSF";
+	if (f == SB_IMP_KSF)  return "CS:S";
 	if (f == SB_IMP_ONLY) return "imported";
 	return FS_ModeName(Scores_Mode());
 };
@@ -2498,7 +2498,7 @@ string(float idx) Scores_OnlineName =
 		if (Online_WhyString(idx) == "momentum")
 			s = strcat("[mom] ", s);
 		else if (Online_WhyString(idx) == "ksf")
-			s = strcat("[ksf] ", s);
+			s = strcat("[CS:S] ", s);
 	}
 	tag = Scores_HelpTag(idx);
 	return strcat(Chat_Fit(s, sb_colx[SBK_TIME] - sb_colx[SBK_OWNER] - rec_sb_cw * 9.5 - sb_avpad
@@ -3587,7 +3587,7 @@ void(float xr, float y, float h) Scores_FilterDraw =
 		kx = sx + sp * (i + 0.5);
 		s = "WOS";
 		if (i == 1) s = "Momentum";
-		if (i == 2) s = "KSF";
+		if (i == 2) s = "CS:S";
 		c = SUI_THEME_DIM;
 		if (on && i == stop)
 			c = SUI_THEME_ACCENT;
@@ -4906,7 +4906,7 @@ void() Scores_Status =
 	              : ((rec_sb_filter == SB_F_STITCHED) ? "stitched"
 	              : ((rec_sb_filter == SB_F_TAS) ? "tas" : ((rec_sb_filter == SB_F_PRACTICE) ? "practice" : "all"))),
 	              rec_sb_cols, rec_sb_szrow));
-	print(sprintf("  style %s   ksf %g\n", Scores_StyleOf(), rec_sb_ksfstyle));
+	print(sprintf("  style %s   direction %g\n", Scores_StyleOf(), rec_sb_ksfstyle));
 	// P1590: the mode row as drawn, the groups store, and each row's and leg's group.
 	print(sprintf("  mode %s   groups %s, %g legs%s\n", FS_ModeName(Scores_Mode()), gr_key, gr_n,
 	              gr_req ? ", asking" : ""));

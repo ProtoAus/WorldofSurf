@@ -1886,7 +1886,7 @@ void() ui_meta_load =
 		precache_pic(strcat("gfx/mapthumbs/hd", ftos(i)));
 
 	print(sprintf("WOS: %s matched %g of %g maps, %g thumbnail page(s) + %g hd"
-	              ", %g picture(s) from the Pi, %g tier(s) from KSF's roster\n",
+	              ", %g picture(s) from the Pi, %g tier(s) from the CS:S roster\n",
 	              pth, hit, ms_count, maxpage + 1, maxhd + 1, Mmm_UrlCount(), fb));
 
 	/*
@@ -2605,7 +2605,7 @@ void(float row) ui_load_card =
 	}
 	mt = bufstr_get(ms_momtier, row);
 	kt = bufstr_get(ms_ksftier, row);
-	s = sprintf("MOM %s | KSF %s", stof(mt) > 0 ? strcat("T", mt) : "-", stof(kt) > 0 ? strcat("T", kt) : "-");
+	s = sprintf("MOM %s | CS:S %s", stof(mt) > 0 ? strcat("T", mt) : "-", stof(kt) > 0 ? strcat("T", kt) : "-");
 	if (stages > 0) s = sprintf("%s | %g stages", s, stages);
 	else if (linear == 1) s = strcat(s, " | linear");
 	if (bonus > 0) s = sprintf("%s, %g bonus", s, bonus);
@@ -3666,7 +3666,7 @@ void(string arg) ui_browse_print =
 				// files cannot be argued about from either end -- the rows have
 				// to be nameable before anyone can say which side is wrong.
 				if (ksf < 12)
-					print(sprintf("ui_browse:   ksf %S tier %s\n",
+					print(sprintf("ui_browse:   CS:S %S tier %s\n",
 					              bufstr_get(ms_name, i),
 					              bufstr_get(ms_tierv, i)));
 				ksf++;
@@ -3675,7 +3675,7 @@ void(string arg) ui_browse_print =
 			wr++;
 	}
 	print(sprintf("ui_browse: maps %g -- tiered %g, untiered %g, %g of them "
-	              "from ksf\n", Mgs_First(), known, unk, ksf));
+	              "from CS:S\n", Mgs_First(), known, unk, ksf));
 	print(sprintf("ui_browse: best times %g\n", wr));
 
 	/*
@@ -3953,7 +3953,7 @@ float(vector pos, float row, float idx) ui_build_switch =
 			continue;
 		}
 		if (hov)
-			sui_tooltip_for(id, k ? "Play KSF's Counter-Strike: Source build of this map."
+			sui_tooltip_for(id, k ? "Play the Counter-Strike: Source build of this map."
 			                      : "Play Momentum Mod's build of this map.", 2);
 		if (sui_is_released(id))
 		{
@@ -6236,7 +6236,7 @@ float(float c, vector p, float w, float draw) ui_terms_col =
 		ui_tm_par(p, w, draw, "On official lobbies, a linked account also saves real connected time (including spectating), time on each map, and main/bonus course starts to play.proto.bar. These informational totals appear on your public profile; they do not rank a run. Offline and unlinked play are not uploaded. Play offline stops future collection; unlinking stops new account submissions, not totals already received.", COL_TEXT);
 		ui_tm_head(p, draw, "Steam");
 		ui_tm_par(p, w, draw, "A ranked time needs a Steam account linked to this game. You sign in on Steam's own page in your browser; the game never sees your password. play.proto.bar keeps your Steam ID, name and profile picture and, for this install, the key and id that name it, where and when it was linked, and when and how often it sends ranked runs.", COL_TEXT);
-		ui_tm_par(p, w, draw, "Once linked, your Steam name is your name on lobbies, and it and your picture are shown with your times, in the game and on proto.bar, where they link to your Steam profile and sit beside your Momentum Mod and KSF records.", COL_TEXT);
+		ui_tm_par(p, w, draw, "Once linked, your Steam name is your name on lobbies, and it and your picture are shown with your times, in the game and on proto.bar, where they link to your Steam profile and sit beside your Momentum Mod and CS:S records.", COL_TEXT);
 		ui_tm_par(p, w, draw, "Without a link your lobby times are still kept and shown, unranked, under this install's own id and the name you are playing as.", COL_TEXT);
 		ui_tm_par(p, w, draw, "Opening Friends in the map picker asks play.proto.bar for your linked account's private friends list. This install's public signing key proves the account, without loading a map. Only lobby connections publish where you are playing; sitting in the menu does not make you joinable.", COL_TEXT);
 	}
@@ -6612,7 +6612,7 @@ float(vector p, float w, float draw) ui_steam_card =
 	ui_tm_head(p, draw, "Your times are ranked");
 	ui_tm_par(p, w, draw, "Runs on public lobbies count on the leaderboard, under your account.", COL_TEXT);
 	ui_tm_head(p, draw, "Your Steam name and picture");
-	ui_tm_par(p, w, draw, "Shown with your times, in the game and on proto.bar, beside your Momentum Mod and KSF records.", COL_TEXT);
+	ui_tm_par(p, w, draw, "Shown with your times, in the game and on proto.bar, beside your Momentum Mod and CS:S records.", COL_TEXT);
 	return tm_y - TM_GAP;
 };
 
@@ -7894,7 +7894,7 @@ void(vector pos, vector sz, string sel) ui_board_button =
 	sui_style_box(pos, sz, 7, hot ? COL_ROW_HOVER : COL_ROW, hot ? COL_ACCENT : SUI_THEME_EDGE, 1);
 	sui_text([pos_x + 8, pos_y + (sz_y - SZ_LABEL_H) * 0.5], SZ_LABEL, "leaderboard",
 	         hot ? COL_ACCENT : COL_TEXT, 1, 0);
-	sui_tooltip_for("cs_board", "The picked map's main-track times: KSF, Momentum Mod and World of Surf's own lobbies.", 2);
+	sui_tooltip_for("cs_board", "The picked map's main-track times: CS:S, Momentum Mod and World of Surf's own lobbies.", 2);
 	if (sui_is_released("cs_board"))
 		Mlb_Open(sel, -1);
 };
@@ -8057,11 +8057,11 @@ float(float width, float y) ui_map_filters =
 			cw = ui_filter_chip_w(label);
 			if (x + cw > width + 16) { x = 16; y = y + UI_MAP_FILTER_PITCH; }
 			x = x + ui_filter_chip([x, y], id, label, on) + 4;
-			if (group == 0) sui_tooltip_for(id, f == 0 ? "Every tier, including untiered maps." : sprintf("MOM or KSF tier %g.", f), 2);
+			if (group == 0) sui_tooltip_for(id, f == 0 ? "Every tier, including untiered maps." : sprintf("MOM or CS:S tier %g.", f), 2);
 			if (group == 1) sui_tooltip_for(id, f ? "Show/hide this gametype." : "Every gametype; again for none, to pick one alone.", 2);
 			if (group == 2 && f == 3) sui_tooltip_for(id, "Half-Life 1, Adrenaline Gamer and CS 1.6 bhop and kz maps, on a list of their own: no tiers, zones or pictures yet.", 2);
-			else if (group == 2 && f == 0 && n > SRCF_NCHIPS) sui_tooltip_for(id, "Momentum Mod's and KSF's (CS:S) maps together. GoldSrc maps are listed only under goldsrc.", 2);
-			else if (group == 2) sui_tooltip_for(id, "Momentum Mod's maps, or KSF's (CS:S) maps: by catalogue, not by folder.", 2);
+			else if (group == 2 && f == 0 && n > SRCF_NCHIPS) sui_tooltip_for(id, "Momentum Mod's and CS:S maps together. GoldSrc maps are listed only under goldsrc.", 2);
+			else if (group == 2) sui_tooltip_for(id, "Momentum Mod's maps, or CS:S maps: by catalogue, not by folder.", 2);
 			if (group == 3) sui_tooltip_for(id, f ? "Only your favourite maps: the star on a map's picture adds it." : "Also show maps without zones or a picture. Search always finds them.", 2);
 			if (group == 4) sui_tooltip_for(id, "Your clean main finishes in WOS, tier order within each. Needs a linked account online; while unknown the list stays in tier order.", 2);
 			if (!sui_is_released(id)) continue;
@@ -8453,7 +8453,7 @@ void(vector screensize) screen_create =
 						sui_text([rp_x + ax, rp_y + ty + 3], '16 16 0',
 						         ui_fit_text(strcat("by ", au), cwn - (ax - nx), '16 16 0'), COL_DIM, 1, 0);
 					mtier = bufstr_get(ms_momtier, real); mktier = bufstr_get(ms_ksftier, real);
-					sub = sprintf("MOM %s | KSF %s", stof(mtier) > 0 ? strcat("T", mtier) : "-", stof(mktier) > 0 ? strcat("T", mktier) : "-");
+					sub = sprintf("MOM %s | CS:S %s", stof(mtier) > 0 ? strcat("T", mtier) : "-", stof(mktier) > 0 ? strcat("T", mktier) : "-");
 					if (!strcmp(bufstr_get(ms_var, real), ""))
 						sub = strcat(ui_srcname(stof(bufstr_get(ms_src, real))), " | ", sub);
 					mode = ui_mode_name(stof(bufstr_get(ms_modev, real)));
@@ -8467,7 +8467,7 @@ void(vector screensize) screen_create =
 					if (strcmp(dep, "")) sub = strcat(sub, " | needs ", dep);
 					// P1109: why it is untimed -- most are KSF's CS:S maps, whose zones are not public.
 					if (strcmp(bufstr_get(ms_zoned, er), "1"))
-						sub = strcat(MAP_NOZONE_ESC, (stof(mtier) <= 0 && stof(mktier) > 0) ? "no zones: KSF map" : "no zones",
+						sub = strcat(MAP_NOZONE_ESC, (stof(mtier) <= 0 && stof(mktier) > 0) ? "no zones: CS:S map" : "no zones",
 						             "^7 | ", sub);
 					sui_text([rp_x + nx, rp_y + (compact ? 50 : 43)], '12 12 0', ui_fit_text(sub, cw, '12 12 0'), COL_DIM, 1, 0);
 					if (strcmp(bufstr_get(ms_var, real), ""))

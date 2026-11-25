@@ -586,7 +586,7 @@ float(float i) ZoneEdit_PropValue =
 string(float i) ZoneEdit_PropLabel =
 {
 	if (i == MAPSET_COUNT) return "Momentum tier";
-	if (i == MAPSET_COUNT + 1) return "KSF tier";
+	if (i == MAPSET_COUNT + 1) return "CS:S tier";
 	return MapSet_Label(i);
 };
 

@@ -196,7 +196,7 @@ float(string s) Profile_Tier =
 string(float t) Profile_TierTag =
 {
 	if (t == PFT_MOM) return "MOM";
-	if (t == PFT_KSF) return "KSF";
+	if (t == PFT_KSF) return "CS:S";
 	return "WOS";
 };
 
@@ -304,7 +304,7 @@ void(float code, string bdy) Profile_FetchReply =
 {
 	local float root, k, m;
 	strunzone(pf_f_note);
-	if (code == 404) { pf_f_note = strzone("Fetch: no KSF or Momentum account for this player"); return; }
+	if (code == 404) { pf_f_note = strzone("Fetch: no CS:S or Momentum account for this player"); return; }
 	if (code == 429) { pf_f_note = strzone("Fetch: busy, try again in a minute"); return; }
 	root = (code == 0 || code == 202) ? json_parse(bdy) : 0;
 	if (root <= 0) { pf_f_note = strzone("Fetch failed; try again"); return; }   // json_parse: 0 is a failure
@@ -313,7 +313,7 @@ void(float code, string bdy) Profile_FetchReply =
 	json_free(root);
 	if (k) pf_ksfstate = k;
 	if (m) pf_momstate = m;
-	pf_f_note = strzone(sprintf("Fetch: KSF %s, Momentum %s. Records arrive in the background; reopen later.",
+	pf_f_note = strzone(sprintf("Fetch: CS:S %s, Momentum %s. Records arrive in the background; reopen later.",
 	                            Profile_FetchWord(k), Profile_FetchWord(m)));
 };
 
@@ -2057,10 +2057,10 @@ void(vector p, vector sz, float ttl, float tsz, float hint) Profile_DrawStats =
 
 	{
 		// P1448: the line is there for everyone now, with its Fetch chip at the right.
-		s = "KSF completions not fully checked yet";
-		if (pf_ksfstate == 1) s = "KSF completion check queued / in progress; reopen later";
-		if (pf_ksfstate == 2) s = "KSF completion check finished (FW / SW / HSW / BW)";
-		if (pf_ksfstate == 3) s = "KSF completion check incomplete; showing imported results";
+		s = "CS:S completions not fully checked yet";
+		if (pf_ksfstate == 1) s = "CS:S completion check queued / in progress; reopen later";
+		if (pf_ksfstate == 2) s = "CS:S completion check finished (FW / SW / HSW / BW)";
+		if (pf_ksfstate == 3) s = "CS:S completion check incomplete; showing imported results";
 		if (pf_ksfskip > 0) s = sprintf("%s; %g unavailable records excluded", s, pf_ksfskip);
 		if (pf_momstate == 1) s = strcat(s, "; Momentum queued");
 		if (pf_f_note != "" && cltime < pf_f_after + 20) s = pf_f_note;

@@ -1,6 +1,15 @@
 # lextest.md — things waiting on a human
 
+## P1828 Counter-Strike: Source labels (pending human check)
+1. Check F2 Maps/boards and an in-game TAB board, profile, groups, map tiers and zone settings: the imported game
+   is labelled CS:S / Counter-Strike: Source, with no clipping at your usual resolution.
+2. Fetch an imported board and open a CS:S replay or guide-run picker: prompts use CS:S and retain the build-unknown
+   warnings. Map names ending in `_ksf`, existing console commands and source attribution remain unchanged.
+
 ## P1824 missing-texture patterns (HappyPhoenix recovery, 25 Nov)
+Owner confirmed 25 Nov that the P1824 patterns work. This confirms their observed appearance, not a measured
+speed/readability acceptance; the at-speed check below remains pending.
+
 1. On surf_bikini_bottom or surf_fuchnut with missing Source images: the old fallback colours carry broad wood,
    brick, grass, concrete, metal, glass or crack patterns. Surfaces with installed textures should look unchanged.
 2. Surf a sloped brush ramp: the pattern should stay at a consistent size instead of stretching with map texture

@@ -156,5 +156,5 @@ string(float li) Groups_Source =
 {
 	if (li < 0)
 		return "";
-	return sprintf("%s, %g times", gr_src[li] ? "KSF" : "Momentum", gr_x[li]);
+	return sprintf("%s, %g times", gr_src[li] ? "CS:S" : "Momentum", gr_x[li]);
 };

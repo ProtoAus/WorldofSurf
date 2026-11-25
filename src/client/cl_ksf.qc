@@ -101,7 +101,7 @@ float(string path, float buf, string boundmap, float bonus, string style) KSF_Bu
 
 	if (boundmap == "" || !MapPort_Match(boundmap, serverkey("map")))
 	{
-		print("replay: KSF explicit map binding differs (no configured port link) -- refused\n");
+		print("replay: CS:S explicit map binding differs (no configured port link) -- refused\n");
 		return FALSE;
 	}
 	if (bonus < 0 || bonus > 69 || bonus != floor(bonus)) return FALSE;
@@ -273,6 +273,6 @@ float(string path, float buf, string boundmap, float bonus, string style) KSF_Bu
 	if (dbt) { memfree(dbt); memfree(dgr); memfree(ddk); memfree(dln); memfree(dfl); memfree(dor); memfree(dve); }
 	memfree(h);
 	fclose(fh);
-	if (!ok) print("replay: unsupported, malformed or ambiguous KSF CSS/66t demo -- refused\n");
+	if (!ok) print("replay: unsupported, malformed or ambiguous CS:S CSS/66t demo -- refused\n");
 	return ok;
 };

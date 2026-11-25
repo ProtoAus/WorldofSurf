@@ -676,6 +676,13 @@ float(string s) Watch_IsSample = { return FS_IsSample(s); };
 */
 float(float track) Watch_TrackSegs = { return Zone_TrackSegs(track); };
 
+// Display only: retain the imported source token in the recording and parser.
+string() Watch_SourceName =
+{
+	if (!strcmp(rec_wt_source, "ksf")) return "CS:S";
+	return rec_wt_source;
+};
+
 void() Watch_Free =
 {
 	if (rec_wt_rec >= 1)
@@ -5025,7 +5032,7 @@ float(string path, string ksfmap, float ksfbonus, string ksfstyle) Watch_OpenIn 
 	{
 		if (rec_wt_map == "")
 		{
-			print("^3replay: KSF import has no map binding -- refused\n");
+			print("^3replay: CS:S import has no map binding -- refused\n");
 			Watch_Stop();          // release a previous replay's pin/cursor too
 			Watch_Free();
 			return FALSE;
@@ -5033,14 +5040,14 @@ float(string path, string ksfmap, float ksfbonus, string ksfstyle) Watch_OpenIn 
 		if (!MapPort_Match(rec_wt_map, serverkey("map")))
 		{
 			print(sprintf("^3replay: this run is on %s and you are on %s -- "
-			              "no configured KSF port link, playback refused\n", rec_wt_map, serverkey("map")));
+			              "no configured CS:S port link, playback refused\n", rec_wt_map, serverkey("map")));
 			Watch_Stop();
 			Watch_Free();
 			return FALSE;
 		}
 		rec_wt_playmap = strzone(serverkey("map"));
 		if (strcmp(rec_wt_map, serverkey("map")))
-			print(sprintf("^3replay: KSF build %s on linked port %s -- geometry may differ\n",
+			print(sprintf("^3replay: CS:S build %s on linked port %s -- geometry may differ\n",
 			              rec_wt_map, serverkey("map")));
 	}
 	else if (rec_wt_map != "")
@@ -5070,7 +5077,7 @@ float(string path, string ksfmap, float ksfbonus, string ksfstyle) Watch_OpenIn 
 	  by construction and a tighter bound would report arithmetic.
 	*/
 	if (strcmp(rec_wt_source, "ksf") == 0)
-		print("^3replay: KSF import -- map build and ducked body state unknown; "
+		print("^3replay: CS:S import -- map build and ducked body state unknown; "
 		      "bookmark clock, not a native verified run. Missing ground/moves are not invented.\n");
 	if (rec_wt_momq > 1.05)
 		print(sprintf("^3replay: this import peaks %.1fx over the %0.0f u/s the "
@@ -5402,7 +5409,7 @@ void(vector scr) Watch_Chrome =
 	}
 
 	if (strcmp(rec_wt_source, "ksf") == 0)
-		stitle = strcat(sprintf("KSF %s import (build unknown)  ", rec_wt_ksfstyle), stitle);
+		stitle = strcat(sprintf("CS:S %s import (build unknown)  ", rec_wt_ksfstyle), stitle);
 
 	wtitle = stringwidth(stitle, TRUE, [small, small]) + small + 4;     // Patch 789: the face
 	Font_Set(ui_font_mono);             // stable-width clock, like the board's time column
@@ -5896,7 +5903,7 @@ void(vector scr) Watch_Info =
 	  shared classifier exists to keep in step; the third is cl_timer.qc's
 	  sub-label, which this same panel draws through Timer_DrawPanel.
 	*/
-	if (rec_wt_foreign)         s = strcat(rec_wt_source, " import (not verified)");
+	if (rec_wt_foreign)         s = strcat(Watch_SourceName(), " import (not verified)");
 	else if (!rec_wt_v4)        s = "rec3  unknown";
 	else                       s = strcat("rec4  ",
 	                                      FS_RunKindName(rec_wt_flags));
@@ -6539,10 +6546,10 @@ void() Watch_Status =
 	if (rec_wt_foreign)
 	{
 		print(sprintf("  import %s  per-tick ground/velocity %g%s  not native verified\n",
-		              rec_wt_source, rec_wt_momdemo,
+		              Watch_SourceName(), rec_wt_momdemo,
 		              rec_wt_gndi ? "  ground from vz (Patch 750)" : ""));
 		if (strcmp(rec_wt_source, "ksf") == 0)
-			print(sprintf("  KSF v%g %s  map build unknown  duck state unknown  bookmark clock\n",
+			print(sprintf("  CS:S v%g %s  map build unknown  duck state unknown  bookmark clock\n",
 			              rec_wt_ksfver, rec_wt_ksfstyle));
 		if (rec_wt_momceil > 0)
 			print(sprintf("  import    momquality %.4f of %.0f u/s%s\n",
@@ -6730,7 +6737,7 @@ float(string cmd) Watch_ConsoleCommand =
 			track = track + 1;
 			if (tokenize(p) > 9 && (stof(argv(9)) & WT_F_DUCKED)) leg = leg + 1;
 		}
-		print(sprintf("replay: duckcount samples %g ducked %g source %s\n", track, leg, rec_wt_source));
+		print(sprintf("replay: duckcount samples %g ducked %g source %s\n", track, leg, Watch_SourceName()));
 		return TRUE;
 	}
 

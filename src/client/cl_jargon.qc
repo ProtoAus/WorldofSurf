@@ -210,7 +210,7 @@ void(float want) TASJargon_Ksf =
 		l = TASJargon_Base(p);
 		if (strstrofs(strtolower(l), pre) != 0) continue;
 		g = jg_gn;
-		TASJargon_Add(p, strcat("KSF ", substring(l, strlen(pre), -1)), want);
+		TASJargon_Add(p, strcat("CS:S ", substring(l, strlen(pre), -1)), want);
 		if (jg_gn > g) k = k + 1;
 	}
 	search_end(h);

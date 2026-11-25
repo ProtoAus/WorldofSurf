@@ -2029,14 +2029,14 @@ void(float reqid, float responsecode, string resourcebody) URI_Get_Callback =
 			if (kr > 0)     // json_parse answers 0 for bad input
 			{
 				strunzone(ok_state);
-				ok_state = strzone(sprintf("KSF %s, Momentum %s",
+				ok_state = strzone(sprintf("CS:S %s, Momentum %s",
 				                           Online_FetchWord(kr, "ksf"), Online_FetchWord(kr, "momentum")));
 				json_free(kr);
 			}
 		}
 		else if (responsecode == 404)
 		{
-			strunzone(ok_state); ok_state = strzone("neither KSF nor Momentum lists this leg");
+			strunzone(ok_state); ok_state = strzone("neither CS:S nor Momentum lists this leg");
 		}
 		else if (responsecode == 429)
 		{

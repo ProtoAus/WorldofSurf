@@ -887,7 +887,7 @@ void(int root) MT_CatalogReply =
 		}
 		bufstr_set(db, i * MT_CAT_FIELDS, name);
 		bufstr_set(db, i * MT_CAT_FIELDS + 1, tier ? sprintf("T%g", tier) : "Unrated");
-		bufstr_set(db, i * MT_CAT_FIELDS + 2, sprintf("Momentum %s  |  KSF %s", mom ? sprintf("T%g", mom) : "-", ksf ? sprintf("T%g", ksf) : "-"));
+		bufstr_set(db, i * MT_CAT_FIELDS + 2, sprintf("Momentum %s  |  CS:S %s", mom ? sprintf("T%g", mom) : "-", ksf ? sprintf("T%g", ksf) : "-"));
 		bufstr_set(db, i * MT_CAT_FIELDS + 3, ftos(page));
 		bufstr_set(db, i * MT_CAT_FIELDS + 4, ftos(cell));
 		previous = name;

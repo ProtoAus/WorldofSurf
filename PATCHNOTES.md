@@ -21,6 +21,9 @@
 
 ## next
 
+### P1828 Counter-Strike: Source labels
+- Imported boards, profiles, map tiers, replay messages and guide-run prompts now call the game CS:S or Counter-Strike: Source. Map filenames and source attribution are unchanged.
+
 ### P1825 Reflections on more Source materials
 - Materials that set their reflection tint in Source's {r g b} form (surf_thesteve's graffiti ramps and walls, about one map in ten) reflect their cubemap again; before, they had no reflection and their bump detail looked flat.
 

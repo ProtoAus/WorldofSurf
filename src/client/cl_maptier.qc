@@ -94,21 +94,21 @@ string(float track, float leg, float compact, float unknown) MapTier_Text =
 	if (track > 0 && leg == 0)
 	{
 		if (unit != "")
-			ksf = sprintf(compact ? "KSF U:%s" : "KSF bonus %s (unit)", unit);
+			ksf = sprintf(compact ? "CS:S U:%s" : "CS:S bonus %s (unit)", unit);
 		if (strafe != "")
 		{
 			if (ksf != "")
 				ksf = strcat(ksf, sprintf(compact ? " S:%s" : " / %s (strafe)", strafe));
 			else
-				ksf = sprintf(compact ? "KSF S:%s" : "KSF bonus %s (strafe)", strafe);
+				ksf = sprintf(compact ? "CS:S S:%s" : "CS:S bonus %s (strafe)", strafe);
 		}
 	}
 	else if (track == 0 && leg == 0)
 	{
-		if (kt > 0) ksf = sprintf(compact ? "KSF %g" : "KSF tier %g", kt);
+		if (kt > 0) ksf = sprintf(compact ? "CS:S %g" : "CS:S tier %g", kt);
 	}
 	if (ksf == "" && unknown)
-		ksf = compact ? "KSF ?" : "KSF tier ?";
+		ksf = compact ? "CS:S ?" : "CS:S tier ?";
 	if (mom == "") return ksf;
 	if (ksf == "") return mom;
 	return strcat(mom, compact ? "  " : " | ", ksf);

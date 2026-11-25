@@ -173,7 +173,7 @@ void(vector rp, vector rs, float idx, float real, float er, float on, float hot)
 		tag = ui_srcname(stof(bufstr_get(ms_src, real)));
 		mt = bufstr_get(ms_momtier, real);
 		kt = bufstr_get(ms_ksftier, real);
-		tier = sprintf("MOM %s | KSF %s", stof(mt) > 0 ? strcat("T", mt) : "-", stof(kt) > 0 ? strcat("T", kt) : "-");
+		tier = sprintf("MOM %s | CS:S %s", stof(mt) > 0 ? strcat("T", mt) : "-", stof(kt) > 0 ? strcat("T", kt) : "-");
 		// The card's detail line (screen_create), less what has its own column here.
 		mn = tokenize(bufstr_get(ms_meta, real));
 		stages = bonus = linear = -1;

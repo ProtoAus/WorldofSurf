@@ -1428,7 +1428,7 @@ void(vector at, float width, float tsz, float hint, float row, float running, st
 		if (Profile_Chip("jgd_get", at, [width, row * 1.4, 0], q ? sprintf("Downloading the top runs of %s...", TASJargon_DlLabel(jgdl_track, jgdl_leg))
 			: sprintf("Download the top runs of %s", cn), tsz, q))
 			TASJargon_DlStart();
-		sui_tooltip_for("jgd_get", "Up to three of the course's fastest recordings from the leaderboards (KSF first, then World of Surf, then Momentum), listed here as guide runs.", max(1, hint / 7));
+		sui_tooltip_for("jgd_get", "Up to three of the course's fastest recordings from the leaderboards (CS:S first, then World of Surf, then Momentum), listed here as guide runs.", max(1, hint / 7));
 		at_y = at_y + row * 1.4 + 3;
 		if (jgdl_state == 4 && jgdl_note != "" && !strcmp(jgdl_map, zone_mapname) && jg_cpick < jg_cn)
 		if (jg_ct[jg_cpick] == jgdl_track && jg_cl[jg_cpick] == jgdl_leg)

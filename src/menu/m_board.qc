@@ -111,7 +111,7 @@ string() Mlb_ReqTier =
 string(float t) Mlb_TabName =
 {
 	if (t == MLB_T_ALL) return "All games";
-	if (t == MLB_T_KSF) return "KSF";
+	if (t == MLB_T_KSF) return "CS:S";
 	if (t == MLB_T_MOM) return "Momentum";
 	return "WOS";
 };
@@ -155,8 +155,8 @@ float(string s) Mlb_TabOf =
 string() Mlb_Source =
 {
 	if (!strcmp(mlb_style, "tas")) return "TAS: tool-assisted runs, every game; assisted, not verified";
-	if (mlb_tab == MLB_T_ALL) return "All games: World of Surf, Momentum Mod, KSF";
-	if (mlb_tab == MLB_T_KSF) return "KSF (ksf.surf): times and available replays";
+	if (mlb_tab == MLB_T_ALL) return "All games: World of Surf, Momentum Mod, CS:S";
+	if (mlb_tab == MLB_T_KSF) return "CS:S (ksf.surf): times and available replays";
 	if (mlb_tab == MLB_T_MOM) return "Momentum Mod's own leaderboard, imported";
 	return "ranked runs on World of Surf's public lobbies";
 };
@@ -165,7 +165,7 @@ string() Mlb_EmptyLine =
 {
 	if (!strcmp(mlb_style, "tas")) return sprintf("Nobody has a TAS time on %s yet", mlb_map);
 	if (mlb_tab == MLB_T_ALL) return sprintf("Nobody has a time on %s yet", mlb_map);
-	if (mlb_tab == MLB_T_KSF) return sprintf("KSF has no times on %s", mlb_map);
+	if (mlb_tab == MLB_T_KSF) return sprintf("CS:S has no times on %s", mlb_map);
 	if (mlb_tab == MLB_T_MOM) return sprintf("Momentum Mod has no times on %s", mlb_map);
 	return sprintf("Nobody has set a time on %s on a World of Surf lobby yet", mlb_map);
 };
@@ -1015,7 +1015,7 @@ void(float id, float code, string body, float append) Mlb_Page =
 
 	print(sprintf("^5board:^7 reply id %g: %s offset %g rows %g -- held %g, more %g\n",
 	              id, tier, off, got, mlb_n, mlb_more));
-	print(sprintf("^5board:^7   counts ksf %g momentum %g ranked %g (imported %g, community %g)\n",
+	print(sprintf("^5board:^7   counts CS:S %g momentum %g ranked %g (imported %g, community %g)\n",
 	              mlb_cksf, mlb_cmom, mlb_cours, imp, com));
 	if (n > 0)
 	{
@@ -1231,14 +1231,14 @@ float(float reqid, float code, string body) Mlb_Reply =
 			if (root > 0)   // json_parse answers 0 for bad input
 			{
 				strunzone(mlb_kstate);
-				mlb_kstate = strzone(sprintf("KSF %s, Momentum %s",
+				mlb_kstate = strzone(sprintf("CS:S %s, Momentum %s",
 				                             Mlb_FetchWord(root, "ksf"), Mlb_FetchWord(root, "momentum")));
 				json_free(root);
 			}
 		}
 		else if (code == 404)
 		{
-			strunzone(mlb_kstate); mlb_kstate = strzone("neither KSF nor Momentum lists this leg");
+			strunzone(mlb_kstate); mlb_kstate = strzone("neither CS:S nor Momentum lists this leg");
 		}
 		else if (code == 429)
 		{
@@ -1833,7 +1833,7 @@ void() Mlb_Status =
 	              (mlb_focus >= 0) ? stof(bufstr_get(mlb_brank, mlb_focus)) : 0));
 	print(sprintf("^5board:^7   held %g of %g, more %g; out: first id %g, next id %g; next failed %g (code %g)\n",
 	              mlb_n, Mlb_BoardCount(), mlb_more, mlb_req, mlb_mreq, mlb_mfail, mlb_mcode));
-	print(sprintf("^5board:^7   counts known %g: ksf %g momentum %g ranked %g; top row %g\n",
+	print(sprintf("^5board:^7   counts known %g: CS:S %g momentum %g ranked %g; top row %g\n",
 	              mlb_known, mlb_cksf, mlb_cmom, mlb_cours, floor(mlb_scroll_y / MLB_ROW_H)));
 	print(sprintf("^5board:^7   pictures: rows have them %g; slots held %g, asked %g, from disk %g, fetched %g\n",
 	              mlb_anyav, MP_Held(), mp_asked, mp_disk, mp_got));

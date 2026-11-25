@@ -985,7 +985,7 @@ string(float row) Sty_Sources =
 	if (row < 0) return "";
 	mt = bufstr_get(ms_momtier, row); kt = bufstr_get(ms_ksftier, row);
 	mt = (stof(mt) > 0) ? strcat("Momentum T", mt) : "";
-	kt = (stof(kt) > 0) ? strcat("KSF T", kt) : "";
+	kt = (stof(kt) > 0) ? strcat("CS:S T", kt) : "";
 	return strcat(mt, (mt != "" && kt != "") ? ", " : "", kt);   // only the sources that rank it
 };
 
