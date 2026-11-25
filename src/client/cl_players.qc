@@ -63,6 +63,98 @@ float(string who) Players_Best =
 		if (!strcmp(bufstr_get(pl_bid, i), who)) return pl_bticks[i];
 	return 0;
 };
+
+// P1821: a slot's run into pl_r*. Yours from your stats; anyone else's from the server's *run
+// (sv_timer.qc SV_RunKeyFrame). No key (a server before it): pl_rok FALSE, and lists show names only.
+#define PLR_STAGE 1     // a stage-only run
+#define PLR_STOP  2     // the clock is not moving; the key's value is its ticks
+#define PLR_HELD  4     // spectating
+float pl_rok, pl_rstate, pl_rtrack, pl_rseg, pl_rsegs, pl_rflags, pl_rticks;
+void(float slot) Players_Run =
+{
+	local float f, tick;
+
+	tick = Timer_Tick();
+	pl_rok = FALSE;
+	pl_rstate = TS_IDLE; pl_rtrack = pl_rseg = pl_rsegs = pl_rflags = pl_rticks = 0;
+	if (slot == player_localnum)
+	{
+		pl_rok = TRUE;
+		pl_rstate = getstatf(STAT_FS_TIMERSTATE);
+		pl_rtrack = getstatf(STAT_FS_TIMERTRACK);
+		pl_rseg = getstatf(STAT_FS_TIMERSEG);
+		pl_rsegs = getstatf(STAT_FS_TIMERSEGS);
+		f = getstatf(STAT_FS_TIMERFLAGS);
+		if (f & (TF_FROZEN | TF_STOPPED)) pl_rflags = PLR_STOP;
+		if (f & TF_RECORDING)       // RUNLEG = track * 100 + leg + 1; leg k > 0 is stage k alone
+		if (getstatf(STAT_FS_RUNLEG) - 1 - pl_rtrack * 100 > 0)
+			pl_rflags = pl_rflags | PLR_STAGE;
+		if (spc_stat > 0) pl_rflags = pl_rflags | PLR_HELD;
+		pl_rticks = Timer_Display(pl_rstate, getstatf(STAT_FS_TIMERTICKS), tick, f);
+		return;
+	}
+	if (tokenize(getplayerkeyvalue(slot, "*run")) < 6)
+		return;
+	pl_rok = TRUE;
+	pl_rstate = stof(argv(0));
+	pl_rtrack = stof(argv(1));
+	pl_rseg = stof(argv(2));
+	pl_rsegs = stof(argv(3));
+	pl_rflags = stof(argv(4));
+	pl_rticks = stof(argv(5));
+	if (pl_rstate == TS_RUNNING)
+	if (!(pl_rflags & PLR_STOP))
+		pl_rticks = max(0, time - pl_rticks) / tick;    // the origin, on the mapclock key's clock
+};
+
+// "stage 3/5", "stage 3" for a stage alone, "bonus 1", "start"; "" idle or unknown.
+string() Players_StageText =
+{
+	local string b;
+
+	if (!pl_rok) return "";
+	if (pl_rflags & PLR_HELD) return "spectating";
+	b = "";
+	if (pl_rtrack > 0) b = sprintf("bonus %g", pl_rtrack);
+	if (pl_rstate == TS_ARMED)
+	{
+		if (b != "") return strcat(b, " start");
+		if (pl_rflags & PLR_STAGE) return sprintf("stage %g start", pl_rseg + 1);
+		return "start";
+	}
+	if (pl_rstate == TS_FINISHED) return (b != "") ? strcat(b, " done") : "finished";
+	if (pl_rstate != TS_RUNNING) return "";
+	if (pl_rflags & PLR_STAGE) return strcat(b, (b != "") ? " " : "", sprintf("stage %g", pl_rseg + 1));
+	if (pl_rsegs > 1) return strcat(b, (b != "") ? " " : "", sprintf("stage %g/%g", pl_rseg + 1, pl_rsegs));
+	return (b != "") ? b : "running";
+};
+
+// The clock: m:ss.d while it runs (a client count, so tenths), the exact time once finished.
+string() Players_TimeText =
+{
+	local float d, tick;
+
+	if (!pl_rok) return "";
+	tick = Timer_Tick();
+	if (pl_rstate == TS_FINISHED) return Time_TickString(pl_rticks, tick);
+	if (pl_rstate != TS_RUNNING) return "";
+	d = floor(pl_rticks * tick * 10 + 0.0001);
+	if (d >= 36000)
+		return sprintf("%g:%02g:%02g.%g", floor(d / 36000), floor(d / 600) - floor(d / 36000) * 60,
+		               floor(d / 10) - floor(d / 600) * 60, d - floor(d / 10) * 10);
+	return sprintf("%g:%02g.%g", floor(d / 600), floor(d / 10) - floor(d / 600) * 60, d - floor(d / 10) * 10);
+};
+
+// P1590's colour a player wears, lifted when near black (was Scores_RoomRGB).
+vector(float slot) Players_RGB =
+{
+	local vector c;
+
+	c = (slot == player_localnum) ? Av_MyRGB() : Av_WornRGB(slot);
+	if (c_x * 0.3 + c_y * 0.59 + c_z * 0.11 < 0.35)
+		c = c + ('1 1 1' - c) * 0.45;           // a near-black colour stays readable
+	return c;
+};
 void(float slot, string nm) Pl_VoiceToggle =
 {
 	// Engine's numeric selector is USERID, not slot or '#slot'.
@@ -145,7 +237,7 @@ void() Players_Need =
 void(vector p, vector sz, float tsz) Players_Draw =
 {
 	local float i, j, n, rowh, hint, x, y, by, best, vmute, blocked, rel, me, on, hot, av, bh, rw;
-	local float wpro, wtp, wadd, wmute, wblk, ax, pbr, pingr, nx, nw;
+	local float wpro, wtp, wadd, wmute, wblk, ax, pbr, pingr, nx, nw, stw, stl;
 	local float slots[PL_MAXSLOT];
 	local vector lp, c;
 	local string who, ahash, nm, s, rid;
@@ -156,7 +248,7 @@ void(vector p, vector sz, float tsz) Players_Draw =
 		if (getplayerkeyvalue(i, "name") != "") { slots[n] = i; n = n + 1; }
 	pl_rows = n;
 
-	// Columns, right to left: the buttons, PB, ping; the name takes the rest.
+	// Columns, right to left: the buttons, PB, ping, stage (P1821); the name takes the rest.
 	// The small labels stop at 11 px, as the board's do (Scores_Type).
 	hint = Font_Px(max(tsz * 0.75, 11));
 	rowh = max(ceil(tsz * 2.9), tsz + hint + 14);
@@ -173,10 +265,13 @@ void(vector p, vector sz, float tsz) Players_Draw =
 	pbr = ax - hint * 2;
 	pingr = pbr - ceil(stringwidth("88:88.888", TRUE, [hint, hint])) - hint * 2;
 	nx = hint * 2 + av;
-	nw = max(0, pingr - ceil(stringwidth("999 ms", TRUE, [hint, hint])) - hint - nx);
+	stw = ceil(stringwidth("stage 88/88", TRUE, [hint, hint]));
+	stl = pingr - ceil(stringwidth("999 ms", TRUE, [hint, hint])) - hint * 2 - stw;
+	nw = max(0, stl - hint - nx);
 
 	sui_text([p_x + nx, p_y], [hint, hint], sprintf("IN THIS SERVER: %g", n), SUI_THEME_MUTED, 1, 0);
 	sui_text([p_x + pingr - stringwidth("PING", TRUE, [hint, hint]), p_y], [hint, hint], "PING", SUI_THEME_MUTED, 1, 0);
+	sui_text([p_x + stl, p_y], [hint, hint], "STAGE", SUI_THEME_MUTED, 1, 0);
 	sui_text([p_x + pbr - stringwidth("PB", TRUE, [hint, hint]), p_y], [hint, hint], "PB", SUI_THEME_MUTED, 1, 0);
 	s = "Click a player to spectate";
 	sui_text([p_x + rw - hint - stringwidth(s, TRUE, [hint, hint]), p_y], [hint, hint], s, SUI_THEME_MUTED, 1, 0);
@@ -229,6 +324,10 @@ void(vector p, vector sz, float tsz) Players_Draw =
 		y = lp_y + floor((rowh - 4 - hint) * 0.5);
 		s = strcat(getplayerkeyvalue(j, "ping"), " ms");
 		sui_text([lp_x + pingr - stringwidth(s, TRUE, [hint, hint]), y], [hint, hint], s, SUI_THEME_DIM, 1, 0);
+		Players_Run(j);
+		s = Players_StageText();
+		if (s != "")
+			sui_text([lp_x + stl, y], [hint, hint], Chat_Fit(s, stw + hint, hint), SUI_THEME_TEXT, 1, 0);
 		best = Players_Best(getplayerkeyvalue(j, "*phash"));
 		s = (best > 0) ? Time_TickString(best, Timer_Tick()) : "-";
 		sui_text([lp_x + pbr - stringwidth(s, TRUE, [hint, hint]), y], [hint, hint], s,
@@ -263,4 +362,113 @@ void(vector p, vector sz, float tsz) Players_Draw =
 	}
 	sui_list_view_end();
 };
-void() Players_RegisterCvars = { pl_bid = buf_create(); };
+
+/*
+  P1821 (Lex, 25 Nov): the server's players on the HUD -- plain name, stage, live run time --
+  hud_edit's "Players". Right-anchored (HEA_RT) under the map info; you first, then slot order,
+  so rows do not jump. Only with someone else here, unless hud_players_solo or the editor is up.
+*/
+void(vector scr) Players_DrawHud =
+{
+	local float i, k, n, cap, sz, lh, pad, nw, sw, tw, bw, x, y, showst, showt;
+	local float slots[PL_MAXSLOT];
+	local string nm, s;
+	local vector p, c;
+
+	if (!cvar("hud_players") || rec_wt_on)
+		return;
+	n = 1;
+	slots[0] = player_localnum;
+	for (i = 0; i < PL_MAXSLOT; i = i + 1)
+		if (i != player_localnum)
+		if (getplayerkeyvalue(i, "name") != "")
+			{ slots[n] = i; n = n + 1; }
+	if (n < 2 && !ui_he_open && !cvar("hud_players_solo"))
+		return;
+	cap = bound(2, cvar("hud_players_rows"), 32);
+	showst = cvar("hud_players_stage");
+	showt = cvar("hud_players_time");
+
+	Font_Set(ui_font_ui);
+	sz = Font_Px(HUD_Size("hud_players_size", 8 * ui_cv_scale));
+	lh = ceil(sz * 1.35);
+	pad = ceil(sz * 0.5);
+	// Measure, then draw: the box goes under the text. Time and stage keep a fixed lane.
+	nw = stringwidth("Players", TRUE, [sz, sz]);
+	sw = showst ? stringwidth("stage 88/88", TRUE, [sz, sz]) : 0;
+	tw = showt ? stringwidth("88:88.888", TRUE, [sz, sz]) : 0;
+	for (k = 0; k < min(n, cap); k = k + 1)
+	{
+		nw = max(nw, stringwidth(strdecolorize(getplayerkeyvalue(slots[k], "name")), TRUE, [sz, sz]));
+		Players_Run(slots[k]);
+		if (showst) sw = max(sw, stringwidth(Players_StageText(), TRUE, [sz, sz]));
+		if (showt) tw = max(tw, stringwidth(Players_TimeText(), TRUE, [sz, sz]));
+	}
+	nw = min(nw, sz * 11);
+	bw = pad * 2 + nw + (showst ? sz + sw : 0) + (showt ? sz + tw : 0);
+	k = min(n, cap);
+	p = [scr_x * cvar("hud_players_x"), scr_y * cvar("hud_players_y"), 0];
+	drawfill([p_x - bw, p_y, 0], [bw, lh * (k + 1) + pad, 0], '0 0 0', 0.45, 0);
+	x = p_x - bw + pad;
+	y = p_y + pad * 0.5;
+	HUD_Text([x, y, 0], sprintf("Players %g", n), sz, '0.55 0.60 0.68', 0.95);
+	for (i = 0; i < k; i = i + 1)
+	{
+		y = y + lh;
+		if ((i == cap - 1) && (n > cap))
+		{
+			HUD_Text([x, y, 0], sprintf("+%g more", n - cap + 1), sz, '0.55 0.60 0.68', 0.95);
+			break;
+		}
+		nm = Chat_Fit(strdecolorize(getplayerkeyvalue(slots[i], "name")), nw, sz);
+		c = Players_RGB(slots[i]);
+		HUD_Text([x, y, 0], nm, sz, c, 0.95);
+		Players_Run(slots[i]);
+		if (showst)
+		{
+			s = Players_StageText();
+			if (s != "")
+				HUD_Text([x + nw + sz, y, 0], s, sz, '0.70 0.75 0.84', 0.95);
+		}
+		if (showt)
+		{
+			s = Players_TimeText();
+			c = '1 1 1';
+			if (pl_rstate == TS_FINISHED) c = '0.45 1.00 0.45';
+			else if (pl_rflags & PLR_STOP) c = '0.55 0.58 0.62';
+			if (s != "")
+				HUD_TextR([p_x - pad, y, 0], s, sz, c, 0.95);
+		}
+	}
+	Font_Reset();
+	HUD_Rect("players", [p_x - bw, p_y, 0], [bw, lh * (k + 1) + pad, 0], p);
+};
+
+// `players_status`: each slot's *run key and what the lists draw from it (P1821).
+void() Players_Status =
+{
+	local float i;
+
+	for (i = 0; i < PL_MAXSLOT; i = i + 1)
+	if (getplayerkeyvalue(i, "name") != "")
+	{
+		Players_Run(i);
+		print(sprintf("players: %g%s \"%s\" run \"%s\" ok %g stage \"%s\" time \"%s\"\n", i,
+		              (i == player_localnum) ? " (you)" : "", strdecolorize(getplayerkeyvalue(i, "name")),
+		              getplayerkeyvalue(i, "*run"), pl_rok, Players_StageText(), Players_TimeText()));
+	}
+};
+
+void() Players_RegisterCvars =
+{
+	pl_bid = buf_create();
+	registercommand("players_status");
+	registercvar("hud_players", "1", CVAR_ARCHIVE);         // P1821
+	registercvar("hud_players_x", "0.9917", CVAR_ARCHIVE);
+	registercvar("hud_players_y", "0.24", CVAR_ARCHIVE);
+	registercvar("hud_players_size", "0", CVAR_ARCHIVE);
+	registercvar("hud_players_rows", "8", CVAR_ARCHIVE);
+	registercvar("hud_players_stage", "1", CVAR_ARCHIVE);
+	registercvar("hud_players_time", "1", CVAR_ARCHIVE);
+	registercvar("hud_players_solo", "0", CVAR_ARCHIVE);
+};

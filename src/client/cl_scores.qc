@@ -3638,17 +3638,14 @@ void(float mid, float y, float th) Scores_ViewSwitch =
 
 /*
   P1590 (Lex, 16 Nov): the server's players float right of the board, each with their
-  main PB (Players_Best, the ranked board) in the colour they wear. Only where the
-  screen has room beside the board; the Players view lists them in full.
+  main PB (Players_Best, the ranked board) in the colour they wear (Players_RGB). Only where
+  the screen has room beside the board; the Players view lists them in full.
+  P1821: and the stage each is on (Players_Run), in a lane between the name and the PB.
 */
-vector(float slot) Scores_RoomRGB =
+float(float tsz) Scores_RoomStageW =
 {
-	local vector c;
-
-	c = (slot == player_localnum) ? Av_MyRGB() : Av_WornRGB(slot);
-	if (c_x * 0.3 + c_y * 0.59 + c_z * 0.11 < 0.35)
-		c = c + ('1 1 1' - c) * 0.45;           // a near-black colour stays readable
-	return c;
+	tsz = Font_Px(tsz);
+	return ceil(stringwidth("stage 88/88", TRUE, [tsz, tsz]) + tsz);
 };
 
 float(float tsz) Scores_RoomW =
@@ -3662,12 +3659,12 @@ float(float tsz) Scores_RoomW =
 			w = max(w, stringwidth(strdecolorize(getplayerkeyvalue(i, "name")), TRUE, [tsz, tsz]));
 	if (w <= 0)
 		return 0;
-	return ceil(min(w, tsz * 12) + stringwidth("88:88.888", TRUE, [tsz, tsz]) + tsz * 2.5);
+	return ceil(min(w, tsz * 12) + Scores_RoomStageW(tsz) + stringwidth("88:88.888", TRUE, [tsz, tsz]) + tsz * 2.5);
 };
 
 void(float x, float y, float w, float maxh, float tsz) Scores_RoomFloat =
 {
-	local float i, k, n, t, rowh, tw;
+	local float i, k, n, t, rowh, tw, sw;
 	local float slot[PL_MAXSLOT], best[PL_MAXSLOT];
 	local vector c;
 	local string s;
@@ -3702,14 +3699,23 @@ void(float x, float y, float w, float maxh, float tsz) Scores_RoomFloat =
 	Scores_Text([x + tsz * 0.6, y + 2], rec_sb_szhead, sprintf("IN THIS SERVER  %g", n), SUI_THEME_MUTED, 1);
 	y = y + ceil(rec_sb_szhead * 1.8);
 	tw = stringwidth("88:88.888", TRUE, [Font_Px(tsz), Font_Px(tsz)]);
+	sw = Scores_RoomStageW(tsz);
+	if (w + 1 < Scores_RoomW(tsz))              // squeezed beside the board: names first
+	if (w - tw - sw - tsz * 2 < Font_Px(tsz) * 5)
+		sw = 0;
 	for (i = 0; i < n; i = i + 1)
 	{
 		if ((i + 2) * rowh > maxh)
 			break;
-		c = Scores_RoomRGB(slot[i]);
+		c = Players_RGB(slot[i]);
 		sui_roundbox([x, y], [w, rowh - 3], (rowh - 3) * 0.5, '0 0 0', 0.6);
 		Scores_Text([x + tsz * 0.6, y + (rowh - 3 - Font_Px(tsz)) * 0.5], tsz,
-		            Chat_Fit(strdecolorize(getplayerkeyvalue(slot[i], "name")), w - tw - tsz * 2, Font_Px(tsz)), c, 1);
+		            Chat_Fit(strdecolorize(getplayerkeyvalue(slot[i], "name")), w - tw - sw - tsz * 2, Font_Px(tsz)), c, 1);
+		Players_Run(slot[i]);
+		s = Players_StageText();
+		if (s != "" && sw > 0)
+			Scores_Text([x + w - tsz * 0.1 - tw - sw, y + (rowh - 3 - Font_Px(tsz)) * 0.5], tsz,
+			            Chat_Fit(s, sw - Font_Px(tsz), Font_Px(tsz)), SUI_THEME_MUTED, 1);
 		s = (best[i] > 0) ? Time_TickString(best[i], Timer_Tick()) : "--";
 		Scores_TextR([x + w - tsz * 0.6, y + (rowh - 3 - Font_Px(tsz)) * 0.5], tsz, s, c, (best[i] > 0) ? 1 : 0.5);
 		y = y + rowh;

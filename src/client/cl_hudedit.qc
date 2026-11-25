@@ -117,7 +117,7 @@ void() HE_ResetAll;             // build 66, and the same story
   both constants go to 16 rather than to exactly 15.  One spare row is the cheap
   way to not find this out the same way twice.
 */
-#define HE_MAX 30                // 28 rows since Patch 824's "Chat"; spares (HUDE_MAX moves with it)
+#define HE_MAX 32                // 30 rows since P1821's "Players"; spares (HUDE_MAX moves with it)
 
 /*
   The chip rows below the element list that are always there.  Named because the
@@ -323,6 +323,9 @@ void() HE_BuildTable =
 	HE_Add("chat",    "Chat",       "hud_chat_x",    "hud_chat_y",    "hud_chat",     0, HEA_LB,  340, 170);
 	he_chatrow = he_n - 1;
 	HE_Text("hud_chat_size",     "16 20 24 28", 10);     // UI; 20 at hud_scale 2
+	// P1821: the server's players, their stage and run time (cl_players.qc Players_DrawHud).
+	HE_Add("players", "Players",    "hud_players_x", "hud_players_y", "hud_players",  0, HEA_RT,  110,  40);
+	HE_Text("hud_players_size",  "12 16 20 24",  8);     // UI; 16 at hud_scale 2
 	// P1227: how a load holds you, options only.
 	HE_Add("saves",   "Save & load",  "",             "",              "",             1, HEA_CT,    0,   0);
 	// Patch 798: switches for elements with no list row of their own, options only.
@@ -664,6 +667,20 @@ string(string id, float row) HE_OptDef =
 		if (row == 14) return "r_christmas|Christmas effects|t|||Master for seasonal snow, storm sky, lightning, ambience and decorations. Off by default; existing effect preferences are kept.";
 		if (row == 15) return "r_rampwear|Ramp marks|t|||Cosmetic scratches on baked ramps. Off by default; dirt has its own strength below.";
 		if (row == 16) return "r_rampwear_dirt|Ramp dirt|c|0 0.5 1|off;half;full|Dirt strength when Ramp marks is on. Off by default; surfaces stay close using raster depth bias.";
+		return "";
+	}
+
+	// P1821.
+	if (id == "players")
+	{
+		if (row == 0) return "hud_players_stage|Stage|t||"
+		                     "|The stage each player is on, or start, finished, spectating.";
+		if (row == 1) return "hud_players_time|Run time|t||"
+		                     "|Each player's run clock, counting while they run; their time once they finish.";
+		if (row == 2) return "hud_players_rows|Rows|c|4 8 12 16|4;8;12;16"
+		                     "|How many players it lists; past that, a +N more line.";
+		if (row == 3) return "hud_players_solo|When alone|t||"
+		                     "|Show it even when you are the only player here.";
 		return "";
 	}
 
@@ -2208,6 +2225,7 @@ void(float r) HE_Default =
 	// Patch 798: missing since Patch 762, so the strip's reset chip did nothing.
 	if (id == "keyhint") localcmd("seta hud_keyhint_x 0.0448\nseta hud_keyhint_y 0.9582\n");
 	if (id == "chat")    localcmd("seta hud_chat_x 0.05\nseta hud_chat_y 0.9424\n");   // Patch 824
+	if (id == "players") localcmd("seta hud_players_x 0.9917\nseta hud_players_y 0.24\n");   // P1821
 
 	/*
 	  BUILD 65 (until Patch 637, see above HE_Default).  boarding's pair is the -1

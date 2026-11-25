@@ -24,6 +24,11 @@
 ### P1822 !s ends a segmented run
 - Typing !s with the stage you are on during a segmented run (one you loaded a save into) now ends that run and starts a fresh attempt at the stage, instead of restarting the stage on the old run's clock. Clean runs still restart the stage as before.
 
+### P1821 Who is on the server, where and how fast
+- New HUD panel, Players: everyone on the server in plain text, the stage each is on (stage 3/5, start, finished) and their run clock counting live. It shows when someone else is on; turn it on or off, move it and size it in hud_edit.
+- The leaderboard's IN THIS SERVER list and its Players view now show the stage each player is on.
+- Stages and run clocks need a server on this update; on an older one the lists show names as before.
+
 ### P1813 No sunlight leaking at wall edges
 - On Strata maps such as bhop_canals, thin strips of sunlight no longer leak along the foot of walls and the edges of beams in shaded areas (under the overpass, inside the barn).
 

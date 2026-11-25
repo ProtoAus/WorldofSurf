@@ -17797,6 +17797,69 @@ void(entity e) SV_StageStat =
 };
 
 /*
+  P1821: each player's run for everyone's player lists (cl_players.qc Players_Run), as userinfo
+  *run = "state track seg segs flags value". flags: 1 a stage-only run, 2 the clock is not moving,
+  4 spectating. While it runs, value is the server `time` the clock read 0 at, and clients count on
+  by themselves (the mapclock key's way); otherwise its ticks. A 0.25 s walk rewrites it on a change,
+  or once the clock has drifted RK_DRIFT from that origin (at most once a second): no per-frame time.
+*/
+#define RK_DRIFT 0.2
+.float rk_org, rk_at, rk_ticks, rk_tat;
+float sv_rk_next;
+
+void() SV_RunKeyFrame =
+{
+	local entity p;
+	local float fl, run, tick, o;
+	local string head;
+
+	if (time < sv_rk_next && time > sv_rk_next - 1)
+		return;
+	sv_rk_next = time + 0.25;
+	for (p = SV_PlNext(world); p; p = SV_PlNext(p))
+	{
+		if (clienttype(p) != CLIENTTYPE_REAL && clienttype(p) != CLIENTTYPE_BOT)
+			continue;
+		if (p.run_t_ticks != p.rk_ticks || p.rk_tat > time)
+		{
+			p.rk_ticks = p.run_t_ticks;
+			p.rk_tat = time;
+		}
+		fl = 0;
+		if (p.run_t_stagerun) fl = fl | 1;
+		if (p.run_pmhold) fl = fl | 4;
+		run = (p.run_t_state == TS_RUNNING);
+		// Ticks that stood still for two walks: a hold, a TAS pause, a stalled client.
+		if (run)
+		if ((p.run_t_flags & (TF_FROZEN | TF_STOPPED)) || time - p.rk_tat > 0.4)
+		{
+			fl = fl | 2;
+			run = FALSE;
+		}
+		head = sprintf("%g %g %g %g %g", p.run_t_state, p.run_t_track, p.run_t_seg, p.run_t_segs, fl);
+		if (!run)
+		{
+			head = sprintf("%s %d", head, (p.run_t_state >= TS_RUNNING) ? p.run_t_ticks : 0);
+			if (strcmp(head, infokey(p, "*run")))
+				forceinfokey(p, "*run", head);
+			continue;
+		}
+		tick = p.run_movetickrate;
+		if (tick <= 0) tick = run_t_tick;
+		if (tick <= 0) tick = PM_TICK;
+		o = time - p.run_t_ticks * tick;
+		// The kept origin while nothing else changed; a changed head or a new map re-anchors.
+		if (!strcmp(sprintf("%s %.2f", head, p.rk_org), infokey(p, "*run")))
+		if (fabs(o - p.rk_org) <= RK_DRIFT || time - p.rk_at < 1)
+		if (p.rk_at <= time)
+			continue;
+		p.rk_org = o;
+		p.rk_at = time;
+		forceinfokey(p, "*run", sprintf("%s %.2f", head, o));
+	}
+};
+
+/*
 ===========================================================================
   Lifecycle
 ===========================================================================

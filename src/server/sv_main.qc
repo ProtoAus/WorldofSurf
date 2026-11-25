@@ -254,6 +254,7 @@ void() StartFrame =
 	vbsp_momtrig = (cvar("run_momtriggers") != 0);   // 0 or 1: saves read -1 as "no key"
 	Pose_Frame();                   // Patch 383: spectator counts and the publish gap
 	Pose_SpecBy();                  // Patch 429: who watches whom, after the counts
+	SV_RunKeyFrame();               // P1821: everyone's run and stage for the player lists
 	SV_SpecPublish();               // Patch 382: reads what Lobby_Frame just cached
 	Archive_Frame();
 	SV_SaveLocFrame();              // Patch 428: delete-all sweeps

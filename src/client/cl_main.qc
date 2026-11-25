@@ -2392,6 +2392,8 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
 		Spec_Draw(scr);               // Patch 385: the banner and the countdown
 		Rewind_Draw(scr);             // Patch 477
 		Spec_DrawWatchers(scr);       // Patch 429: who is watching you
+		if (!rec_sb_open && !sc_held)   // P1821: the board lists them itself
+			Players_DrawHud(scr);
 		Results_DrawToast(scr);
 		if (!Tour_CentreBusy(scr)) MapMsg_Draw(scr); // Patch 870: game_text and env_hudhint; P1672: not under the tournament's
 		SaveLoc_Draw(scr);
@@ -3133,6 +3135,11 @@ float(string cmd) CSQC_ConsoleCommand =
 	if (argv(0) == "playerlabels_status")
 	{
 		PlayerLabels_Status(argv(1) == "detail");
+		return TRUE;
+	}
+	if (argv(0) == "players_status")    // P1821
+	{
+		Players_Status();
 		return TRUE;
 	}
 	if (Inv_ConsoleCommand(cmdargc)) return TRUE;

@@ -119,7 +119,7 @@ vector fx_ring_off[8];          // the ring's 8-neighbourhood, filled at registe
   next panel anybody adds would have overflowed THIS one silently while its
   editor row worked fine. Same number as HE_MAX now, so the pair cannot drift.
 */
-#define HUDE_MAX 30             // Patch 661: with HE_MAX (Patch 824: the Chat row)
+#define HUDE_MAX 32             // Patch 661: with HE_MAX (P1821: the Players row)
 string hude_id[HUDE_MAX];
 vector hude_pos[HUDE_MAX];      // top-left of what was drawn, pixels
 vector hude_size[HUDE_MAX];     // pixels
