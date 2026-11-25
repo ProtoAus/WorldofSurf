@@ -1,5 +1,26 @@
 # BACKLOG.md
 
+## Public web load audit (25 Nov, QuickPhoenix; root FTESurf-worktrees/webperf-20261125-phoenix)
+- Chromium on the local connection: first measured board list 3.48 s (maps API 3.16 s), players 1.64 s
+  (players API 1.57 s), zoning 0.19 s; repeat navigations 0.23/0.05/0.16 s. Browser cache was cleared for
+  first visits, not the backend cache; these are individual observations, not cold-server benchmarks or p95.
+- Main candidate: /board/api/maps rebuilds its aggregate synchronously after its 60 s process-local cache expires;
+  the cache lock does not single-flight builds. Serve a persisted last-good public snapshot while ONE background
+  refresh runs, including worker recycle/startup. Keep freshness observable; do not merely increase TTL. Falsifier:
+  expired-cache and recycled-worker concurrent requests remain fast, one refresh runs, new runs appear on schedule,
+  and a failed refresh retains last-good bytes without losing retry ownership. Needs a tested backend generation.
+- Players already has background refresh and a persisted directory; its first-request snapshot load/install is
+  synchronous. Measure worker-start snapshot/index and avatar-index costs before attributing the observed 1.57 s
+  to a specific function. Warm after fork/startup, not by rebuilding the entire directory on every request.
+- Board builds 2,158 map rows / 11,301 DOM elements; observed render long tasks 173-193 ms. Test an initial row
+  cap/load-more (preserve full-catalogue search/counts) before virtualization. Falsifier: filtering and initial list
+  paint produce no >50 ms task on a representative slower CPU, without silently hiding map search matches.
+- Zoning unnecessarily requests the full maps catalogue (~199 KB decoded / 35 KB gzipped) only for availability,
+  then fetches history serially; snapshot/maps/history can each rebuild the list. Add a cheap availability response,
+  independent history fetch and coalesced renders. Preserve useful snapshot output when either live service fails.
+- Static site JS was demonstrably not gzipped (zoning.js 9,016 bytes); MIME opt-in added beside the /wos redirect.
+  Keep unversioned assets no-cache; immutable caching needs content-versioned URLs and atomic publication first.
+
 ## P1806 TAS uploads on the boards' TAS tab -- what it leaves (25 Nov, worldofsurf-8b)
 - An upload row has no replay (rep 0): the game cannot watch or race it from the board. Needs surfd to serve a
   `tasup` replay kind (tasindex copies the .rec beside surfd's data and writes a replays row) -- a generation, and every

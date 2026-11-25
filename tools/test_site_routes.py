@@ -6,6 +6,7 @@ Requires Flask, Werkzeug and nginx. No download, privileged port, live home,
 Steam request or deployment. --snippet allows an original-source negative control.
 """
 import argparse
+import gzip
 import http.client
 import importlib
 import json
@@ -287,6 +288,40 @@ http {
                 status, headers, _ = self.request(path + '?q=a%2Fb&n=2')
                 self.assertEqual(status, 301)
                 self.assertEqual(headers['location'], 'https://proto.bar' + path + '/?q=a%2Fb&n=2')
+
+    def test_short_homepage_redirect(self):
+        before = len(self.seen)
+        for path in ('/wos', '/wos/'):
+            for query in ('', '?q=a%2Fb&n=2', '?q=a&q=b'):
+                for method in ('GET', 'HEAD'):
+                    status, headers, _ = self.request(path + query, method)
+                    self.assertEqual(status, 301)
+                    self.assertEqual(headers['location'],
+                                     'https://proto.bar/worldofsurf/' + query)
+        # Only a homepage alias, not a new board/account proxy prefix.
+        for path in ('/woss', '/wos/board/', '/wos/link/return'):
+            status, headers, body = self.request(path)
+            self.assertEqual(status, 200)
+            self.assertNotIn('location', headers)
+            self.assertEqual(body, b'UNRELATED FILEBROWSER SENTINEL')
+        self.assertEqual(len(self.seen), before)
+
+    def test_site_scripts_gzip_without_stale_cache(self):
+        for base in ('ftesurf', 'worldofsurf'):
+            path = '/%s/site.js?v=fixture' % base
+            expected = self.files['site.js']
+            status, headers, body = self.request(path, headers={'Accept-Encoding': 'gzip'})
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get('content-type'), 'application/javascript')
+            self.assertEqual(headers.get('content-encoding'), 'gzip')
+            self.assertIn('accept-encoding', headers.get('vary', '').lower())
+            self.assertEqual(headers.get('cache-control'), 'no-cache')
+            self.assertEqual(gzip.decompress(body), expected)
+            self.assertLess(len(body), len(expected))
+            status, headers, body = self.request(path, headers={'Accept-Encoding': 'identity'})
+            self.assertEqual(status, 200)
+            self.assertNotIn('content-encoding', headers)
+            self.assertEqual(body, expected)
 
     def test_real_board_and_private_boundaries(self):
         for base in ('ftesurf', 'worldofsurf'):
