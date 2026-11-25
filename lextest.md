@@ -1,5 +1,18 @@
 # lextest.md — things waiting on a human
 
+## Lex list 25 Nov (worldofsurf-e0): P1821-P1825 -- on main; dev install + lobbies after the next install/release
+1. surf_thesteve, stage 3's window room (your deleted save 6, 797 -7584 -11694 facing west): no dark blocks hang in the
+   sky. Any other map where far ramps showed through the sky: same. Nothing nearby should vanish (r_entpvs_exact 0 to
+   compare).
+2. surf_thesteve save 18 area (the graffiti ramp at the start): the ramp has a reflective sheen with its bump detail
+   showing, as in Momentum; the walls (cat_brick*) reflect faintly.
+3. With a friend (or two clients) on a server: the Players panel under the map info lists everyone in plain text with
+   their stage and run clock; hud_edit has a Players row (on/off, size, stage, run time, rows, when alone). TAB board:
+   the IN THIS SERVER list and the Players view show each player's stage.
+4. Load a save mid-run on stage 3 (a segmented run), type `!s 3`: "run cancelled (!s ends a segmented run)" and a fresh
+   stage 3 attempt; on a clean run `!s 3` on stage 3 still restarts the stage on the run's clock.
+5. P1824 (missing-texture patterns): pending -- see its entry when it lands.
+
 ## 0.1.70 release -- PUBLISHED 24 Nov 20:53Z UTC; your dev install has it (P1812 mover 17); lobbies: engine + plugin + progs
 1. Save 5: walk at the corrugated metal ramp -- you go up and over it (and land on its slope from a drop) instead of
    sinking into it, as in Momentum. Runs now record movement version 17 (lobbies verify it).

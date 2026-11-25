@@ -21,8 +21,14 @@
 
 ## next
 
+### P1825 Reflections on more Source materials
+- Materials that set their reflection tint in Source's {r g b} form (surf_thesteve's graffiti ramps and walls, about one map in ten) reflect their cubemap again; before, they had no reflection and their bump detail looked flat.
+
+### P1823 No far-away ramps in the sky
+- Big brush ramps far outside what you can see (surf_thesteve's floating blocks seen through the sky from stage 3) are no longer drawn: an object that large is now checked by the parts of the map it touches, as Source does.
+
 ### P1822 !s ends a segmented run
-- Typing !s with the stage you are on during a segmented run (one you loaded a save into) now ends that run and starts a fresh attempt at the stage, instead of restarting the stage on the old run's clock. Clean runs still restart the stage as before.
+- Typing !s with the stage you are on during a segmented run (one you loaded a save into) now ends that run and starts a fresh attempt at the stage, instead of restarting it on the old run's clock. Clean runs restart the stage as before.
 
 ### P1821 Who is on the server, where and how fast
 - New HUD panel, Players: everyone on the server in plain text, the stage each is on (stage 3/5, start, finished) and their run clock counting live. It shows when someone else is on; turn it on or off, move it and size it in hud_edit.
