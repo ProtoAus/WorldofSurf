@@ -3874,8 +3874,21 @@ processes were interrupted. Real linked/populated Home acceptance is separate.
   samples by >=one tick; preserve all in/fzin/event rows and truthful timestamps.
   Fresh/reset/stream-prefix/buffer-recount AND Multi-Session stream spacing state
   matters. %.4f can turn slightly negative padding into zero. Fresh-2 must emit
-  the first nonnegative pose; restored-1 only reanchors. Do not relax the rate
-  check. Sparse poses cannot disprove a brief board contact: the reader reports
+  the first nonnegative pose; restored-1 only reanchors. The old rate check
+  remains the default. P1842 narrowly substitutes complete structural input
+  chronology ONLY for otherwise-valid closed ordinary REC14, Source17, fresh
+  counted/seed/pin bootstrap, fixed actual divisor, supported PMS1 joins and
+  zero actual exclusions. The first pose must restate all six fresh seed body
+  values at writer %.2f precision; time zero alone is not a bootstrap join.
+  Known plat/pad finish marks remain non-clock metadata with existing diagnostics.
+  Every pose needs its own canonical consumed-clock boundary; an outgoing PMS1
+  endpoint and first resumed pre-input share ONE
+  owner (no numeric pose after restored seed before that input). Untimed fresh
+  P1675 startlag metadata never shifts the origin. Unsupported/missing context
+  retains the old fault; malformed chronology refuses. See
+  `tools/p1842-input-cadence.md`. This grants no native/physics/eligibility
+  verdict and does not qualify view/fzin/park support or deployment.
+  Sparse poses cannot disprove a brief board contact: the reader reports
   unobserved ONLY for pinned counted practice/unfinished traces with a missing
   actual-input packet pose. fzin is MOVING release, excluded only from clock/
   angle joins; pinned input has no row. Keep those joins untouched. Validate ALL

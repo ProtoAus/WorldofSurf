@@ -754,6 +754,258 @@ def read_lines(path, data=None):
         return [l.rstrip("\n").rstrip("\r") for l in f]
 
 
+def prove_input_cadence(lines, head):
+    """Ordinary REC14 zero-exclusion chronology, NOT native/physics evidence.
+
+    Called only for an otherwise valid closed file at the old density fault.
+    Return (structural evidence, unavailable reason); inconsistent witnesses
+    raise ValueError. Optional poses consume one boundary each. A restored
+    endpoint keeps its owner across rebasing; it never issues a second one.
+    """
+    q = qc_float
+
+    def counter(token):
+        n = exact_finish_ticks(token)
+        if n is None or q(n) != n:
+            raise ValueError("counter is not an exact nonnegative QC integer")
+        return n
+
+    def pairs(tokens):
+        return {k: q(file_float(v)) for k, v in
+                (token.split("=", 1) for token in tokens)}
+
+    if any(head.get(k) != v for k, v in
+           (("clock", "counted"), ("holdclock", "1"), ("viewclock", "1"))):
+        return None, "requires counted/holdclock/viewclock bootstrap"
+    if not all(k in head for k in ("instart", "pmpin", "movetickrate")):
+        return None, "missing initial horizon/pin/divisor"
+    rate = q(file_float(head["movetickrate"]))
+    if not 0 < rate <= 1 or rate != q(file_float(head["tickrate"])):
+        return None, "unsupported actual divisor"
+    pin = pairs(head["pmpin"].split())
+    if pin.get("physmode") != 1 or pin.get("pmsrcver") != 17:
+        return None, "requires supported Source pin version 17"
+    if pin.get("ticrate") != rate:
+        raise ValueError("pmpin ticrate differs from actual divisor")
+    bootstrap = head["instart"].split()
+    base = counter(bootstrap[0])
+    if base != counter(bootstrap[1]):
+        return None, "initial horizon is not a fresh origin"
+
+    def horizon(mt, carry):
+        mt, carry = counter(mt), q(file_float(carry))
+        if not 0 <= carry < rate:
+            raise ValueError("native carry outside actual divisor")
+        return mt, carry
+
+    def physical(h):
+        return q(q(q(h[0]) * rate) + h[1])
+
+    # SV_PMSnapshotHorizon: native float max + two float ULPs, not a
+    # learned tolerance. Reconstruct durations in double as the native reader.
+    maximum = max(q(0.05), q(rate + q(0.00001)))
+    bits = struct.unpack("<I", struct.pack("<f", maximum))[0]
+    maximum = struct.unpack("<f", struct.pack("<I", bits + 2))[0]
+
+    def interval(before, after):
+        dt = (after[0] - before[0]) * rate + after[1] - before[1]
+        if after[0] < before[0] or not 0 <= dt <= maximum:
+            raise ValueError("input horizon outside native RunCmdPart bound")
+
+    body = [s.split() for s in lines[lines.index("begin") + 1:] if s.strip()]
+    excluded = {"fzin", "hold", "spec", "ghost", "viewclock", "parkclock"}
+    # These records do not alter the consumed fine clock. Unknown context is
+    # unavailable, never permission to fit a new origin to visual timestamps.
+    inert = {"zseed", "cseq", "pm", "pe", "mc", "portal", "warp", "ride",
+             "angleop", "nonce", "cp", "board", "prof", "plat", "pad", "clk", "split"}
+    lifecycle = {"seed", "in", "savejoin", "pause", "resume", "retry",
+                 "session", "clockend", "inend", "end"}
+    startlag_seen = False
+    for n, tok in enumerate(body):
+        if tok[0] == "startlag":
+            # SV_RecOpen has already flushed seed/padding. P1675 describes
+            # untimed PRE-origin packet lag; it never shifts the run clock.
+            if (startlag_seen or not n or body[0][0] != "seed"
+                    or any(not is_sample(t[0]) or float(t[0]) >= 0 for t in body[1:n])
+                    or any(is_sample(t[0]) and float(t[0]) < 0 for t in body[n+1:])):
+                raise ValueError("startlag outside fresh seed/padding bootstrap")
+            if len(tok) != 4:
+                raise ValueError("startlag takes k seconds maximum")
+            k = counter(tok[1])
+            seconds = q(file_float(tok[2]))
+            file_float(tok[3])  # Cached finite cvar; <=0 disables its policy.
+            if seconds < 0 or tok[2] != format(q(q(k) * rate), ".4f"):
+                raise ValueError("startlag seconds differ from canonical untimed ticks")
+            startlag_seen = True
+            continue
+        if tok[0] in excluded:
+            return None, "unsupported body clock context: " + tok[0]
+        if not is_sample(tok[0]) and tok[0] not in inert | lifecycle:
+            return None, "unknown body clock context: " + tok[0]
+    if not body or body[0][0] != "seed":
+        return None, "missing fresh seed"
+    # Serialized Source seed fields, in PMS1 state order (portaloffset is not
+    # a seed field). Equality here is float32 equality, not decimal spelling.
+    seed_fields = ("surfacefriction", "ducktime", "ducking", "ducked",
+                   "msec_carry", "oldbuttons", "stamina", "rampoff",
+                   "boardcount", "rampcontact", "srcladder", "ladnx",
+                   "ladny", "ladnz", "landticks")
+    seed_indices = tuple(range(36, 51)) + (54, 55, 56)
+    seed_names = seed_fields + ("wjtime", "wjx", "wjy")
+
+    def seed_values(tok):
+        values = pairs(tok[8:])
+        if any(k not in values for k in seed_names):
+            return None
+        return [q(file_float(v)) for v in tok[1:8]] + [values[k] for k in seed_names]
+
+    seed = seed_values(body[0])
+    if seed is None:
+        return None, "incomplete Source seed"
+    # Exact native replay seeds directly; its post-input comparisons do not
+    # cover this pre-input body. Restate SV_RecLine's six %.2f values explicitly.
+    seed_body = tuple(float(format(v, ".2f")) for v in seed[:6])
+    origin = None
+    counted = 0
+    previous = None
+    pending = None
+    first_pose = True
+    inputs = matched = joins = 0
+    phase = None
+    snapshot = None
+    saved = saved_ticks = None
+    restored = None
+    closing = None
+    terminal = ended = False
+
+    def bind(h):
+        nonlocal pending, matched
+        elapsed = q(physical(h) - origin)
+        if elapsed < 0:
+            raise ValueError("negative consumed elapsed clock")
+        if pending is not None:
+            if pending != format(elapsed, ".4f"):
+                raise ValueError("pose timestamp differs from canonical consumed clock")
+            pending = None
+            matched += 1
+        return elapsed
+
+    for tok in body:
+        kind = tok[0]
+        if is_sample(kind):
+            if float(kind) < 0:
+                continue  # Existing grammar enforces prefix-only padding.
+            if kind.startswith("-"):
+                return None, "ambiguous negative-zero padding"
+            if terminal or phase is not None:
+                raise ValueError("pose at restored/closed boundary has no new owner")
+            if pending is not None:
+                raise ValueError("multiple poses without a distinct input boundary")
+            if first_pose:
+                if kind != "0.0000":
+                    raise ValueError("first running pose must be canonical 0.0000")
+                if len(tok) < 7 or tuple(file_float(x) for x in tok[1:7]) != seed_body:
+                    raise ValueError("fresh bootstrap body does not restate seed at writer precision")
+            first_pose = False
+            pending = kind
+        elif kind == "in":
+            if terminal or phase not in (None, "input"):
+                raise ValueError("input outside active cadence phase")
+            h = horizon(tok[2], tok[3])
+            if origin is None:
+                if h[0] != base or h[1] != seed[7 + seed_names.index("msec_carry")]:
+                    raise ValueError("first input disagrees with fresh horizon/seed")
+                origin = physical(h)
+            elif phase == "input":
+                if h != restored:
+                    raise ValueError("first resumed input disagrees with session horizon")
+                phase = None  # Same logical owner as outgoing PMS1; no pose here.
+            else:
+                interval(previous, h)
+            bind(h)
+            previous = h
+            inputs += 1
+        elif kind == "savejoin":
+            if phase is not None or previous is None or terminal:
+                raise ValueError("savejoin outside retained input phase")
+            snapshot = [q(file_float(v)) for v in tok[3:]]
+            if snapshot[0] != 1 or snapshot[1] != pin["pmsrcver"]:
+                return None, "unsupported PMS1 model/version"
+            if snapshot[4] != rate:
+                raise ValueError("PMS1 divisor differs from actual divisor")
+            if counter(tok[1]) != inputs:
+                raise ValueError("PMS1 retained count differs from input ordinal")
+            outgoing = horizon(tok[6], tok[43])
+            interval(previous, outgoing)
+            saved = bind(outgoing)
+            saved_ticks = counted + outgoing[0] - base
+            counter(str(saved_ticks))
+            phase = "pause"
+            joins += 1
+        elif kind == "pause":
+            if phase != "pause":
+                return None, "pause without supported outgoing PMS1"
+            legacy = horizon(tok[1], tok[2])
+            interval(previous, legacy)
+            interval(legacy, outgoing)
+            if counter(tok[3]) != saved_ticks or tok[4] not in ("load", "retry"):
+                raise ValueError("pause disagrees with saved counted endpoint")
+            restore_kind = "resume" if tok[4] == "load" else "retry"
+            phase = "restore"
+        elif kind in ("resume", "retry"):
+            if phase != "restore":
+                return None, "restore without supported outgoing PMS1"
+            if kind != restore_kind or counter(tok[-1]) != saved_ticks:
+                raise ValueError("restore disagrees with saved counted endpoint")
+            phase = "session"
+        elif kind == "session":
+            if phase != "session":
+                return None, "session without supported outgoing PMS1"
+            restored = horizon(tok[2], tok[3])
+            if counter(tok[4]) != saved_ticks or restored[1] != snapshot[40]:
+                raise ValueError("session disagrees with saved clock/carry")
+            origin = q(physical(restored) - saved)
+            base, counted = restored[0], saved_ticks
+            phase = "seed"
+        elif kind == "seed" and inputs:
+            if phase != "seed":
+                raise ValueError("restored seed outside cadence phase")
+            values = seed_values(tok)
+            if values is None:
+                return None, "incomplete restored Source seed"
+            expected = snapshot[10:16] + [float(bool(int(snapshot[6]) & 512))]
+            expected += [snapshot[j] for j in seed_indices]
+            if values != expected:
+                raise ValueError("restored seed disagrees with PMS1 endpoint")
+            phase = "input"
+        elif kind == "pm":
+            active = pairs(tok[3:])
+            if active.get("ticrate") != rate:
+                raise ValueError("pm ticrate differs from actual divisor")
+            if active.get("physmode") != 1 or active.get("pmsrcver") != pin["pmsrcver"]:
+                return None, "unsupported active Source pin"
+        elif kind == "clockend":
+            closing = tok[1:]
+        elif kind == "inend":
+            if previous is None or phase is not None or terminal:
+                raise ValueError("incomplete final input/session witness")
+            h = horizon(tok[1], tok[2])
+            interval(previous, h)
+            bind(h)
+            terminal = True
+        elif kind == "end":
+            ended = True
+    if not terminal or not ended or pending is not None or not inputs or first_pose:
+        return None, "missing closed input/pose witness"
+    if closing is None or closing[0] not in ("counted", "viewing"):
+        return None, "missing counted closing witness"
+    if counter(closing[1]) != base or q(file_float(closing[2])) != counted:
+        raise ValueError("closing origin/carry differs from derived whole-tick epoch")
+    if counter(closing[3]) or (closing[0] == "viewing" and q(file_float(closing[4]))):
+        return None, "nonzero frozen/viewing clock accumulator"
+    return {"poses": matched, "inputs": inputs, "joins": joins}, None
+
+
 def check_rec(path, verbose=False, *, data=None):
     r = Report(path)
     try:
@@ -3607,8 +3859,21 @@ def _check_rec(r, path, verbose=False, *, data=None):
             r.info["rate"] = rate
             nominal = 1.0 / tickrate
             if rate > nominal * 1.02:
-                r.fault("sample rate %.1f/s is ABOVE the tick rate %.1f/s"
-                        % (rate, nominal))
+                cadence = None
+                if ver == 14 and r.held is None and not r.faults:
+                    try:
+                        cadence, unavailable = prove_input_cadence(lines, head)
+                        if unavailable:
+                            r.note("input cadence unavailable: " + unavailable)
+                    except ValueError as exc:
+                        r.fault("input cadence: " + str(exc))
+                if cadence is not None:
+                    r.info["structural_input_cadence"] = cadence
+                    r.note("input cadence COMPLETE: structural chronology only; "
+                           "native verification still required")
+                else:
+                    r.fault("sample rate %.1f/s is ABOVE the tick rate %.1f/s"
+                            % (rate, nominal))
             elif rate < nominal * 0.5:
                 r.note("sample rate %.1f/s is well under the tick rate %.1f/s "
                        "-- heavy packet loss, or a stall" % (rate, nominal))

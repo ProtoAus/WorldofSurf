@@ -4294,6 +4294,189 @@ def case_takeover():
     f, _ = run(helped(handed(build(), "takeover 16")))
     check(any("'takeover' takes <ticks> <name>" in x for x in f), "a takeover with no name is a fault")
 
+def input_cadence_fixture(joins=(), *, zero=False, optional=False):
+    """Public synthetic ordinary REC14 chronology; NOT native replay proof.
+
+    Three received inputs per mover tick, with genuine positive-duration
+    zero-tick intervals. Joins use outgoing PMS1 horizons, never pause's older
+    pre-move horizon. No private map/run/input material is used here.
+    """
+    import reccheck as rc
+    q = rc.qc_float
+    rate = q(TICK)
+    lines = build(ver=10, packets=30)
+    lines[0] = "FTESURF-REC 14"
+    lines = head(lines, "pmpin", "pmsrcver=17 physmode=1 ticrate=%.9g gravity=800" % rate)
+    lines = head(lines, "flags", "129" if joins else "0")
+    lines.insert(lines.index("begin"), "holdclock 1")
+    lines.insert(lines.index("begin"), "viewclock 1")
+    names = ("surfacefriction", "ducktime", "ducking", "ducked", "msec_carry",
+             "oldbuttons", "stamina", "rampoff", "boardcount", "rampcontact",
+             "srcladder", "ladnx", "ladny", "ladnz", "landticks", "wjtime", "wjx", "wjy")
+
+    def seed(carry):
+        return "seed 0 0 0 0 0 0 0 " + " ".join(
+            "%s=%.9g" % (k, 1 if k == "surfacefriction" else carry if k == "msec_carry" else 0)
+            for k in names)
+
+    begin = lines.index("begin")
+    prefix = lines[:begin + 1] + [seed(0)]
+    padding = [s for s in lines[begin + 1:] if s.startswith("-")]
+    sample = next(s for s in lines if s.startswith("0.0000 ")).split()
+    # This chronology fixture's fresh seed and later PMS1 states are all zero.
+    # Do not inherit build()'s unrelated z=64 bootstrap body.
+    sample[1:7] = ["0.00"] * 6
+    prefix += padding
+    origin = q(q(HORIZON) * rate)
+    base, counted = HORIZON, 0
+    out = prefix
+    retained = 0
+    nposes = len(padding)
+    sessions = 0
+    for i in range(31):
+        # Optional exact zero-duration input is followed by a real boundary.
+        step = max(0, i - 1) if zero else i
+        h = (base + step // 3 - counted, q((step % 3) * rate / 3))
+        physical = q(q(q(h[0]) * rate) + h[1])
+        elapsed = q(physical - origin)
+        if not optional or i % 2 == 0:
+            out.append(" ".join([format(elapsed, ".4f")] + sample[1:]))
+            nposes += 1
+        if i in joins:
+            v = [0.0] * 58
+            for j, value in {0: 1, 1: 17, 2: 1, 3: h[0], 4: rate, 5: 1,
+                             16: -16, 17: -16, 18: -24, 19: 16, 20: 16, 21: 32,
+                             31: -1, 36: 1, 40: h[1]}.items():
+                v[j] = value
+            saved_ticks = counted + h[0] - base
+            out.append("savejoin %d PMS1 %s" % (retained, " ".join(format(x, ".17g") for x in v)))
+            # The legacy pause restates the retained input, not PMS1.
+            last = next(s.split() for s in reversed(out) if s.startswith("in "))
+            out += ["pause %s %s %d load" % (last[2], last[3], saved_ticks),
+                    "resume 1 %d" % saved_ticks]
+            sessions += 1
+            newbase = 0 if sessions == 1 else 80
+            out += ["session %d %d %.9g %d" % (sessions + 1, newbase, h[1], saved_ticks), seed(h[1])]
+            base, counted = newbase, saved_ticks
+            h = (newbase, h[1])
+            origin = q(q(q(q(h[0]) * rate) + h[1]) - elapsed)
+        if i == 30:
+            out += ["clockend viewing %d %d 0 0" % (base, counted),
+                    "inend %d %.9g" % h]
+        else:
+            out.append("in %d %d %.9g 450 0 0 0.0000 0.0000 0.0000 0 0" % (i + 1, h[0], h[1]))
+            retained += 1
+    ticks = counted + h[0] - base
+    out.append("end %d %d %d 0 %d 0 0 0 0 0 %d 1 0 0" %
+               (ticks, nposes, len(padding), retained, sessions))
+    return out
+
+
+def case_input_cadence_startlag():
+    import reccheck as rc
+    b = input_cadence_fixture()
+    at = next(i for i, s in enumerate(b) if s.startswith("0.0000 "))
+    for k in (0, 4):
+        metadata = "startlag %d %.4f -1" % (k, rc.qc_float(rc.qc_float(k) * rc.qc_float(TICK)))
+        ok_clean(b[:at] + [metadata] + b[at:], "untimed startlag %d never changes consumed origin (not native proof)" % k)
+    metadata = "startlag 0 0.0000 0.06"
+    good = b[:at] + [metadata] + b[at:]
+    for tok in ("startlag 0 0.0000", "startlag -1 0.0000 0.06",
+                "startlag 0 nan 0.06", "startlag 0 0.0000 nan",
+                "startlag 1 0.0000 0.06", "startlag 0 0.00000 0.06"):
+        faults_with(b[:at] + [tok] + b[at:], "ABOVE the tick rate", "bad startlag never waives density: " + tok)
+    faults_with(after_row(b, 1, metadata), "startlag outside", "late startlag has no bootstrap authority")
+    faults_with(good[:at] + [metadata] + good[at:], "startlag outside", "duplicate startlag refuses")
+    faults_with(b[:at-1] + [metadata] + b[at-1:], "startlag outside", "startlag before final padding refuses")
+    joined = input_cadence_fixture((10,))
+    ix = next(i for i, s in enumerate(joined) if s.startswith("session ")) + 2
+    faults_with(joined[:ix] + [metadata] + joined[ix:], "startlag outside", "restored startlag cannot reanchor origin")
+
+
+def case_input_cadence():
+    for joins in ((), (10,), (10, 20)):
+        for optional in (False, True):
+            b = input_cadence_fixture(joins, optional=optional)
+            f, n = run(b)
+            check(not f and any("cadence COMPLETE" in x for x in n),
+                  "structural ordinary14 cadence joins=%s optional=%s (not NativePASS)" % (joins, optional))
+            if f: print("        %s" % f)
+    ok_clean(input_cadence_fixture(zero=True), "true zero-duration input owns its later same-time boundary")
+    b = input_cadence_fixture()
+    # Native exact replay seeds directly and does not compare this pre-input
+    # pose: every printed position/velocity component needs an explicit join.
+    for col in range(1, 7):
+        faults_with(edit(b, "sample", col, 1, which=PAD), "bootstrap body",
+                    "fresh bootstrap component %d must restate seed" % col)
+    import reccheck as rc
+    physical = ("1.23456", "-2.34567", "3.45678", "4.56789", "-5.67891", "6.78912")
+    rounded = b[:]
+    si = next(i for i, s in enumerate(rounded) if s.startswith("seed "))
+    pi = next(i for i, s in enumerate(rounded) if s.startswith("0.0000 "))
+    fields = rounded[si].split()
+    fields[1:7] = physical
+    rounded[si] = " ".join(fields)
+    fields = rounded[pi].split()
+    fields[1:7] = [format(rc.qc_float(float(x)), ".2f") for x in physical]
+    rounded[pi] = " ".join(fields)
+    ok_clean(rounded, "bootstrap joins seed at writer two-decimal precision (not native proof)")
+    finish_metadata = insert_before(insert_before(b, "inend", "plat 1"), "inend", "pad 1")
+    ok_clean(finish_metadata, "non-clock plat/pad finish metadata preserves dense chronology")
+    faults_with(edit(finish_metadata, "plat", 1, "nan"), "'plat' takes one integer",
+                "malformed platform finish remains a fault, not an inert exemption")
+    for col, val in ((0, "0.0001"), (0, "0.00500"), (0, "0.0049")):
+        faults_with(edit(b, "sample", col, val, which=PAD + 1), "input cadence", "retimed/noncanonical pose refuses %s" % val)
+    # Equal-time extra poses, even with truthful trailer counts, have no owner.
+    ix = [i for i, s in enumerate(b) if s[:1].isdigit()][1]
+    extra = b[:ix] + [b[ix]] + b[ix:]
+    faults_with(bump_end(extra, "samples"), "multiple poses", "consecutive duplicate cannot hide in native sample selection")
+    joined = input_cadence_fixture((10,))
+    ix = next(i for i, s in enumerate(joined) if s.startswith("session ")) + 2
+    join_at = next(i for i, s in enumerate(joined) if s.startswith("savejoin "))
+    endpoint = joined[join_at - 1]
+    assert endpoint[:1].isdigit()  # Actual outgoing endpoint, not a fitted time.
+    bad = joined[:ix] + [endpoint] + joined[ix:]
+    faults_with(bump_end(bad, "samples"), "no new owner", "P1 restored seed cannot mint a second outgoing pose owner")
+    for kind, pos, value in (("in", 2, HORIZON + 20), ("in", 3, 0.014),
+                              ("pmpin", 3, "ticrate=%.9g" % (TICK * 2)), ("clockend", 2, 0),
+                              ("inend", 1, HORIZON + 100), ("clockend", 3, 1)):
+        mutant = edit(b, kind, pos, value)
+        if kind == "pmpin":
+            before = next(s.split() for s in b if s.startswith("pmpin "))
+            after = next(s.split() for s in mutant if s.startswith("pmpin "))
+            assert before[pos] != after[pos] and before[:pos] + before[pos+1:] == after[:pos] + after[pos+1:]
+        f, _ = run(mutant)
+        check(bool(f), "cadence counter/carry/pin/final mutant refuses %s/%d" % (kind, pos))
+    for kind, pos, value in (("savejoin", 1, 1), ("savejoin", 6, HORIZON + 20),
+                              ("savejoin", 7, TICK * 2), ("savejoin", 43, 0.014),
+                              ("pause", 3, 0), ("resume", 2, 0), ("session", 4, 0),
+                              ("session", 3, 0), ("seed", 1, 1)):
+        mutant = edit(joined, kind, pos, value, which=1 if kind == "seed" else 0)
+        if kind == "savejoin" and pos == 7:
+            before = next(s.split() for s in joined if s.startswith("savejoin "))
+            after = next(s.split() for s in mutant if s.startswith("savejoin "))
+            assert before[pos] != after[pos] and before[:pos] + before[pos+1:] == after[:pos] + after[pos+1:]
+            assert float(after[43]) < float(after[7])  # Not a carry-domain falsifier.
+        f, _ = run(mutant)
+        check(bool(f), "cadence snapshot/phase/seed mutant refuses %s/%d" % (kind, pos))
+    matching = bump_end(after_row(b, 1, "pm 2 1 physmode=1 pmsrcver=17 ticrate=%.9g" % TICK), "pms")
+    bad = edit(matching, "pm", 5, "ticrate=%.9g" % (TICK * 2))
+    before = next(s.split() for s in matching if s.startswith("pm "))
+    after = next(s.split() for s in bad if s.startswith("pm "))
+    assert before[5] != after[5] and before[:5] == after[:5]
+    faults_with(bad, "pm ticrate", "every active pm divisor is fixed, not header alone")
+    for kind in ("hold 0 0", "viewclock 1 1 0 0", "parkclock 0 0", "ghost 1 0", "spec 1", "fzin 1 631 0", "futureclock 1"):
+        faults_with(after_row(b, 1, kind), "ABOVE the tick rate", "excluded/unknown clock context retains old density rule: " + kind)
+    for key in ("pmpin", "instart", "movetickrate"):
+        f, _ = run(head(b[:], key, None))
+        check(bool(f), "missing bootstrap refuses " + key)
+    for ver in (9, 11, 13, 15):
+        old = b[:]
+        old[0] = "FTESURF-REC %d" % ver
+        f, n = run(old)
+        check(bool(f) and not any("cadence COMPLETE" in s for s in n), "other version %d never gains ordinary14 cadence exemption" % ver)
+
+
 def main():
     for fn in (case_takeover, case_bank_taint, case_tas_ancestry, case_sparse_practice_board, case_sparse_release_board, case_sv_sample_fresh_cursor, case_sv_resume_parkclock, case_sv_timer_viewclock, case_sv_timer_viewclock_review, case_control,
                case_no_horizon, case_horizon_without_rows,
@@ -4372,6 +4555,7 @@ def main():
                case_imposition_boundary_authority,
                case_view_retry_history,
                case_view_restore_history, case_view_resume_slot_history,
+               case_input_cadence, case_input_cadence_startlag,
                case_angle_splice, case_angle_no_sidecar_is_silent):
         # argv: case-name prefixes to run (default all).
         if sys.argv[1:] and not fn.__name__.startswith(tuple(sys.argv[1:])):
