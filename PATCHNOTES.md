@@ -35,6 +35,9 @@
 - The leaderboard's IN THIS SERVER list and its Players view now show the stage each player is on.
 - Stages and run clocks need a server on this update; on an older one the lists show names as before.
 
+### P1814 Glass looks like glass
+- Windows and other see-through surfaces on Source maps blend the way Source draws them: a dirty pane over a dark room looks milky and hazy instead of showing the room sharply (bhop_canals barn windows).
+
 ### P1813 No sunlight leaking at wall edges
 - On Strata maps such as bhop_canals, thin strips of sunlight no longer leak along the foot of walls and the edges of beams in shaded areas (under the overpass, inside the barn).
 

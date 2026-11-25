@@ -1,4 +1,6 @@
 # The engine build this QuakeC requires.
+# P1814 (engine gl_backend.c gl_vidcommon.c shader.h renderer.c; plugin vmt lightmapped/vertexlit; worldofsurf-67, canals save 36):
+# Source glass and translucent props blend as in linear light (r_linearblend). Client only. Record: ENGINE_PATCHES P1814.
 # P1821-P1823, P1825 (engine client/renderer.c cl_ents.c pr_csqc.c r_surf.c render.h, gl/gl_alias.c; plugin hl2/mat_vmt.c;
 # QC cl_players.qc cl_hud.qc cl_hudedit.qc cl_main.qc cl_scores.qc sv_timer.qc sv_main.qc; worldofsurf-e0, Lex 25 Nov
 # list): the HUD Players panel (name, stage, live run time; userinfo *run) and the stage on the boards; `!s N` ends a
@@ -870,7 +872,7 @@
 
 repo     https://github.com/ProtoAus/ftequakers
 branch   main
-commit   396f99440
+commit   03f8d5699
 # ^ The pin is the ENGINE_PATCHES.md work this QuakeC is written against, NOT the
 #   commit a shipped binary was built from -- those drift, deliberately: patches
 #   420-438 are all mod-side, so the engine source moved without any binary
