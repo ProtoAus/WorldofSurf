@@ -26,6 +26,9 @@
 - An explicit offline mode can propose boxes for concave or unusual native zone rings and pad thin heights, with exact changed bounds and prominent timing-risk reports. Strict conversion remains unchanged.
 - Review downloads are not calibrated ranked zones. Unsupported routes stay blocked with original backups; existing upstream zones remain untouched.
 
+### P1830 Less work for distant smoke volumes
+- Smoke volumes outside the visible parts of a Source map no longer generate billboards. Staying still also reuses their particle ordering; the smoke grid, lighting, motion and transparency are unchanged.
+
 ### P1829 Shavit zone review copies
 - Added an offline exporter that keeps the original native zone files and produces missing-map Shavit Surf JSON review candidates, with per-map warnings and no changes to existing upstream files.
 - Unsupported shapes and routes are refused rather than silently changed. CS:S timing/restart checks and source-data permissions are required before publishing the results; this is not a ready-to-install bulk zone update.

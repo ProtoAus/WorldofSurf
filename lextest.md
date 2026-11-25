@@ -6,6 +6,12 @@
 - Owner authorized source redistribution on 25 Nov 2026; preserve original credits/terms. That permission is not a public-domain dedication. Public downloads/draft contributions remain visibly review-only until calibrated.
 - Published [native/surf/bhop review downloads](https://github.com/ProtoAus/surf-zones/releases/tag/wos-zones-20261125-725567e8b6b9) and [upstream draft PR #1](https://github.com/wrldspawn/surf-zones/pull/1):1,769 native backups,924surf+554bhop review candidates,200whole-map refusals retained native-only,76existing upstream names left alone. All8 assets anonymously downloaded/hash-verified; no live timer/style/stripper configs changed. These automated publication checks do not replace the pending human checks above.
 
+## P1830 Source smoke-volume work reduction (25 Nov)
+
+- On bhop_canals, compare `vbsp_smokevol_pvs 0; vbsp_smokevol_cache 0` against both set to 1. Check fog while moving between rooms, looking back, and re-entering a foggy area; the grid, colour, opacity and motion should not change or pop late. Restore both to 1 afterward.
+- Automated checks already cover all 141 generated particles in 7 positive-density volumes (5 authored density-zero volumes stay inert), conservative bounds, full cached/uncached tables and exact order/distance/filter checks. Still/moving/re-entry and all-hidden controls acted; independent review accepted the current-frame PVS path. `cfg/test/p1830-smokevol.cfg` prints complete tables for the checker.
+- Raw paired timing was neutral/noisy in two static views and the moving sweep (under 1% apparent change); another hidden-volume view improved but included a high first control. This is verified work avoidance, not a whole-map FPS promise. Visual screenshots were checked; human fog feel remains pending. No density, lighting, animation or renderer-quality settings were reduced.
+
 ## P1829 Shavit zone review exporter (offline only)
 - `python3 tools/shavit_zones.py --source <published-native-zones> --existing <surf-zones/z> --output <fresh-review-directory>` keeps native inputs unchanged and skips existing map names. See tools/shavit_zones.md.
 - Local conservative pass: 1,140 selected files, excluding personal editor drafts; 414 review candidates (114 surf / 300 bhop), 63 upstream names left alone, 663 whole-map refusals. These are local stored inputs, not proof of complete/current Source coverage.

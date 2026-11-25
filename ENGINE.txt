@@ -1,11 +1,14 @@
 # The engine build this QuakeC requires.
-# P1828: player-facing importer labels are CS:S / Counter-Strike: Source; machine keys, actual URLs,
-# map filenames and recording provenance stay unchanged. Local CSQC/menu installed; SSQC/exe/plugin unchanged.
 # P1831: explicit offline geometry proposals enclose bounded native rings and report exact short-Z padding.
 # Explicit public catalogue selection includes nonprefix bhop stems without leaking unlisted source names.
 # Strict mode/routes/caps unchanged; no timing calibration, live installation, engine pin or qcbuild change.
+# P1830 (QC cl_emit.qc; bhop_canals continuation): conservative smoke-volume PVS probes and exact-view
+# order caches skip invisible/repeated work without changing Source's grid, jitter, alpha, motion or lighting.
+# vbsp_smokevol_pvs/cache 0 restore the uncached/all-volumes comparison path. Client-only; native pin unchanged.
 # P1829: tools/shavit_zones.py makes offline native backups + Shavit Surf review candidates, not live zones.
 # Missing-only output, whole-map reject gates, explicit loss report; no corpus publication or timing equivalence.
+# P1828: player-facing importer labels are CS:S / Counter-Strike: Source; machine keys, actual URLs,
+# map filenames and recording provenance stay unchanged. Local CSQC/menu installed; SSQC/exe/plugin unchanged.
 # P1824 (hl2 mat_vmt.c mod_vbsp.c vertexlit.glsl; gfx/misspattern): seven original broad 256px relief pairs for
 # existing missing-texture colours. Brush coordinates keep a fixed size in the face plane; models use detail only.
 # hl2_missingpattern 0 before loading a map restores plain colour. Latest-main integration 348d2eb8a preserves

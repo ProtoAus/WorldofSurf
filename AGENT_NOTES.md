@@ -1,5 +1,11 @@
 # AGENT_NOTES.md
 
+## P1830 smoke-volume visibility and exact-view caches (25 Nov 2026)
+
+- Smoke-volume probes cover the generated particle centres plus their full rotating billboard radius, not merely the authored brush. Density-zero volumes create no probes. Reset removes probes and clears sort/filter validity; retained buffers are bounded and reused.
+- `Scene_InPVS(probe, FALSE)` is deliberate: the shared epoch path can hold a negative for 100ms and hide a newly visible volume while moving. Filter keys include the current PVS mask and exact forward; sort keys include exact eye/count. An empty filtered result is valid only until one of those dependencies changes. Rotation, alpha and colour still run at draw time.
+- `smokevol_info full` dumps each particle, volume bounds/membership, complete permutation/distances and filtered order. `python3 -B tools/p1830_smokevol_check.py <log>` checks complete snapshots; `--selftest` proves seven malformed/stale controls refuse. Fingerprints alone are not proof. Disable both `vbsp_smokevol_pvs` and `vbsp_smokevol_cache` for the old-behaviour arm, acknowledging added bookkeeping overhead.
+
 ## P1746/P1747 map upload and replay video: driving them from a test (23 Nov 2026, ftesurf-cb)
 - Console verbs (local console only; MP_ConsoleCommand refuses stuffed text): `ui_mapupload pick|shot|zone <path>`,
   `ui_mapupload send` (signs as the button does: off a lobby friends_sign needs no press), `ui_mapupload status`;

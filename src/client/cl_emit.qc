@@ -2450,6 +2450,7 @@ void() Emit_Precache =
 	}
 };
 
+void() SmokeVol_Info;
 void() Emit_RegisterCvars =
 {
 	registercvar("vbsp_emit",         "1", CVAR_ARCHIVE);
@@ -2481,6 +2482,8 @@ void() Emit_RegisterCvars =
 	// Off by default: a churning approximation of a static haze, on 45 maps.
 	registercvar("vbsp_emit_smoke",   "0", CVAR_ARCHIVE);
 	registercvar("vbsp_smokevol",     "1", CVAR_ARCHIVE);	// P1772: func_smokevolume as Source's grid (0: vbsp_emit_smoke's particles)
+	registercvar("vbsp_smokevol_pvs", "1", 0);	// P1830: conservative linked volume bounds; 0 is the old all-world submission
+	registercvar("vbsp_smokevol_cache", "1", 0);	// P1830: cache only exact-eye/order dependencies, never animation/time
 	// ON by default, unlike its similarly-named neighbour: env_smokestack is
 	// 2443 real jets across 52 maps and is most maps' only torch flame.
 	registercvar("vbsp_emit_stack",   "1", CVAR_ARCHIVE);
@@ -2525,6 +2528,7 @@ void() Emit_RegisterCvars =
 	registercommand("emit_list");
 	registercommand("emit_test");
 	registercommand("emit_mote");
+	registercommand("smokevol_info");
 
 	Emit_Precache();
 };
@@ -5643,6 +5647,11 @@ float(string cmd) Emit_ConsoleCommand =
 		Emit_MoteRow();
 		return TRUE;
 	}
+	if (argv(0) == "smokevol_info")
+	{
+		SmokeVol_Info();
+		return TRUE;
+	}
 	if (argv(0) == "emit_list")
 	{
 		Emit_List();
@@ -5682,11 +5691,28 @@ float  sv_dist2[SV_MAX];
 float  sv_perm[SV_MAX];
 float  sv_permn;
 string sv_mats[SV_MATMAX];
+// P1830: Source-like leaf/PVS ownership for the WHOLE drawn volume, including quad radius.
+float *sv_vol;
+float *sv_vpvs;
+float sv_voln;
+entity *sv_vprobe;
+vector sv_sorteye, sv_orderfwd;
+float  sv_eyehave, sv_orderhave, sv_ordern;
+float  sv_sorts, sv_cachehits, sv_filters, sv_pvsculled;
 
 void() SmokeVol_Reset =
 {
 	sv_n = 0;
 	sv_permn = 0;
+	sv_eyehave = sv_orderhave = sv_ordern = 0;
+	sv_sorts = sv_cachehits = sv_filters = sv_pvsculled = 0;
+	while (sv_voln > 0)
+	{
+		sv_voln = sv_voln - 1;
+		if (sv_vprobe[sv_voln])
+			remove(sv_vprobe[sv_voln]);
+		sv_vprobe[sv_voln] = world;
+	}
 	while (sv_matn > 0)
 	{
 		sv_matn = sv_matn - 1;
@@ -5697,8 +5723,9 @@ void() SmokeVol_Reset =
 float(vector lo, vector hi, float space, float width, float rot, float dens, string c1, string c2, string mat) SmokeVol_Add =
 {
 	local vector sz, k, a, b, p;
-	local float ix, iy, iz, mi, f, vc;
-	local vector lt, cc;
+	local float ix, iy, iz, mi, f, vc, first, extent;
+	local vector lt, cc, bmin, bmax, mid;
+	local entity probe;
 
 	if (space < 8) space = 8;
 	if (width <= 0) width = space * 1.5;
@@ -5723,6 +5750,15 @@ float(vector lo, vector hi, float space, float width, float rot, float dens, str
 	vc = cvar("hl2_lt_vcache");	// each particle's own light, not the cached last sample (as the steam jets)
 	if (vc)
 		cvar_set("hl2_lt_vcache", "0");
+	if (!sv_vol)
+	{
+		sv_vol = memalloc(sizeof(float) * SV_MAX);
+		sv_vpvs = memalloc(sizeof(float) * SV_MAX);
+		sv_vprobe = memalloc(sizeof(entity) * SV_MAX);
+	}
+	first = sv_n;
+	bmin = bmax = '0 0 0';	// first accepted particle replaces these; empty volume creates no probe
+	extent = width * 0.5 * sqrt(2) + 1;	// any billboard rotation, plus float-rounding margin
 	for (ix = 0; ix < k_x; ix = ix + 1)
 	for (iy = 0; iy < k_y; iy = iy + 1)
 	for (iz = 0; iz < k_z; iz = iz + 1)
@@ -5733,6 +5769,17 @@ float(vector lo, vector hi, float space, float width, float rot, float dens, str
 		p = p + [random() - 0.5, random() - 0.5, random() - 0.5] * (space * 0.5);
 		f = random();
 		sv_org[sv_n] = p;
+		sv_vol[sv_n] = sv_voln;
+		if (sv_n == first)
+		{
+			bmin = p - '1 1 1' * extent;
+			bmax = p + '1 1 1' * extent;
+		}
+		else
+		{
+			bmin = [min(bmin_x, p_x - extent), min(bmin_y, p_y - extent), min(bmin_z, p_z - extent)];
+			bmax = [max(bmax_x, p_x + extent), max(bmax_y, p_y + extent), max(bmax_z, p_z + extent)];
+		}
 		// P1803: lit by the world where it hangs (Lex 25 Nov save 38: the unlit colour glowed in a dark corridor where
 		// Momentum's barely shows); outdoors the basin's light keeps save 11's haze
 		lt = getlight(p) * (1 / 255);
@@ -5749,16 +5796,50 @@ float(vector lo, vector hi, float space, float width, float rot, float dens, str
 	}
 	if (vc)
 		cvar_set("hl2_lt_vcache", ftos(vc));
+	if (sv_n > first)
+	{
+		probe = spawn();
+		probe.classname = "smokevol_pvs";
+		mid = (bmin + bmax) * 0.5;
+		setorigin(probe, mid);
+		setsize(probe, bmin - mid, bmax - mid);
+		probe.scene_pvsep = 0;
+		sv_vprobe[sv_voln] = probe;
+		sv_vpvs[sv_voln] = TRUE;
+		sv_voln = sv_voln + 1;
+	}
 	return TRUE;
 };
 
 float(vector eye, vector fwd) SmokeVol_Draw =
 {
-	local float i, j, k, n, d, al, an, c, s, h;
+	local float i, j, k, n, d, al, an, c, s, h, pvs, cache, visible;
 	local vector o, rr, uu, pr, pu;
 
 	if (!sv_n || !cvar("vbsp_smokevol") || !cvar("vbsp_emit"))
 		return 0;
+	pvs = cvar("vbsp_smokevol_pvs");
+	visible = 0;
+	sv_pvsculled = 0;
+	for (i = 0; i < sv_voln; i = i + 1)
+	{
+		n = TRUE;	// shared predicate fails open off Source PVS / under a viz camera
+		if (pvs)
+		if (sv_vprobe[i])
+			n = Scene_InPVS(sv_vprobe[i], FALSE);	// never hold a negative verdict across a newly visible leaf/portal
+		if (n != sv_vpvs[i])
+			sv_orderhave = FALSE;
+		sv_vpvs[i] = n;
+		if (n) visible = visible + 1;
+		else sv_pvsculled = sv_pvsculled + 1;
+	}
+	if (!visible)
+	{
+		sv_ordern = 0;
+		sv_orderhave = FALSE;
+		return 0;
+	}
+	cache = cvar("vbsp_smokevol_cache");
 	makevectors(getproperty(VF_ANGLES));
 	pr = v_right;
 	pu = v_up;
@@ -5769,33 +5850,53 @@ float(vector eye, vector fwd) SmokeVol_Draw =
 		for (i = 0; i < sv_n; i = i + 1)
 			sv_perm[i] = i;
 		sv_permn = sv_n;
+		sv_eyehave = sv_orderhave = FALSE;
 	}
-	for (k = 0; k < sv_n; k = k + 1)
+	if (!cache || !sv_eyehave || eye != sv_sorteye)
 	{
-		i = sv_perm[k];
-		d = vlen(sv_org[i] - eye);
-		j = k;
-		while (j > 0)
+		for (k = 0; k < sv_n; k = k + 1)
 		{
-			if (sv_dist[j-1] >= d)
-				break;
-			sv_perm[j] = sv_perm[j-1];
-			sv_dist[j] = sv_dist[j-1];
-			j = j - 1;
+			i = sv_perm[k];
+			d = vlen(sv_org[i] - eye);
+			j = k;
+			while (j > 0)
+			{
+				if (sv_dist[j-1] >= d)
+					break;
+				sv_perm[j] = sv_perm[j-1];
+				sv_dist[j] = sv_dist[j-1];
+				j = j - 1;
+			}
+			sv_perm[j] = i;
+			sv_dist[j] = d;
 		}
-		sv_perm[j] = i;
-		sv_dist[j] = d;
+		sv_sorteye = eye;
+		sv_eyehave = TRUE;
+		sv_orderhave = FALSE;
+		sv_sorts = sv_sorts + 1;
 	}
-	n = 0;
-	for (k = 0; k < sv_n; k = k + 1)
+	else
+		sv_cachehits = sv_cachehits + 1;
+	if (!cache || !sv_orderhave || fwd != sv_orderfwd)
 	{
-		i = sv_perm[k];
-		if ((sv_org[i] - eye) * fwd < -sv_half[i])
-			continue;	// wholly behind the eye
-		sv_ord[n] = i;
-		sv_dist2[n] = sv_dist[k];
-		n = n + 1;
+		n = 0;
+		for (k = 0; k < sv_n; k = k + 1)
+		{
+			i = sv_perm[k];
+			if (!sv_vpvs[sv_vol[i]])
+				continue;
+			if ((sv_org[i] - eye) * fwd < -sv_half[i])
+				continue;	// wholly behind the eye
+			sv_ord[n] = i;
+			sv_dist2[n] = sv_dist[k];
+			n = n + 1;
+		}
+		sv_ordern = n;
+		sv_orderfwd = fwd;
+		sv_orderhave = TRUE;
+		sv_filters = sv_filters + 1;
 	}
+	n = sv_ordern;
 	for (j = 0; j < n; j = j + 1)
 	{
 		i = sv_ord[j];
@@ -5812,4 +5913,57 @@ float(vector eye, vector fwd) SmokeVol_Draw =
 		Sprite_Quad(o - rr + uu, o + rr + uu, o + rr - uu, o - rr - uu, sv_mats[sv_mat[i]], 0, sv_col[i], al);
 	}
 	return n;
+};
+
+void() SmokeVol_Info =
+{
+	local float k, order, dist, visible, bad, radius;
+	local vector lo, hi;
+	local entity p;
+	order = dist = visible = bad = 0;
+	for (k = 0; k < sv_n; k = k + 1)
+	{
+		p = sv_vprobe[sv_vol[k]];
+		if (!p)
+		{
+			bad = bad + 1;
+			continue;
+		}
+		radius = sv_half[k] * sqrt(2);
+		lo = sv_org[k] - '1 1 1' * radius;
+		hi = sv_org[k] + '1 1 1' * radius;
+		if (lo_x < p.absmin_x || lo_y < p.absmin_y || lo_z < p.absmin_z ||
+		    hi_x > p.absmax_x || hi_y > p.absmax_y || hi_z > p.absmax_z)
+			bad = bad + 1;
+	}
+	for (k = 0; k < sv_permn; k = k + 1)
+	{
+		order = order + (sv_perm[k] + 1) * (k + 1);
+		dist = dist + sv_dist[k] * ((k + 1) / 1000);
+	}
+	for (k = 0; k < sv_ordern; k = k + 1)
+		visible = visible + (sv_ord[k] + 1) * (k + 1);
+	print(sprintf("smokevol: particles %g volumes %g culled %g candidates %g pvs %g cache %g\n",
+		sv_n, sv_voln, sv_pvsculled, sv_ordern, cvar("vbsp_smokevol_pvs"), cvar("vbsp_smokevol_cache")));
+	print(sprintf("smokevol work: sorts %g hits %g filters %g order %.9g distances %.9g visibleorder %.9g\n",
+		sv_sorts, sv_cachehits, sv_filters, order, dist, visible));
+	print(sprintf("smokevol bounds: %g particle boxes outside their linked volume (of %g particles)\n", bad, sv_n));
+	// Full tables are command-only: exact local validation, never per-frame printing or map assets in source.
+	if (argv(1) == "full")	// argv beyond the tokenized command returns the empty string
+	{
+		print(sprintf("SMOKE_KEYS %.9g %.9g %.9g %.9g %.9g %.9g\n",
+			sv_sorteye_x, sv_sorteye_y, sv_sorteye_z, sv_orderfwd_x, sv_orderfwd_y, sv_orderfwd_z));
+		for (k = 0; k < sv_voln; k = k + 1)
+			print(sprintf("SMOKE_VOLUME %g %g\n", k, sv_vpvs[k]));
+		for (k = 0; k < sv_n; k = k + 1)
+		{
+			lo = sv_org[k];
+			print(sprintf("SMOKE_PART %g %.9g %.9g %.9g %.9g %g %.9g\n",
+				k, lo_x, lo_y, lo_z, sv_half[k], sv_vol[k], sv_alpha[k]));
+		}
+		for (k = 0; k < sv_permn; k = k + 1)
+			print(sprintf("SMOKE_PERM %g %g %.9g\n", k, sv_perm[k], sv_dist[k]));
+		for (k = 0; k < sv_ordern; k = k + 1)
+			print(sprintf("SMOKE_ORDER %g %g %.9g\n", k, sv_ord[k], sv_dist2[k]));
+	}
 };
