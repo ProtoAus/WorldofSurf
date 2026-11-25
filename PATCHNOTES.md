@@ -21,6 +21,9 @@
 
 ## next
 
+### P1843 Correct prop shading
+- Fixed featureless white patches on some map props while keeping their textures, sunlight, reflections and shadows.
+
 ### P1838 Faster lobby map changes
 - Large map libraries use a larger filename index, reducing filesystem work during map changes without changing collision or movement.
 - Empty ordinary lobbies announce readiness faster. Routine cleanup waits until the map is ready and pauses while a client is joining or playing.
