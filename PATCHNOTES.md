@@ -21,6 +21,9 @@
 
 ## next
 
+### P1822 !s ends a segmented run
+- Typing !s with the stage you are on during a segmented run (one you loaded a save into) now ends that run and starts a fresh attempt at the stage, instead of restarting the stage on the old run's clock. Clean runs still restart the stage as before.
+
 ### P1813 No sunlight leaking at wall edges
 - On Strata maps such as bhop_canals, thin strips of sunlight no longer leak along the foot of walls and the edges of beams in shaded areas (under the overpass, inside the barn).
 

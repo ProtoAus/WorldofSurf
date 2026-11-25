@@ -14369,8 +14369,15 @@ float(entity e, string word, float n) SV_TimerChatLeg =
 
 	e.run_t_wantstage1 = FALSE;
 	if (word == "!s")
-	if (n <= 1)
-		e.run_t_wantstage1 = TRUE;
+	{
+		if (n <= 1)
+			e.run_t_wantstage1 = TRUE;
+		// P1822 (Lex): `!s N` on the stage a segmented run is on ends it -- a fresh stage-N attempt arms on
+		// arrival -- where a clean run still restarts the stage on its clock (SV_TimerRestartSeg).
+		if (FS_RunClass(e.run_t_flags) == RC_SEGMENT)
+		if (SV_TimerWouldRestartSeg(e, SV_ZoneRequestZone(e, word, n)))
+			SV_TimerVoid(e, "!s ends a segmented run");
+	}
 	return e.run_t_wantstage1;
 };
 
