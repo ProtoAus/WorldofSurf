@@ -1,6 +1,12 @@
 # lextest.md — things waiting on a human
 
-## P1828 Counter-Strike: Source labels (pending human check)
+## P1829 Shavit zone review exporter (offline only)
+- `python3 tools/shavit_zones.py --source <published-native-zones> --existing <surf-zones/z> --output <fresh-review-directory>` keeps native inputs unchanged and skips existing map names. See tools/shavit_zones.md.
+- Local conservative pass: 1,140 selected files, excluding personal editor drafts; 414 review candidates (114 surf / 300 bhop), 63 upstream names left alone, 663 whole-map refusals. These are local stored inputs, not proof of complete/current Source coverage.
+- All candidates need actual CS:S map-build, hull/touch timing, stage/bonus restart and omitted-settings checks. No public corpus upload or new download endpoint; source rights and required credits still need approval before redistribution.
+
+## P1828 Counter-Strike: Source labels (pending full human check)
+Parent smoke: compiled final CSQC with zero warnings and confirmed `CS:S tier 3` in the HUD screenshot on surf_bikini_bottom; local CSQC/menu installed. Remaining checks below are not certified by that one screenshot.
 1. Check F2 Maps/boards and an in-game TAB board, profile, groups, map tiers and zone settings: the imported game
    is labelled CS:S / Counter-Strike: Source, with no clipping at your usual resolution.
 2. Fetch an imported board and open a CS:S replay or guide-run picker: prompts use CS:S and retain the build-unknown

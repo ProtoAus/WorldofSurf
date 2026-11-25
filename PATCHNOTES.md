@@ -21,6 +21,10 @@
 
 ## next
 
+### P1829 Shavit zone review copies
+- Added an offline exporter that keeps the original native zone files and produces missing-map Shavit Surf JSON review candidates, with per-map warnings and no changes to existing upstream files.
+- Unsupported shapes and routes are refused rather than silently changed. CS:S timing/restart checks and source-data permissions are required before publishing the results; this is not a ready-to-install bulk zone update.
+
 ### P1828 Counter-Strike: Source labels
 - Imported boards, profiles, map tiers, replay messages and guide-run prompts now call the game CS:S or Counter-Strike: Source. Map filenames and source attribution are unchanged.
 
