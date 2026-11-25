@@ -304,5 +304,9 @@ off, slots refilled from lobby replays). `--full` finds upload rows of courses t
 
 tasupd half: the Steam sign-in lasts 30 days, renewed by a page read a day after the cookie was made, and at most 90
 days from the Steam sign-in; Sign out ends the account's session in every browser (meta `session <steamid>` = a
-generation the cookie carries). Cookies made before this release are refused: everyone signs in once more. Needs Lex's
-root upgrade (`--upgrade-from a0cf69682ea08fd2b9bdab3adc4f8468f8e734fb`).
+generation the cookie carries). Cookies made before this release are refused: everyone signs in once more.
+INSTALLED 24 Nov 2026 ~19:00Z (Lex's root run, `--upgrade-from a0cf6968`, source /srv/nvme/ftesurf-ops/tasupd-src-cbefd439,
+installer /root/install_tasupd-cbefd439.py): release /opt/ftesurf-tasupd/cbefd439 (with worldofsurf-47's P1820 site look;
+a0cf6968 kept as unit.prev's; 45aab35b removed). Checked live: X-Tasupd-Source cbefd439, health ok (replays 3), the new
+header and tabs, the Steam redirect, an old-format cookie served signed out (200), a game challenge, the TAS board API;
+unit active with its TASUPD_* env. Next upgrade: --upgrade-from cbefd4396935a3d3b3484b63d7da1db165690c31.
