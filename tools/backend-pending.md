@@ -14,7 +14,7 @@ templates/_admin_brand.html (generation.json ship_added) and surfd/test_admin_ex
 test_verifier_counts.py changed. No schema change. reportd's copy of the three templates goes live without a generation
 (AGENT_NOTES "P1820 site pages and tabs"). The board/watch web files publish ahead with publish_board.py.
 
-## 24 Nov 2026: P1806 tasindex LIVE 18:37:22Z; tasupd cbefd439 (P1806 + 47's P1820 chrome) INSTALLED ~19:00Z by Lex's root upgrade (worldofsurf-8b)
+## 24 Nov 2026: P1806 tasindex LIVE 18:37:22Z; tasupd cbefd439 (P1806 + 47's P1820 chrome) INSTALLED 25 Nov 00:51:44Z by Lex's root upgrade (worldofsurf-8b)
 tasindex (no root, no surfd generation): /srv/nvme/ftesurf-ops/tasindex/d8c4953325c9c4bc844a921eb09eed8c6e39714b/tasindex.py
 (sha256 158af723...), proto user units ftesurf-tasindex.{service,timer} (every 5 min; NOT crontab, so the generation kits'
 crontab hash is unchanged), log /srv/nvme/ftesurf-ops/tasindex/tasindex.log. First pass filed 2 rows: Rounin's
