@@ -44,6 +44,39 @@ that option to imply an exact conversion. Strict rectangle edges must match the
 input's axis-aligned boundaries exactly; even tiny slants need explicit
 approximation. All output still needs in-engine review.
 
+## Explicit geometry proposals (P1831)
+
+Add `--geometry-candidates` instead of `--approximate-bounds` for broader,
+**review-only** output. Neither default strict validation nor the old convex-only
+approximation policy is relaxed. This new mode encloses any finite bounded
+3..64-point ring with positive X/Y ranges, including concave, self-crossing,
+unordered or nearly collinear rings. Signed area and ring validity are not
+certified. Coordinates remain within +/-1,000,000; nonfinite coordinates, invalid
+point counts, zero X/Y ranges, nonpositive heights and collapsed/out-of-range Z
+remain whole-map blockers. A candidate is not evidence that the input is a valid
+polygon or that the enclosing area matches its native interior.
+
+Positive native heights at most 72 are padded to 73 units: normally the bottom is
+kept and the top raised; if that would exceed the coordinate limit, the top is
+kept and the bottom lowered. At pinned target `SetZoneMinsMaxs`
+(`shavit-zones.sp:6724-6740`), each Z side shrinks by 31 units for Source2013 or 36
+otherwise. A 73-unit candidate leaves 11 or 1 units respectively before hull touch
+behavior. This avoids inverted/degenerate extents in those branches, **not** a
+calibration of the native volume. XY box offsets, floating-point precision and
+hull/crouch behavior still need actual target testing.
+
+Each changed region has an exact `transformations` entry: native region path,
+original bottom/height/top, emitted corners and actual `added_z_below` /
+`added_z_above`. The native point list remains in the byte-preserved source copy.
+Per-region warnings call out **MATERIAL TIMING DIFFERENCE** and unvalidated ring
+semantics. `candidate_counts` separates `strict`, `geometry-proposal` and legacy
+`approximate-proposal` maps; these are geometry classifications, not acceptance
+levels. A map with any transformed region is a proposal, even if other regions
+are strict-compatible. Existing status counts retain whole-map skipped/blocked
+results. All route/cap/missing-track guards still apply; no fallback drops a
+bonus, checkpoint or stage merely to emit something. Bounded blocked maps still
+get complete native backups/status, not partial target JSON.
+
 ## Mapping and limits
 
 Target inspected: [`bhopppp/Shavit-Surf-Timer` at `71e4beb`](https://github.com/bhopppp/Shavit-Surf-Timer/tree/71e4beb680407870239c9fd889ac5d29d527536d),
@@ -64,7 +97,8 @@ vanilla Shavit BhopTimer.
   standing, crouched, edge crossings and restarts on the exact CS:S map build.
 - Maximum 128 physical zones; conservative stage/checkpoint index below 64;
   default box heights must exceed 72 to avoid inverted or degenerate bounds after
-  the target's Z shrink in either inspected engine-height branch. Thin zones need manual work.
+  the target's Z shrink in either inspected engine-height branch. Thin zones are
+  refused unless explicit geometry proposals pad them as described above.
 - Mixed stage/checkpoint routes, staged/checkpoint bonuses, malformed/nonfinite
   geometry, unsupported format versions and cap overflow block the whole map.
 
@@ -81,10 +115,21 @@ and reported for review. The exporter does not emit unsupported customspawn,
 area/cluster or BSP-hook forms, install stripper fixes, or resolve BSP entities.
 No Source/Valve code or assets are copied by this tool.
 
-## Test and then distribute, not the reverse
+## Public review downloads versus ranked installation
 
-After reviewing a particular map and its original author/zone-setter permissions,
-validate only that candidate on an isolated CS:S server with the inspected fork:
+The owner authorized redistribution of this task's source zone collection on
+25 Nov 2026. This is not a public-domain dedication or a new data license: retain
+original provenance, attribution and applicable third-party terms. The tool's
+notice remains generic because it cannot establish rights for arbitrary inputs.
+Public archives or a missing-only **draft** contribution may contain explicitly
+unverified review candidates, provided they include native backups, report,
+source index/hashes, original license/status commentary and the prominent timing
+warnings. Do not describe them as timing-equivalent, calibrated, ranked-ready or
+endorsed upstream. The target zone repository's Unlicense does not relicense
+unrelated input data; do not invent an Unlicense/public-domain grant for it.
+
+Before installing a particular candidate into a timer, validate it on an isolated
+CS:S server with the inspected fork:
 
 1. Disable SQL zone selection (`shavit_zones_usesql 0`) and choose local JSON
    (`shavit_zones_json_folder 1`).
@@ -94,9 +139,10 @@ validate only that candidate on an isolated CS:S server with the inspected fork:
    crouching, restart positions/angles, speed limits, trigger filters and map I/O.
    Resolve every warning; do not silently reuse old ranked records with altered
    boundaries. Test bhop physics/styles separately.
-4. Only then host reviewed JSON or prepare an upstream missing-only contribution.
-   The fork also accepts an HTTP URL ending in `z/{map}.json`; this exporter does
-   not deploy a web route or change anybody's server configuration.
+4. Only after those checks promote that map from review-only to validated use.
+   Keep unresolved/unsupported maps in the report rather than silently dropping
+   their routes. The fork also accepts an HTTP URL ending in `z/{map}.json`; this
+   exporter does not deploy a web route or change anybody's server configuration.
 
 The inspected [`wrldspawn/surf-zones` at `5102563`](https://github.com/wrldspawn/surf-zones/tree/51025635e19b833c00bb69c88559cea087434e0d)
 contains 81 surf JSON files and no bhop files. Its Unlicense covers its own
@@ -104,7 +150,7 @@ contribution, not unrelated source zones. Public accessibility and our repositor
 code license do not settle Momentum/community/map-author zone-data permissions.
 Keep source provenance and required credits; do not upload BSPs, Valve content,
 private maps, user editor drafts or account data. No bulk corpus is committed or
-published by this patch.
+published by the converter code itself; packaging/publication is a separate step.
 
 ## Bounded regression tests
 
@@ -115,7 +161,8 @@ python3 -B tools/test_shavit_zones.py --test-root /path/to/new-owned-test-root
 ```
 
 Tests cover candidate numbering, native byte preservation, deterministic output,
-strict/explicit-approximate geometry, target caps, whole-map refusal, malformed
+strict/explicit-approximate/geometry-proposal preservation, concave/crossed rings,
+short-height transformations, target caps, whole-map refusal, malformed
 JSON/numbers, unresolved restart names, missing-only behavior, case collisions,
 source precedence, symlink/overwrite refusal and bounded oversized inputs. They
 are not an in-engine CS:S timing or redistribution-clearance test.

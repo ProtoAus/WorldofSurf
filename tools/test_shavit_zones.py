@@ -166,6 +166,109 @@ class ExportTests(unittest.TestCase):
             with self.subTest(height=h), self.assertRaises(sz.Unsupported):
                 sz.box(r, "height", False)
 
+    def test_geometry_candidates_accept_rings_without_weakening_old_modes(self):
+        rings = (
+            [[0, 0], [128, 0], [64, 64], [128, 128], [0, 128]],  # concave
+            [[0, 0], [128, 128], [0, 128], [128, 0]],  # self-crossing, zero signed area
+            [[0, 0], [64, 64.0000000001], [128, 128]],  # nearly collinear
+        )
+        for points in rings:
+            r = region(points)
+            with self.subTest(points=points):
+                with self.assertRaises(sz.Unsupported):
+                    sz.box(r, "ring", False)
+                # The old approximate mode already accepts the nearly collinear
+                # convex triangle, but still refuses concave/crossed rings.
+                if points != rings[-1]:
+                    with self.assertRaises(sz.Unsupported):
+                        sz.box(r, "ring", True)
+                else:
+                    self.assertTrue(sz.box(r, "ring", True)[2])
+                obj = native(track({"checkpoints": [group(r)]}))
+                before = copy.deepcopy(obj)
+                changes = []
+                zones, warnings = sz.candidates(obj, geometry_candidates=True, transformations=changes)
+                self.assertEqual(zones[0]["point_a"], [0., 0., 0.])
+                self.assertEqual(zones[0]["point_b"], [128., 128., 128.])
+                self.assertEqual(changes[0]["added_z_above"], 0)
+                self.assertTrue(any("MATERIAL TIMING DIFFERENCE" in w for w in warnings))
+                self.assertEqual(obj, before)
+        # Strict-compatible candidates remain byte-for-byte identical zone arrays.
+        self.assertEqual(sz.candidates(native()), sz.candidates(native(), geometry_candidates=True))
+
+    def test_geometry_candidates_pad_short_heights_and_report_exact_bounds(self):
+        for bottom, height in ((0, 0.00001), (-999999, 1), (999990, 1), (0, 62), (0, 72)):
+            r = region(); r.update(bottom=bottom, height=height)
+            obj = native(track({"checkpoints": [group(r)]}))
+            with self.subTest(bottom=bottom, height=height):
+                for approximate in (False, True):
+                    with self.assertRaises(sz.Unsupported):
+                        sz.candidates(obj, approximate=approximate)
+                changes = []
+                zones, warnings = sz.candidates(obj, geometry_candidates=True, transformations=changes)
+                a, b = zones[0]["point_a"], zones[0]["point_b"]
+                self.assertEqual(b[2]-a[2], 73)
+                self.assertGreaterEqual(bottom, a[2])
+                self.assertLessEqual(bottom+height, b[2])
+                self.assertLessEqual(b[2], 1_000_000)
+                self.assertEqual(changes[0]["added_z_below"], bottom-a[2])
+                self.assertEqual(changes[0]["added_z_above"], b[2]-(bottom+height))
+                for shrink in (31, 36):
+                    self.assertGreater((b[2]-shrink)-(a[2]+shrink), 0)
+                self.assertTrue(any("not calibrated" in w and "native_height" in w for w in warnings))
+
+    def test_geometry_candidates_still_block_malformed_and_zero_ranges(self):
+        bad = []
+        for height in (0, -1, float("inf"), float("nan")):
+            r = region(); r["height"] = height; bad.append(r)
+        bad.extend([region([[0, 0], [0, 10], [0, 20]]),
+                    region([[0, 0], [10, 0], [20, 0]]),
+                    region([[0, 0], [10, 1]]),
+                    region([[0, 0]]*65), region([[0, 0], [10, 1], [True, 2]])])
+        r = region(); r.update(bottom=1_000_000, height=1); bad.append(r)
+        for r in bad:
+            with self.subTest(region=r), self.assertRaises(sz.Unsupported):
+                sz.candidates(native(track({"checkpoints": [group(r)]})), geometry_candidates=True)
+
+    def test_geometry_candidates_no_route_or_cap_fallback(self):
+        cases = [native(track({"checkpoints": [group(), group()]}, {"checkpoints": [group()]})),
+                 native(bonuses=[track({"checkpoints": [group()]}, {"checkpoints": [group()]})]),
+                 native(bonuses=[track({"checkpoints": [group(), group()]})]),
+                 native(track({"checkpoints": [group(*[region() for _ in range(128)])]})),
+                 native(track({"checkpoints": [group() for _ in range(65)]})),
+                 native(track(*[{"checkpoints": [group()]} for _ in range(64)]))]
+        unknown = native(); unknown["tracks"]["other"] = track(); cases.append(unknown)
+        missing = native(); del missing["tracks"]["main"]; cases.append(missing)
+        missing = native(); del missing["tracks"]["main"]["zones"]["end"]; cases.append(missing)
+        for i, obj in enumerate(cases):
+            source = self.source(obj, name=f"surf_bad_{i}")
+        report = sz.export([source], self.root/"out", geometry_candidates=True)
+        self.assertEqual(report["counts"]["blocked-no-partial-map"], len(cases))
+        self.assertEqual(list((self.root/"out/z").iterdir()), [])
+        for row in report["maps"]:
+            self.assertEqual((self.root/"out/native"/row["source_filename"]).read_bytes(),
+                             (source/row["source_filename"]).read_bytes())
+
+    def test_geometry_export_counts_preserves_existing_and_backups(self):
+        r = region([[0, 0], [128, 128], [0, 128], [128, 0]])
+        r["height"] = 1
+        source = self.source(native(track({"checkpoints": [group(r)]})), name="surf_ring")
+        self.source(name="surf_strict")
+        self.source(name="surf_existing")
+        existing = self.root/"existing"; existing.mkdir()
+        upstream = existing/"surf_existing.json"; upstream.write_bytes(b"keep")
+        report = sz.export([source], self.root/"out", existing=existing, geometry_candidates=True)
+        self.assertEqual(report["candidate_counts"], {"strict": 1, "geometry-proposal": 1, "approximate-proposal": 0})
+        self.assertEqual(upstream.read_bytes(), b"keep")
+        self.assertFalse((self.root/"out/z/surf_existing.json").exists())
+        for row in report["maps"]:
+            self.assertEqual((self.root/"out/native"/row["source_filename"]).read_bytes(),
+                             (source/row["source_filename"]).read_bytes())
+        ring = next(row for row in report["maps"] if row["map"] == "surf_ring")
+        self.assertEqual(ring["source_index"], 0)
+        self.assertEqual(len(ring["transformations"]), 1)
+        self.assertEqual(ring["transformations"][0]["added_z_above"], 72)
+
     def test_json_duplicate_and_nonfinite_rejected(self):
         for raw in (b'{"formatVersion":1,"formatVersion":1}', b'{"x":NaN}', b'{"x":Infinity}', b'{"x":1e9999}', b'\xff', b'{' ):
             with self.subTest(raw=raw), self.assertRaises(sz.Unsupported):

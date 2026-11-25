@@ -25,6 +25,9 @@ z/ contains Shavit Surf JSON candidates, native/ contains byte-identical source
 copies up to 2 MiB each (oversized inputs are reported, not copied). report.json
 lists skipped existing maps, unsupported shapes/routes,
 source hashes, approximations and omitted semantics. No upstream files changed.
+Geometry proposals can MATERIALLY CHANGE timing: concave/non-simple rings become
+enclosing AABBs and short heights are padded to 73. See exact transformations in
+report.json. These changes are proposals, not calibration or ranked replacements.
 
 A box's numeric corners are NOT a proof of equal touch timing: the target uses
 Source trigger/player hulls while native zones use point/polygon tests. Calibrate
@@ -63,7 +66,7 @@ def vector(value, size, where):
     return [number(v, where) for v in value]
 
 
-def box(region, where, approximate):
+def box(region, where, approximate, *, geometry_candidates=False):
     if not isinstance(region, dict):
         raise Unsupported(f"{where}: expected a region object")
     raw = region.get("points")
@@ -72,13 +75,33 @@ def box(region, where, approximate):
     points = [vector(p, 2, where) for p in raw]
     bottom = number(region.get("bottom"), where)
     height = number(region.get("height"), where)
-    if height <= 72:
+    if geometry_candidates and height <= 0:
+        raise Unsupported(f"{where}: height must be positive")
+    if not geometry_candidates and height <= 72:
         raise Unsupported(f"{where}: height must exceed 72 (target trigger Z shrink needs review)")
     top = bottom + height
     if not math.isfinite(top) or abs(top) > 1_000_000:
         raise Unsupported(f"{where}: invalid top coordinate")
     x0, x1 = min(p[0] for p in points), max(p[0] for p in points)
     y0, y1 = min(p[1] for p in points), max(p[1] for p in points)
+    if geometry_candidates:
+        if x1 <= x0 or y1 <= y0 or top <= bottom:
+            raise Unsupported(f"{where}: zero coordinate range")
+        # Classify XY using the unchanged strict validator, independently of Z.
+        try:
+            box(dict(region, bottom=0, height=128), where, False)
+            expanded = False
+        except Unsupported:
+            expanded = True
+        if height <= 72:
+            # SetZoneMinsMaxs at TARGET_REF shrinks Z by 31 or 36 per side.
+            # 73 leaves positive extents in both branches; not calibration.
+            if bottom + 73 <= 1_000_000:
+                top = bottom + 73
+            else:
+                bottom = top - 73
+            expanded = True
+        return [x0, y0, bottom], [x1, y1, top], expanded
     signed_area = sum(a[0]*b[1] - b[0]*a[1] for a, b in zip(points, points[1:]+points[:1])) / 2
     area = abs(signed_area)
     outer = (x1-x0)*(y1-y0)
@@ -104,7 +127,7 @@ def box(region, where, approximate):
     return [x0, y0, bottom], [x1, y1, top], not rectangular
 
 
-def candidates(obj, *, approximate=False):
+def candidates(obj, *, approximate=False, geometry_candidates=False, transformations=None):
     """Return (JSON zone array, warnings). No output is timing-certified."""
     if not isinstance(obj, dict) or type(obj.get("formatVersion")) is not int or obj["formatVersion"] != 1:
         raise Unsupported("expected native formatVersion 1")
@@ -127,13 +150,27 @@ def candidates(obj, *, approximate=False):
             warnings.append(f"{where}: group fields not carried: {', '.join(sorted(extra_group_keys))}")
         for ri, region in enumerate(group["regions"]):
             path = f"{where}.regions[{ri}]"
-            a, b, expanded = box(region, path, approximate)
+            a, b, expanded = box(region, path, approximate, geometry_candidates=geometry_candidates)
             zone = {"id": len(result)+1, "type": kind, "track": track,
                     "point_a": a, "point_b": b}
             if ordinal is not None:
                 zone["data"] = ordinal
             if expanded:
-                warnings.append(f"{path}: APPROXIMATION — polygon replaced by enclosing AABB; touch timing changes")
+                if geometry_candidates:
+                    original_bottom = float(region["bottom"])
+                    original_top = original_bottom + float(region["height"])
+                    change = dict(region=path, native_bottom=original_bottom,
+                                  native_height=float(region["height"]), native_top=original_top,
+                                  point_a=a, point_b=b,
+                                  added_z_below=original_bottom-a[2], added_z_above=b[2]-original_top,
+                                  xy_policy="enclosing AABB; ring convexity/order/area not required")
+                    if transformations is not None:
+                        transformations.append(change)
+                    warnings.append(f"{path}: GEOMETRY PROPOSAL — MATERIAL TIMING DIFFERENCE; "
+                                    "ring may be concave/non-simple/nearly collinear; not calibrated; "
+                                    + json.dumps(change, sort_keys=True, allow_nan=False))
+                else:
+                    warnings.append(f"{path}: APPROXIMATION — polygon replaced by enclosing AABB; touch timing changes")
             if "teleDestPos" in region:
                 dest = vector(region["teleDestPos"], 3, path+".teleDestPos")
                 if kind == "stage" and any(dest):
@@ -240,7 +277,7 @@ def inventory(directories):
     return chosen, shadowed
 
 
-def export(directories, output, *, existing=None, approximate=False):
+def export(directories, output, *, existing=None, approximate=False, geometry_candidates=False):
     chosen, shadowed = inventory(directories)
     if not chosen:
         raise ValueError("no surf_/bhop_ native JSON files found; nothing exported")
@@ -256,7 +293,8 @@ def export(directories, output, *, existing=None, approximate=False):
     report = {"target": TARGET_REF, "status": "review-candidates-not-timing-certified",
               "redistribution": "source rights and credits require review before upload",
               "input_precedence": "first --source wins; no suffix aliases",
-              "approximate_bounds_enabled": approximate, "shadowed_inputs": shadowed, "maps": []}
+              "approximate_bounds_enabled": approximate, "geometry_candidates_enabled": geometry_candidates,
+              "shadowed_inputs": shadowed, "maps": []}
     for name, (path, source_index) in sorted(chosen.items()):
         with path.open("rb") as source:
             raw = source.read(MAX_BYTES+1)
@@ -274,16 +312,24 @@ def export(directories, output, *, existing=None, approximate=False):
             row["status"] = "existing-upstream-untouched"
         else:
             try:
-                zones, warnings = candidates(load_native(raw), approximate=approximate)
+                transformations = []
+                zones, warnings = candidates(load_native(raw), approximate=approximate,
+                                             geometry_candidates=geometry_candidates,
+                                             transformations=transformations)
                 encoded = (json.dumps(zones, ensure_ascii=True, indent=2, allow_nan=False)+"\n").encode("utf-8")
                 (output/"z"/(name+".json")).write_bytes(encoded)
-                row.update(status="review-candidate", zones=len(zones), warnings=warnings,
+                profile = "geometry-proposal" if transformations else (
+                    "approximate-proposal" if any("APPROXIMATION" in w for w in warnings) else "strict")
+                row.update(status="review-candidate", geometry_profile=profile,
+                           transformations=transformations, zones=len(zones), warnings=warnings,
                            candidate_sha256=hashlib.sha256(encoded).hexdigest())
             except Unsupported as error:
                 row.update(status="blocked-no-partial-map", reason=str(error))
         report["maps"].append(row)
     report["counts"] = {key: sum(row["status"] == key for row in report["maps"])
                         for key in ("review-candidate", "existing-upstream-untouched", "blocked-no-partial-map")}
+    report["candidate_counts"] = {key: sum(row.get("geometry_profile") == key for row in report["maps"])
+                                  for key in ("strict", "geometry-proposal", "approximate-proposal")}
     (output/"report.json").write_text(json.dumps(report, indent=2, allow_nan=False)+"\n", encoding="utf-8")
     return report
 
@@ -294,11 +340,15 @@ def main(argv=None):
                         help="explicit native directory; repeat in precedence order, highest first")
     parser.add_argument("--existing", type=Path, help="upstream z/ directory; existing case-folded map names are skipped")
     parser.add_argument("--output", type=Path, required=True, help="fresh local review directory")
-    parser.add_argument("--approximate-bounds", action="store_true",
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--geometry-candidates", action="store_true",
+                       help="propose enclosing AABBs for bounded rings and pad short Z; NOT timing calibrated")
+    modes.add_argument("--approximate-bounds", action="store_true",
                         help="explicitly allow polygon enclosing boxes, flagged as timing-changing approximations")
     args = parser.parse_args(argv)
     try:
-        report = export(args.source, args.output, existing=args.existing, approximate=args.approximate_bounds)
+        report = export(args.source, args.output, existing=args.existing, approximate=args.approximate_bounds,
+                        geometry_candidates=args.geometry_candidates)
     except (OSError, ValueError) as error:
         print(f"shavit_zones: {error}", file=sys.stderr)
         return 1

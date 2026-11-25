@@ -1,5 +1,10 @@
 # lextest.md — things waiting on a human
 
+## P1831 Shavit geometry proposals (pending CS:S acceptance)
+- Explicit `--geometry-candidates` outputs enclosing-box/short-height proposals, never live zone installation. Inspect exact per-region transformations and native backups in each review bundle.
+- Pending per-map human checks: actual CS:S map revision, standing/crouched edge crossings, thin-Z entry/exit timing, every stage/checkpoint/bonus and restart, filters/speed settings/map I/O. No timing equivalence or ranked-record compatibility has been verified.
+- Owner authorized source redistribution on 25 Nov 2026; preserve original credits/terms. That permission is not a public-domain dedication. Public downloads/draft contributions must remain visibly review-only until calibrated.
+
 ## P1829 Shavit zone review exporter (offline only)
 - `python3 tools/shavit_zones.py --source <published-native-zones> --existing <surf-zones/z> --output <fresh-review-directory>` keeps native inputs unchanged and skips existing map names. See tools/shavit_zones.md.
 - Local conservative pass: 1,140 selected files, excluding personal editor drafts; 414 review candidates (114 surf / 300 bhop), 63 upstream names left alone, 663 whole-map refusals. These are local stored inputs, not proof of complete/current Source coverage.
