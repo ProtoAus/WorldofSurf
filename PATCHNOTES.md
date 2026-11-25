@@ -19,6 +19,11 @@
   changed for the player; no file names, hashes or anti-cheat details.
 -->
 
+## next
+
+### P1813 No sunlight leaking at wall edges
+- On Strata maps such as bhop_canals, thin strips of sunlight no longer leak along the foot of walls and the edges of beams in shaded areas (under the overpass, inside the barn).
+
 ## 0.1.70 2026-11-24
 
 ### P1812 Solid props are solid (mover 17)

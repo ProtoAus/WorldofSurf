@@ -1,4 +1,6 @@
 # The engine build this QuakeC requires.
+# P1813 (plugin hl2/glsl/vmt lightmapped.glsl transition.glsl, mod_vbsp.c; worldofsurf-67, Lex canals saves 42/43): the
+# Strata live sun held to its baked page beside a cascade shadow (hl2_sungate). Client only. Record: ENGINE_PATCHES P1813.
 # P1812 (engine common/pmove.h pm_source.c com_bih.c pmovetst.c, server/sv_user.c sv_ccmds.c; plugin hl2/mod_vbsp.c
 # mod_hl2.c; worldofsurf-67, Lex canals save 5): MOVER 17 -- solid Source props collide through their .phy pieces as
 # brushes; pins 17 on every map. The lobby engine + plugin (surfd's verifier) swap with 0.1.70. Record: ENGINE_PATCHES P1812.
@@ -862,7 +864,7 @@
 
 repo     https://github.com/ProtoAus/ftequakers
 branch   main
-commit   9fc09ffcb
+commit   a8134f7df
 # ^ The pin is the ENGINE_PATCHES.md work this QuakeC is written against, NOT the
 #   commit a shipped binary was built from -- those drift, deliberately: patches
 #   420-438 are all mod-side, so the engine source moved without any binary
