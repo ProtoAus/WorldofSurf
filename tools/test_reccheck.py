@@ -1023,6 +1023,95 @@ def insert_before(lines, kind, text):
     return lines[:ix] + [text] + lines[ix:]
 
 
+def savejoin_fixture(why="load"):
+    b = build(ver=10, sessions=[(15, 3, why)])
+    at = next(i for i, line in enumerate(b) if line.startswith("pause "))
+    count = sum(line.startswith(("in ", "fzin ")) for line in b[:at])
+    v = ["0"] * 58
+    for j, value in {0: 1, 1: 15, 2: 1, 3: 632, 4: TICK, 5: 4294967295,
+                     16: -16, 17: -16, 18: -24, 19: 16, 20: 16, 21: 32,
+                     36: 1, 40: 0.003, 43: 0.015}.items():
+        v[j] = str(value)
+    b.insert(at, "savejoin %d PMS1 %s" % (count, " ".join(v)))
+    at = next(i for i, line in enumerate(b) if line.startswith("session "))
+    b.insert(at, "retry 16" if why == "retry" else "resume 1 16")
+    return b
+
+
+def case_savejoin():
+    b = savejoin_fixture()
+    f, n = run(b)
+    check(not f and any("native endpoint verification required" in x for x in n),
+          "PMS1 load join shape is accepted with explicit no-proof note")
+    if f: print("        faults=%s" % f)
+    f, n = run(savejoin_fixture("retry"))
+    check(not f, "PMS1 retry join shape is accepted")
+    faults_with(edit(b, "savejoin", 1, 15), "retained input count", "join ordinal binds retained movement inputs")
+    faults_with(edit(b, "savejoin", 2, "PMS2"), "58 numbers", "unknown snapshot capability faults")
+    for col, value in ((3, "nan"), (7, "0"), (11, "2"), (43, "0.02"), (41, "0.5")):
+        faults_with(edit(b, "savejoin", col, value), "savejoin", "malformed snapshot field %d faults" % col)
+    join = next(x for x in b if x.startswith("savejoin "))
+    for before, after in ((" ", ""), ("\t", ""), ("", " "), ("", "\t")):
+        faults_with([before + x + after if x == join else x for x in b],
+                    "canonical decimal", "savejoin physical surrounding whitespace faults %r/%r" % (before, after))
+    faults_with(insert_before(b, "pause", join), "savejoin", "duplicate join faults")
+    faults_with(insert_before(b, "pause", "cp 1 16"), "immediate load/retry pause", "record between join and pause faults")
+    faults_with(drop_kinds(b, ("resume",)), "matching restore", "missing restore faults")
+    faults_with(edit(b, "pause", 4, "drop"), "load/retry pause", "Multi-Session pause cannot claim savejoin")
+    faults_with(drop_kinds(b, ("session",)), "new session", "warm join still requires explicit session")
+    # Preserve initial seed; omit only the restore session's seed.
+    pos = next(i for i, line in enumerate(b) if line.startswith("session "))
+    no_seed = b[:pos + 1] + [x for x in b[pos + 1:] if not x.startswith("seed ")]
+    faults_with(no_seed, "requires immediate seed", "unseeded restored epoch faults")
+    faults_with(b + [join], "savejoin", "join after trailer faults")
+    # Frozen movement rows count too: parser ownership is movement, not pose rows.
+    frozen = list(b)
+    ix = next(i for i, line in enumerate(frozen) if line.startswith("in "))
+    frozen[ix] = frozen[ix].replace("in ", "fzin ", 1)
+    # v10 itself disallows fzin, but the join count must not be reported wrong.
+    f, _ = run(frozen)
+    check(not any("retained input count" in x for x in f), "fzin participates in retained ordinal")
+
+
+def case_savejoin_native_float_domains():
+    b = savejoin_fixture()
+
+    def fields(values):
+        out = b
+        for field, value in values.items():
+            out = edit(out, "savejoin", field + 3, str(value))
+        return out
+
+    # Indices follow PMS_MINS/MAXS and PMS_STATE in sv_pm_snapshot.h.
+    for axis in range(3):
+        faults_with(fields({16 + axis: 16777216, 19 + axis: 16777217}),
+                    "converted hull", "PMS1 hull axis %d cannot collapse after float conversion" % axis)
+        f, n = run(fields({16 + axis: 16777216, 19 + axis: 16777218}))
+        check(not f and any("native endpoint verification required" in x for x in n),
+              "PMS1 representably ordered hull axis %d remains shape-only" % axis)
+        faults_with(fields({16 + axis: -3e38, 19 + axis: 3e38}),
+                    "converted hull", "PMS1 hull axis %d difference must fit native float" % axis)
+    for field in (31, 44, 45):
+        faults_with(fields({field: 2147483647}), "converted integer domain",
+                    "PMS1 field %d cannot round INT_MAX to 2^31" % field)
+        for value in (2147483520, -2147483648):
+            ok_clean(fields({field: value}), "PMS1 field %d representable int32 boundary %d accepted" % (field, value))
+    faults_with(fields({4: 0.015625, 40: 0.0156249999}), "converted carry",
+                "PMS1 carry below decimal tick cannot round up to converted tick")
+    faults_with(fields({4: "1e-50", 40: 0}), "converted carry",
+                "PMS1 positive tick cannot underflow to native zero")
+    ok_clean(fields({4: 0.015625, 40: 0.015624999068677425}),
+             "PMS1 carry one float below tick accepted")
+    ok_clean(fields({4: "1.401298464324817e-45", 40: 0}),
+             "PMS1 smallest positive float tick with zero carry accepted")
+    ok_clean(fields({16: 0, 19: "3.4028234663852886e38"}),
+             "PMS1 maximum representable hull extent accepted")
+    faults_with(fields({19: "3.4028235e38"}), "native float range",
+                "PMS1 decimal above FLT_MAX faults even if conversion rounds down")
+    faults_with(fields({19: "3.5e38"}), "finite decimals",
+                "PMS1 float conversion overflow faults structurally")
+
+
 def case_v10_session():
     f, n = run(build(**V10))
     check(not f and not n, "a v10 run with a drop pause and session 2 passes clean")
@@ -4236,7 +4325,7 @@ def main():
                case_v9_trailer_counts, case_v9_row_must_be_written_already, case_v9_zseed,
                case_v9_seed, case_v9_field_values, case_v8_as_before,
                case_stagepost, case_abandon,
-               case_v10_session, case_v10_horizons_restart, case_v10_flag,
+               case_savejoin, case_savejoin_native_float_domains, case_v10_session, case_v10_horizons_restart, case_v10_flag,
                case_v9_session_is_unknown, case_mc,
                case_spec_clean, case_spec_malformed, case_spec_alternation,
                case_spec_nothing_inside, case_spec_edges_agree,

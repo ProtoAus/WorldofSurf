@@ -1733,6 +1733,7 @@ void(entity e, string name, string cpname, string expected, float first, float l
 			SV_TASPReadFree(); return;
 		}
 		SV_SaveLocRelease(e);
+		if (e.rec_sl_hold) { SV_TASPReadFree(); return; }
 		sprint(e, PRINT_HIGH, "tas project: cold base placement; complete live native state is unavailable, replay may diverge\n");
 	}
 	d = e.origin - tpr_bo; dv = e.velocity - tpr_bv;

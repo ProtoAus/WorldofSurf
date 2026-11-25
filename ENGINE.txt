@@ -1,4 +1,9 @@
 # The engine build this QuakeC requires.
+# P1827: complete native checkpoints and retained-input boundaries let supported segmented recordings
+# verify across save/load, held release and repeated joins. Native snapshot capture/CHECK/APPLY is required;
+# older engines keep legacy gameplay without inventing missing verification evidence. Counter/property
+# provenance and unsupported-format policy stay live. Same-frame release/re-hold retains its immutable
+# payload until admitted input or cancellation. Matched native+QC+selected reader rollout is required.
 # P1837: public web catalogue snapshots refresh off the request path; worker startup primes directory/picture
 # indexes; list rows expand in batches and the viewer loads on demand; zoning uses projected availability.
 # Backend/site-only: no engine/QC/native/schema change. Guarded-generation activation is recorded separately.
@@ -895,7 +900,7 @@
 
 repo     https://github.com/ProtoAus/ftequakers
 branch   main
-commit   cf6a2ffa3
+commit   2f71580ae
 # ^ The pin is the ENGINE_PATCHES.md work this QuakeC is written against, NOT the
 #   commit a shipped binary was built from -- those drift, deliberately: patches
 #   420-438 are all mod-side, so the engine source moved without any binary

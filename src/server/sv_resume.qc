@@ -500,6 +500,7 @@ void(entity e, string why) SV_MsPark =
 	}
 
 	SV_SaveLocRelease(e);
+	if (e.rec_sl_hold) return;
 	SV_WatchRelease(e);                 // Patch 477: or its freeze outlives the session
 	if (e.rec_gh_on)
 		SV_GhostSet(e, FALSE);
@@ -829,7 +830,7 @@ void(entity e) SV_MsAccept =
 	}
 
 	SV_TimerVoid(e, "resuming the paused run");
-	SV_SaveLocRelease(e);
+	SV_SaveLocCancel(e);
 	SV_WatchRelease(e);                 // Patch 477: or its freeze stops the resumed clock
 	if (e.rec_gh_on)
 		SV_GhostSet(e, FALSE);

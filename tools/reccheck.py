@@ -80,7 +80,7 @@ EXP_RE = re.compile(r"^[+-]?\d+(\.\d+)?[eE][+-]?\d+$")
 # columns (record -> token indices, keyword at 0) and still a fault in every
 # other one: integers, and the fixed-point sample/angle columns.  v8 and older
 # keep the blanket rule.
-EXP_OK_V9 = {"angleop": {4, 8}, "in": {3}, "warp": set(range(5, 11)), "ride": {4, 5, 6},
+EXP_OK_V9 = {"savejoin": set(range(3, 61)), "angleop": {4, 8}, "in": {3}, "warp": set(range(5, 11)), "ride": {4, 5, 6},
              "seed": set(range(1, 7)), "portal": set(range(4, 10)),
              "inend": {2}, "pause": {2}, "session": {3},     # Patch 364: <carry>
              "spec": set(range(4, 11)),                      # Patch 382: <carry> <o> <v>
@@ -1373,6 +1373,7 @@ def _check_rec(r, path, verbose=False, *, data=None):
     view_pause_valid = False
     clockends = []          # v11 close declarations; not restore/epoch authority
     has_fzin = False
+    savejoin = None         # (line, required next phase, pause reason); shape, never proof
     thawrows = 0
     trailer_at = None       # (lineno, kind) of the first legacy trailer
     gh_open = None          # line of the `ghost 1` no `ghost 0` has closed yet
@@ -1386,6 +1387,29 @@ def _check_rec(r, path, verbose=False, *, data=None):
             r.note("blank line at %d" % (lineno + 1))
             continue
         tok = s.split()
+        if savejoin is not None:
+            sjline, phase, why = savejoin
+            kind = tok[0]
+            if phase == "pause":
+                if kind != "pause" or len(tok) != 5 or tok[4] not in ("load", "retry"):
+                    r.fault("line %d: savejoin requires immediate load/retry pause" % (lineno + 1))
+                else:
+                    savejoin = (sjline, "restore", tok[4])
+            elif phase == "restore":
+                if kind != ("retry" if why == "retry" else "resume"):
+                    r.fault("line %d: savejoin requires matching restore after pause" % (lineno + 1))
+                else:
+                    savejoin = (sjline, "session", why)
+            elif phase == "session":
+                if kind == "session":
+                    savejoin = (sjline, "seed", why)
+                elif kind in ("in", "fzin", "pause", "savejoin", "resume", "retry", "seed", "inend", "end") or is_sample(kind):
+                    r.fault("line %d: savejoin requires a new session before movement" % (lineno + 1))
+            elif phase == "seed":
+                if kind != "seed":
+                    r.fault("line %d: savejoin session requires immediate seed" % (lineno + 1))
+                else:
+                    savejoin = None
         if first_body is None and not (ver >= 11 and tok[0] == "clockend"):
             first_body = lineno + 1
 
@@ -1940,6 +1964,60 @@ def _check_rec(r, path, verbose=False, *, data=None):
             portals.append((lineno + 1, tok[1:], inrows))
         elif kind == "mc" and ver >= 9:
             mcs.append((lineno + 1, tok[1:], inrows))
+        elif kind == "savejoin":
+            # PMS1 is opaque to QC, but its positional capability has a fixed
+            # width. This reader checks shape/ownership, not native equivalence.
+            try:
+                if ver < 10:
+                    raise ValueError("savejoin requires format 10 or newer")
+                if savejoin is not None or open_pause is not None or trailer_at is not None or spec_open is not None or gh_open is not None:
+                    raise ValueError("savejoin outside an active unpaused prefix")
+                if len(tok) != 61 or not is_int(tok[1]) or tok[2] != "PMS1":
+                    raise ValueError("savejoin takes <retained input count> <PMS1 and 58 numbers>")
+                if int(tok[1]) != inrows or inrows < 1:
+                    raise ValueError("savejoin retained input count does not match prefix")
+                if lines[lineno] != " ".join(tok) or any(not re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", x) for x in tok[3:]):
+                    raise ValueError("savejoin PMS1 requires canonical decimal tokens")
+                vals = tok[3:]
+                if not all(is_float(x) for x in vals):
+                    raise ValueError("savejoin PMS1 values must be finite decimals")
+                v = [float(x) for x in vals]
+                if any(abs(x) > _F32_MAX for x in v):
+                    raise ValueError("savejoin PMS1 value outside native float range")
+                native = [qc_float(x) for x in v]
+                # Native CHECK consumes float hull/state fields, not just their
+                # decimal doubles. Keep this structural; no physics replay.
+                if any(not (native[16+j] < native[19+j]
+                            and 0 < native[19+j] - native[16+j] <= _F32_MAX)
+                       for j in range(3)):
+                    raise ValueError("savejoin PMS1 converted hull is invalid")
+                if not 0 <= native[40] < native[4]:
+                    raise ValueError("savejoin PMS1 converted carry is invalid")
+                if any(not -2147483648 <= native[j] <= 2147483647 for j in (31, 44, 45)):
+                    raise ValueError("savejoin PMS1 converted integer domain is invalid")
+                ints = (0, 1, 2, 3, 5, 6, 7, 8, 9, 30, 31, 33, 35, 38, 39, 41, 44, 45, 46, 50, 57)
+                if any(v[j] != int(v[j]) for j in ints):
+                    raise ValueError("savejoin PMS1 integer field is fractional")
+                if v[0] not in (1, 2) or not 1 <= v[1] <= 65535 or not 1 <= v[2] <= 4294967295 or not 0 <= v[3] <= 2147483647 or not 0 < v[4] <= 1 or not 0 <= v[5] <= 4294967295:
+                    raise ValueError("savejoin PMS1 capability/clock is invalid")
+                if v[8] not in (0, 1) or v[9] not in (0, 1, 2) or any(v[j] not in (0, 1) for j in (38, 39, 46, 57)):
+                    raise ValueError("savejoin PMS1 boolean field is invalid")
+                if v[6] < 0 or int(v[6]) & ~(512 | 2048 | 4096) or v[7] < 0 or int(v[7]) & ~6 or not 0 <= v[30] <= 3 or not 0 <= v[40] < v[4]:
+                    raise ValueError("savejoin PMS1 flags/carry is invalid")
+                if (bool(int(v[6]) & 512) != bool(v[9])
+                        or any(v[16+j] >= v[19+j] for j in range(3))
+                        or not -2147483648 <= v[31] <= 2147483647
+                        or not 0 <= v[33] <= 511 or not 0 <= v[34] <= 60 or not 0 <= v[35] <= 15
+                        or not 0 <= v[41] <= 2147483647
+                        or v[43] < 0  # native rampoff is elapsed seconds, not an integer
+                        or any(not -2147483648 <= v[j] <= 2147483647 for j in (44, 45))
+                        or not 0 <= v[50] <= 1000000 or not 0 <= v[54] <= 2
+                        or abs(v[55]) > 50 or abs(v[56]) > 50 or (v[0] == 1 and v[57])):
+                    raise ValueError("savejoin PMS1 body/state domain is invalid")
+                savejoin = (lineno + 1, "pause", None)
+                r.note("line %d: savejoin PMS1 shape only; native endpoint verification required" % (lineno + 1))
+            except (ValueError, OverflowError) as exc:
+                r.fault("line %d: %s" % (lineno + 1, exc))
         elif kind == "pause" and ver >= 10:
             view_pause_valid = (open_pause is None and view_open is None)
             if view_open is not None:
@@ -2205,6 +2283,9 @@ def _check_rec(r, path, verbose=False, *, data=None):
 
     # Valid raw observations, not the packet ordinals in pm/pe/portal.
     imposition_mts = []
+
+    if savejoin is not None:
+        r.fault("line %d: unmatched savejoin (requires %s)" % (savejoin[0], savejoin[1]))
 
     # ---- the imposed-state records, build 83 -------------------------------
     #

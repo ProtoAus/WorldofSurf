@@ -8,6 +8,13 @@ void(entity e, float b) SV_RewindStateSample =
 	local float i;
 	local int bytes;
 	m = rw_slot[num_for_edict(e)];
+	if (e.rw_snapshots < 1) e.rw_snapshots = buf_create_ex("string", 0);
+	if (e.rw_snapshots > 0)
+	{
+		bufstr_set(e.rw_snapshots, b / RW_STRIDE, "");
+		if (checkbuiltin(pm_snapshot))
+			bufstr_set(e.rw_snapshots, b / RW_STRIDE, pm_snapshot(e, "", 0));
+	}
 	// Patch 735: buffer ownership survives temporary strings and ring wrap.
 	if (e.rw_names < 1)
 		e.rw_names = buf_create_ex("string", 0);
@@ -289,6 +296,9 @@ float(entity e, float id, float seq, float go) SV_RewindWriteState =
 		if (SV_RulesetBroken(e))
 			flags = flags | TF_NORULESET;
 	}
+	if (e.rw_snapshots > 0)
+	if (strlen(bufstr_get(e.rw_snapshots, b / RW_STRIDE)))
+		fputs(f, strcat("pmsnapshot ", bufstr_get(e.rw_snapshots, b / RW_STRIDE), "\n"));
 	fputs(f, sprintf("flags %d\npb %d\ndirty %d\ncheat %d\nhopped %d\nfromsave %d\nhandcarry %d\n",
 	                 flags, m[b+19], m[b+20], m[b+21], m[b+22], m[b+23], m[b+50]));
 	if (run_t_startrest)

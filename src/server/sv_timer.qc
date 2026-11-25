@@ -266,6 +266,8 @@ float(string src, string dst) frename = #0:frename;
 float(string fname) fremove         = #0:fremove;
 // P1061: opaque, bounded, VM/map/connection-bound native movement state.
 float(entity player, float slot, float token, float op) tas_rewind = #0:tas_rewind;
+// P1827: opaque complete movement snapshot: GET 0, CHECK 1, APPLY 2.
+string(entity player, string snapshot, float op) pm_snapshot = #0;
 vector(entity player, float slot, float token, float field) tas_input = #0:tas_input;
 float(entity player, float op, float a, float b, vector moves, vector angles, float buttons) tas_tape = #0:tas_tape;
 // P1443: ticks rows of tas_tape words (7 floats) through the mover from the paused body, nothing
@@ -3906,6 +3908,13 @@ string(float ticks) SV_TimerString = { return Time_TickString(ticks, run_t_tick)
                             a stage-to-stage teleport preserve a run.  A check
                             that flags exact preservation flags every stage
                             transition there is.
+    savejoin <retained-input-count> <PMS1 opaque-native-snapshot>
+                            P1827 additive capability, before a load/retry pause
+                            and matching resume/retry. PMS1 is versioned native
+                            full movement state (58 finite numeric fields), not
+                            QC-decoded authority or a proof grant. A new session
+                            and seed precede the first admitted restored input;
+                            pinned save-key packets are not part of that epoch.
     ride <pk> <mt> <what> <bx by bz>      (v9: <bx by bz> at %.9g)
                             v8, build 85.  THE VELOCITY CARRIER -- basevelocity,
                             which moves the player every command without ever
@@ -4968,11 +4977,13 @@ void(entity e, float session) SV_RetryCharge =
   "pause ticks == session ticks" tests that the clock stood still; while a retry's
   latch is pending (starttick -2) nothing has been counted and the clock IS the carry.
 */
+.float rec_sl_seedwait; // P1827: only an admitted input may open the restored epoch
+void(entity e) SV_SaveLocNativeForget; // immutable loaded/held cache, sv_saveloc.qc
 void(entity e) SV_RecSession =
 {
 	local float was, tk;
 
-	if (!e.rec_rec_sesspend)
+	if (!e.rec_rec_sesspend || e.rec_sl_seedwait)
 		return;
 	if (e.run_movetickrate <= 0)
 		return;
@@ -9015,6 +9026,13 @@ void(entity e, string what, vector bv) SV_RecRide =
 void(entity e, vector bv) SV_RecRideArm =
 {
 	float was;
+
+	// P1827: restore/hold maintenance clears the carrier before the admitted
+	// input opens its native session. PMS1 owns that zero floor; leave this
+	// sentinel owing a retry after the session, never hide nonzero arms or pay.
+	if (e.rec_sl_seedwait)
+	if (bv == '0 0 0')
+		return;
 
 	if (e.rec_rec_bvset && bv == e.rec_rec_bv)
 		return;
@@ -16595,6 +16613,8 @@ void(entity e) SV_TimerInFrame =
 		return;
 	if (!SV_RecLive(e))
 		return;
+	if (e.rec_sl_seedwait && e.rec_sl_hold)
+		return;
 
 	/*
 	  THE SAME GATE THE `instart` KEY TOOK, and it has to be the same or the file
@@ -16621,6 +16641,15 @@ void(entity e) SV_TimerInFrame =
 		return;
 	if (!SV_RecMoveTrace(e))
 		return;
+	// A native save's parked packets are discarded. Seed only this admitted
+	// command, after release reapplied the immutable state and its carry.
+	if (e.rec_sl_seedwait)
+	{
+		SV_SaveLocNativeForget(e);
+		e.rec_sl_loadt = 0; // an admitted move ends the immediate-load hold arm
+		SV_RecSession(e);
+		if (e.rec_rec_sesspend) return;
+	}
 
 	/*
 	  THE THREE BITS THE MOVER READS, from the three fields the engine wrote by

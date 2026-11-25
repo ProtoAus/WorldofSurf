@@ -132,7 +132,7 @@ void(entity e) Tour_Hold =
 		// The tournament hold is the only owner of the movetype while it lasts (P1672 review): a save-lock or replay
 		// pin taken over here would otherwise be released into WALK at GO while its own flag is still set.
 		SV_SpecRelease(e, "tournament");
-		SV_SaveLocRelease(e);
+		SV_SaveLocCancel(e);
 		SV_WatchLetGo(e, "tournament hold");
 		// The hold freezes the body mid-run and Tour_Unhold has no rollback, so a held run
 		// must end here or it could continue after the hold and post to the ordinary board.

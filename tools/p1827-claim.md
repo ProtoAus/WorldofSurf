@@ -1,0 +1,5 @@
+# P1827 — segmented movement replay
+
+IronViper, 25 Nov 2026 UTC. Owner requested full recorder and native verifier support for retained save/load segments. Isolated paired worktrees; no canonical edits during development. Scope: exact saved-row end horizon, explicit restore evidence, strict segment/restore/clock replay. Missing legacy evidence remains unavailable; no ranking, rejection or threshold changes.
+
+Implementation bases: game 5ef48f12, engine 348d2eb8a. Integration starts from published game 869faff5 and engine cf6a2ffa; canonical unrelated work is excluded. Coordinated with SwiftZenith (P1826) and HappyPhoenix (P1824). Implementation and targeted local acceptance are complete in the paired worktrees, including real fine-input save/load, held release, repeated joins, cold and buffered restores, compatibility and refusal controls. Detailed acceptance and implementation evidence are retained privately. This is not deployment, production eligibility or live-board acceptance; legacy saves remain playable without acquiring evidence they never captured.

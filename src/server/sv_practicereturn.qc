@@ -29,7 +29,7 @@ void(entity e, float blocked) SV_TimeScaleReturnCancel =
 	// A pre-fence load already on the wire may park after the client cancelled
 	// its release queue. Refusing return must not strand that authoritative hold.
 	// This releases assistance only; ancestry remains practice.
-	if (e.run_ts_return > 0 && e.rec_sl_hold) SV_SaveLocRelease(e);
+	if (e.run_ts_return > 0 && e.rec_sl_hold) SV_SaveLocCancel(e);
 	e.run_ts_return = e.run_ts_return_frame = e.run_ts_return_until = 0;
 	e.run_ts_return_seed = e.run_ts_return_ready = 0;
 	e.run_ts_return_block = blocked;

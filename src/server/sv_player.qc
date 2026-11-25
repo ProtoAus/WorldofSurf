@@ -151,7 +151,7 @@ void() PutClientInServer =
 	// it lasts.  Everything it gives back is overwritten a few lines down --
 	// what matters is that the LATCH is off, or the pin would re-freeze this
 	// player on the next tick, at the save, having just respawned.
-	SV_SaveLocRelease(self);
+	SV_SaveLocCancel(self);
 	// Patch 477 review round 2: and the replay pin.  Left on, its freeze request
 	// outlived the respawn and stopped the NEXT clean run's clock while the body
 	// ran -- `rec_watch 1`, `kill`, run, `rec_watch 0` ranked the shortened time.
@@ -489,6 +489,7 @@ void() ClientDisconnect =
 	self.run_own = FALSE;
 	SV_WatchRelease(self);              // Patch 477: or its view entity outlives the slot
 	SV_ViewEyeDetach(self);             // round 26: a ghost's too (the release returns without a pin)
+	SV_SaveLocNativeForget(self);
 	self.rec_sl_hold = self.rec_sl_leadeye = self.rec_sl_leaduntil = 0; // revoke before edict reuse
 	if (strlen(self.rec_sl_leadpose)) strunzone(self.rec_sl_leadpose);
 	self.rec_sl_leadpose = "";
@@ -1151,7 +1152,7 @@ void(vector org, float haveang, vector ang) SV_SetPosSelf =
 	local vector was;
 
 	SV_SpecRelease(self, "setpos");     // Patch 382
-	SV_SaveLocRelease(self);
+	SV_SaveLocCancel(self);
 	/*
 	  BUILD 44: A CHEAT, NOT A STITCH, and it is the one call in the class
 	  split that could honestly go the other way.
@@ -1312,7 +1313,7 @@ void(float n) SV_TpPlayer =
 
 	self.run_tp_last = time;
 	SV_SpecRelease(self, "setpos");     // before the void, as SV_ZoneMoveAt's
-	SV_SaveLocRelease(self);
+	SV_SaveLocCancel(self);
 	SV_TimerVoid(self, "teleported");
 	SV_SetPosSelf(dest, TRUE, [t.v_angle_x, t.v_angle_y, 0]);
 	sprint(self, PRINT_HIGH, sprintf("^5teleport:^7 to %s\n", Lobby_ChatName(t)));
@@ -1326,7 +1327,7 @@ void() SV_PlayerRespawn =
 	local float tag, leg, tk, saved, bytes;
 
 	SV_SpecRelease(self, "respawn");
-	SV_SaveLocRelease(self);
+	SV_SaveLocCancel(self);
 	SV_WatchRelease(self);
 	SV_TimerVoid(self, "teleported");
 	tag   = self.rec_rec_tag;
@@ -1469,6 +1470,7 @@ float(entity e, float slot, float token) SV_TASGo =
 	SV_SaveLocGo(e);
 	if (FS_SlopOp(e.rec_sl_slop) != SLOP_LOADED || !e.rec_sl_hold) return FALSE;
 	SV_SaveLocRelease(e);
+	if (e.rec_sl_hold) return FALSE;
 	e.run_tas_paused = TRUE;
 	e.run_tas_pending = 0;
 	e.run_tas_seen = e.run_tas_done;

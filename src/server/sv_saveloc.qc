@@ -169,6 +169,11 @@ float  rec_sl_quiet;
 .float rec_sl_tokt;              // ...the time it was last filled...
 .float rec_sl_toksay;            // ...and the last "slow down"
 .float rec_sl_loadrow;           // Patch 428: with rec_sl_loadt (sv_timer.qc), the load
+.string rec_sl_snapshot;        // immutable owned payload, never GET from a held head
+.float rec_sl_snapshotrow, rec_sl_snapshotseq;
+.float rec_sl_snapshotticks, rec_sl_snapshotelapsed;
+.float rec_sl_exact, rec_sl_exactseq;
+.vector rec_sl_exactorg, rec_sl_exactvel, rec_sl_exactang;
 .float rec_sl_loadseq;           // a hold may follow -- its row and its save
 .float rec_sl_genchk;            // Patch 751: set at ClientConnect; SV_SaveGenCheck compares gen.txt once
 
@@ -605,6 +610,14 @@ void(entity e) SV_SaveLeadEyeDetach;
 // Defined below, next to the hold it undoes; forward-declared because a reset
 // and a respawn both have to be able to let go of one.
 void(entity e) SV_SaveLocRelease;
+void(entity e) SV_SaveLocCancel;
+void(entity e) SV_SaveLocNativeForget =
+{
+	if (strlen(e.rec_sl_snapshot)) strunzone(e.rec_sl_snapshot);
+	e.rec_sl_snapshot = "";
+	e.rec_sl_seedwait = FALSE;
+	e.rec_sl_exact = FALSE;
+};
 
 // Patch 438: the event funnel, forward-declared because sl_replay sits above it.
 void(entity e, float op, float id) SV_SaveLocEvent;
@@ -1266,19 +1279,30 @@ float(entity e, float id, float seq) SV_SaveWriteState =
 {
 	local filestream f;
 	local float i, mark, prefixok;
-	local string p, agwater;
+	local string p, agwater, snapshot;
 
+	snapshot = "";
+	if (checkbuiltin(pm_snapshot))
+	{
+		snapshot = pm_snapshot(e, "", 0);
+		if (strlen(snapshot)) snapshot = strzone(snapshot);
+	}
 	agwater = "";
 	if (FS_MovementProfileGoldSrc(serverkey("*movementprofile")))
 	{
 		agwater = SV_AGWaterSave(e);
-		if (!strlen(agwater)) return FALSE; // no unknown-to-zero saved state, before opening anything
+		if (!strlen(agwater))
+		{
+			if (snapshot) strunzone(snapshot);
+			return FALSE; // no unknown-to-zero saved state
+		}
 	}
 	p = SL_StatePath(id);
 	f = fopen(p, FILE_WRITE);
 	if (f < 0)
 	{
 		sprint(e, PRINT_HIGH, sprintf("^1save: cannot write %s\n", p));
+		if (snapshot) strunzone(snapshot);
 		return FALSE;
 	}
 
@@ -1295,6 +1319,8 @@ float(entity e, float id, float seq) SV_SaveWriteState =
 	rec_snap_spinedir = "";
 	prefixok = rec_prefix_ok;       // SV_RecSaveKeys consumes/resets the global.
 	fputs(f, sprintf("FTESURF-SAVE %d\n", SL_STATE_VERSION));
+	if (strlen(snapshot)) fputs(f, strcat("pmsnapshot ", snapshot, "\n"));
+	if (snapshot) strunzone(snapshot);
 	if (strlen(agwater)) fputs(f, strcat(agwater, "\n"));
 	fputs(f, sprintf("map %s\n", mapname));
 	if (strlen(serverkey("*movementprofile")))
@@ -2032,12 +2058,43 @@ float(float id) SL_StateSnapshot =
 	return rows;
 };
 
-// Commit only prepared, view-valid rows. Callers retain ownership of the buffer.
-float sl_aprwd;                  // P1750 review: the row SV_SaveApplyStateRows last applied was a rewound one
-void(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
+// P1827: read the same immutable rows the transaction will consume. Presence,
+// including an empty/duplicate key, must never downgrade to legacy placement.
+string sl_pmsnapshot;
+float(entity e, float rows) SL_StateSnapshotValid =
 {
-	local string k;
-	local float n, row;
+	local float i, n, seen, snapshotrow, ended;
+	local string line;
+	sl_pmsnapshot = "";
+	seen = 0;
+	snapshotrow = -1;
+	ended = FALSE;
+	for (i = 0; i < buf_getsize(rows); i = i + 1)
+	{
+		line = bufstr_get(rows, i);
+		if (!strcmp(line, "")) { ended = TRUE; continue; }
+		n = tokenize(line);
+		if (strcmp(argv(0), "pmsnapshot")) continue;
+		if (ended) return FALSE;
+		seen = seen + 1;
+		if (seen != 1 || n < 2) return FALSE;
+		if (strncmp(line, "pmsnapshot ", 11)) return FALSE;
+		snapshotrow = i;
+	}
+	if (!seen) return TRUE;
+	if (!checkbuiltin(pm_snapshot)) return FALSE;
+	// Extract only after the scan; later row reads cannot recycle this temporary.
+	sl_pmsnapshot = substring(bufstr_get(rows, snapshotrow), 11, -1);
+	if (strstrofs(sl_pmsnapshot, "\n", 0) >= 0 || strstrofs(sl_pmsnapshot, "\r", 0) >= 0) return FALSE;
+	return !strcmp(pm_snapshot(e, sl_pmsnapshot, 1), "1");
+};
+
+// Commit only prepared rows. Callers retain ownership of the buffer.
+float sl_aprwd;                  // P1750 review: the row SV_SaveApplyStateRows last applied was a rewound one
+float(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
+{
+	local string k, snapshot;
+	local float n, row, rewindok, heldmove;
 	local float viewseconds;
 	local float ticks, elapsed, haveelapsed, mark, samples, padn, cps, serial;
 	local float st, tr, ss, sg, sgs, spl, dlt, flg, pbv, dty, rfrom;
@@ -2064,6 +2121,32 @@ void(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
 	local float plt;                // P1603: `plat`, the run's platform mark; absent = PLAT_VERIFIED
 	local float pdk;                // P1694: `pad`, the run used a controller; absent = 0
 
+	// Validate before splits, holds, body, recorder or timer mutation. Multi-Session
+	// has its own native epoch policy and deliberately retains its old path.
+	snapshot = "";
+	if (retry != 2)
+	{
+		if (!SL_StateSnapshotValid(e, rows)) return FALSE;
+		if (strlen(sl_pmsnapshot)) snapshot = strzone(sl_pmsnapshot);
+		if (strlen(snapshot))
+		{
+			heldmove = e.movetype;
+			// Native APPLY requires WALK; restore NOCLIP before cheat classification.
+			if ((e.rec_sl_hold && heldmove == MOVETYPE_NONE) || heldmove == MOVETYPE_NOCLIP)
+				e.movetype = MOVETYPE_WALK;
+			if (strcmp(pm_snapshot(e, snapshot, 2), "1"))
+			{
+				e.movetype = heldmove;
+				strunzone(snapshot);
+				return FALSE;
+			}
+			e.movetype = heldmove;
+			e.run_forceduck = 0;
+			e.run_forceagwater = 0;
+			SV_ClearCarrier(e);
+			SV_TimerWarped(e);
+		}
+	}
 	sl_voided = FALSE;
 	// Patch 450: cleared on EVERY call and above the fopen, for the same reason
 	// sl_voided is -- a failed read must not leave a stale TRUE that grants an arm.
@@ -2157,6 +2240,7 @@ void(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
 
 		if (!strcmp(k, "agwaterjump") && FS_MovementProfileGoldSrc(serverkey("*movementprofile")))
 		{
+			if (strlen(snapshot)) continue; // native full state already owns this transition
 			e.run_agwateractive = stof(argv(1)); e.run_agwatertime = stof(argv(2));
 			e.run_agwaterpush = [stof(argv(3)), stof(argv(4)), 0];
 			e.run_forceagwater = 1;
@@ -2358,7 +2442,7 @@ void(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
 	  .v_angle whenever fixangle is set (sv_send.c:1535), so writing [0,yaw,0]
 	  would silently drop the pitch.
 	*/
-	if (retry)
+	if (retry && !strlen(snapshot))
 	{
 		setorigin(e, rorg);
 		e.velocity = rvel;
@@ -2380,6 +2464,13 @@ void(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
 		if (trace_startsolid)
 			sprint(e, PRINT_HIGH,
 			       "^3retry: you are inside something -- the map's movers reset\n");
+	}
+
+	if (strlen(snapshot))
+	{
+		e.angles = [rpit, ryaw, 0];
+		e.v_angle = e.angles;
+		e.fixangle = TRUE;
 	}
 
 	e.run_t_state    = st;
@@ -2788,9 +2879,18 @@ void(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
 	if (retry == 2)
 	{
 		SV_NoColRegrant(e, sl_mapsame ? savednocol : "");   // P1204: resume returns here (review 1)
-		return;
+		return TRUE;
 	}
-	if (SV_RecRewind(e, SL_RecPath(id), mark, serial, samples, padn, cps))
+	rewindok = SV_RecRewind(e, SL_RecPath(id), mark, serial, samples, padn, cps);
+	if (rewindok && strlen(snapshot))
+	{
+		// Recount selected the retained ordinal. A nested pause, frozen tail or
+		// empty/unpinned prefix cannot own a full-state join. Use the existing
+		// evidence-unavailable void policy below, never an unrecorded live run.
+		if (e.rec_rec_sesspend || e.rec_rec_in < 1 || e.rec_rec_infz || !e.rec_rec_pinned || e.rec_rec_inmt < 0)
+			rewindok = FALSE;
+	}
+	if (rewindok)
 	{
 		// Patch 426: a kept abandon THIS load held (the Patch 360 discard above)
 		// never ends for the client -- recording resumed in the same frame -- so
@@ -2814,7 +2914,9 @@ void(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
 		  makes the .rec's `t` column continuous by construction.
 		*/
 		// Patch 364: a prefix read off disk opens a new session (v10).
-		if (rec_rewind_cold)
+		if (strlen(snapshot))
+			SV_RecPut(e, sprintf("savejoin %d %s", e.rec_rec_in, snapshot));
+		if (rec_rewind_cold || strlen(snapshot))
 		{
 			SV_RecPause(e, retry ? "retry" : "load", ticks);
 			SV_SaveLoadLatch(e);        // Patch 817
@@ -2908,6 +3010,7 @@ void(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
 				e.run_st_dirty = TRUE;
 			}
 		}
+		if (strlen(snapshot)) e.rec_sl_seedwait = TRUE;
 	}
 	else
 	{
@@ -3084,11 +3187,13 @@ void(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
 	// Only on a build PROVED the same (sl_mapsame): a brush number names another entity on
 	// another build of the map (review 2).
 	SV_NoColRegrant(e, sl_mapsame ? savednocol : "");
+	if (snapshot) strunzone(snapshot);
+	return TRUE;
 };
 
 float(entity e, float id, float retry) SV_SaveApplyState =
 {
-	local float rows;
+	local float rows, ok;
 
 	sl_voided = sl_mapsame = FALSE;
 	rows = SL_StateSnapshot(id);
@@ -3104,10 +3209,16 @@ float(entity e, float id, float retry) SV_SaveApplyState =
 		sprint(e, PRINT_HIGH, "save: movement profile mismatch; source preserved\n");
 		return FALSE;
 	}
+	if (retry != 2)
+	if (!SL_StateSnapshotValid(e, rows))
+	{
+		buf_del(rows);
+		return FALSE;
+	}
 	SV_SaveProfileBind(e);
-	SV_SaveApplyStateRows(e, id, retry, rows);
+	ok = SV_SaveApplyStateRows(e, id, retry, rows);
 	buf_del(rows);
-	return TRUE;
+	return ok;
 };
 
 /*
@@ -3320,7 +3431,7 @@ void() SV_SaveLocReset =
 	while ((p = find(p, classname, "player")))
 	{
 		// Before the list is rebuilt: releasing reads the row it was holding.
-		SV_SaveLocRelease(p);
+		SV_SaveLocCancel(p);
 
 		// And a watch, for the same reason a hold is cleared here: the CSQC VM
 		// that opened it was destroyed by the map change, so nothing is left to
@@ -3401,7 +3512,7 @@ void(entity e) SV_SaveLocSync =
 		p = world;
 		while ((p = find(p, classname, "player")))
 		{
-			SV_SaveLocRelease(p);
+			SV_SaveLocCancel(p);
 			SV_WatchLetGo(p, "the lobby switched during a rewind");
 			p.rw_goid = 0;              // Patch 477: its row is in the other folder
 			if (p.rec_sl_delall)        // Patch 428: its rows are gone with the block
@@ -4028,6 +4139,7 @@ void(entity e, float b) SV_RewindStateSample;
 // before movement preparation (P682); sv_player.qc remains its lifecycle owner.
 .float run_inserver;
 float  *rw_slot[FS_MAXPLAYERS + 1];  // memalloc'd per slot on first use, kept
+.float rw_snapshots;            // P1827: opaque per-row native state, bounded like rw_names
 .float rw_names;                // Patch 735: bounded strings indexed like the numeric ring
 .float rw_n;                    // samples held
 .float rw_head;                 // next write
@@ -4050,6 +4162,8 @@ void(entity e) SV_RewindReset =
 	if (e.rw_names > 0)
 		buf_del(e.rw_names);
 	e.rw_names = 0;
+	if (e.rw_snapshots > 0) buf_del(e.rw_snapshots);
+	e.rw_snapshots = 0;
 	/*
 	  Patch 499: AND THE RESUME ROW'S POINTER, which used to outlive the run
 	  that wrote it.  SV_RewindReset is the documented wipe, and it runs at a
@@ -4072,12 +4186,14 @@ void(entity e) SV_RewindReset =
 void(entity e) SV_RewindResetClock =
 {
 	local float token, base, serial;
-	local string name;
+	local string name, snapshot;
+	snapshot = "";
 	token = base = serial = 0; name = "";
 	if (e.rw_playtoken && e.rw_playserial == e.rec_rec_serial)
 	{
 		token = e.rw_playtoken; base = e.rw_playbase; serial = e.rw_playserial;
 		if (e.rw_names > 0) name = strzone(bufstr_get(e.rw_names, RW_PLAYBASE));
+		if (e.rw_snapshots > 0) snapshot = strzone(bufstr_get(e.rw_snapshots, RW_PLAYBASE));
 	}
 	SV_RewindReset(e);
 	if (token > 0)
@@ -4085,8 +4201,11 @@ void(entity e) SV_RewindResetClock =
 		e.rw_playtoken = token; e.rw_playbase = base; e.rw_playserial = serial;
 		e.rw_names = buf_create_ex("string", 0);
 		if (e.rw_names > 0) bufstr_set(e.rw_names, RW_PLAYBASE, name);
+		e.rw_snapshots = buf_create_ex("string", 0);
+		if (e.rw_snapshots > 0) bufstr_set(e.rw_snapshots, RW_PLAYBASE, snapshot);
 	}
 	if (name) strunzone(name);
+	if (snapshot) strunzone(snapshot);
 };
 
 // Per packet, after the timer.  A new run, or a clock that went back (a load),
@@ -4143,6 +4262,8 @@ void(entity e, float i) SV_RewindSlowCopy =
 		m[j + k] = m[i + k];
 	if (e.rw_names > 0)
 		bufstr_set(e.rw_names, RW_CAP + e.rw_shead, bufstr_get(e.rw_names, i / RW_STRIDE));
+	if (e.rw_snapshots > 0)
+		bufstr_set(e.rw_snapshots, RW_CAP + e.rw_shead, bufstr_get(e.rw_snapshots, i / RW_STRIDE));
 	e.rw_shead = (e.rw_shead + 1) % RW_SLOWCAP;
 	if (e.rw_sn < RW_SLOWCAP)
 		e.rw_sn = e.rw_sn + 1;
@@ -4202,6 +4323,8 @@ void(entity e) SV_RewindSample =
 			m[j+RW_NATIVEBASE] = token; m[j+RW_NATIVEBASE+1] = RW_CAP;
 			if (e.rw_names > 0)
 				bufstr_set(e.rw_names, RW_PLAYBASE, bufstr_get(e.rw_names, i / RW_STRIDE));
+			if (e.rw_snapshots > 0)
+				bufstr_set(e.rw_snapshots, RW_PLAYBASE, bufstr_get(e.rw_snapshots, i / RW_STRIDE));
 			e.rw_playbase = t; e.rw_playtoken = token; e.rw_playserial = e.rec_rec_serial;
 		}
 	}
@@ -4954,6 +5077,8 @@ void(entity e) SV_SaveLocHoldVel =
 		return;
 
 	e.rec_sl_holdvel = rec_sl_vel[e.rec_sl_holdrow];
+	if (e.rec_sl_exact && e.rec_sl_exactseq == rec_sl_seq[e.rec_sl_holdrow])
+		e.rec_sl_holdvel = e.rec_sl_exactvel;
 };
 
 /*
@@ -5002,6 +5127,16 @@ float(entity e) SL_ArmBoxAt =
 
 void(entity e, float r) SV_SaveLocPlace =
 {
+	if (e.rec_sl_exact && e.rec_sl_exactseq == rec_sl_seq[r])
+	{
+		setorigin(e, e.rec_sl_exactorg);
+		e.velocity = e.rec_sl_exactvel;
+		e.angles = e.v_angle = e.rec_sl_exactang;
+		e.fixangle = TRUE;
+		SV_ClearCarrier(e);
+		SV_TimerWarped(e);
+		return;
+	}
 	setorigin(e, SL_BoxFloor(e, rec_sl_org[r]));
 	e.velocity = rec_sl_vel[r];
 	SV_ClearCarrier(e);     // Patch 400: Momentum's load passes a velocity to Teleport
@@ -5036,7 +5171,9 @@ void(entity e, float r) SV_SaveLocPlace =
 
 void(entity e, float n) SV_SaveLocLoad =
 {
-	local float r, id, blk, base, cnt, dem, oldserial, rows;
+	local float r, id, blk, base, cnt, dem, oldserial, rows, native;
+	local string snapshot;
+	snapshot = "";
 
 	oldserial = e.rec_rec_serial;
 	/*
@@ -5110,16 +5247,25 @@ void(entity e, float n) SV_SaveLocLoad =
 		sprint(e, PRINT_HIGH, "^3save: the state file/profile is invalid; source preserved\n");
 		return;
 	}
+	if (!SL_StateSnapshotValid(e, rows))
+	{
+		buf_del(rows);
+		sprint(e, PRINT_HIGH, "^3save: native snapshot unavailable or invalid; source preserved\n");
+		return;
+	}
+	native = strlen(sl_pmsnapshot) > 0;
+	if (native) snapshot = strzone(sl_pmsnapshot);
 	dem = (sl_fticks == SL_DEMOTED);
 
 	SV_SpecRelease(e, "load");          // Patch 382: before the rewind
 	// Release the viewed mode's movetype before placing, without voiding a
 	// recorder this load is about to rewind.
 	SV_WatchRelease(e);
-	SV_SaveLocPlace(e, r);
-	e.rec_sl_loadt   = time;            // Patch 428 r3: the load a hold may follow
-	e.rec_sl_loadrow = r;
-	e.rec_sl_loadseq = rec_sl_seq[r];
+	if (!native)
+	{
+		e.rec_sl_exact = FALSE;
+		SV_SaveLocPlace(e, r);
+	}
 
 	/*
 	  BUILD 39 -- "I DID NOT LAND HERE, I WAS PUT HERE", and this was the one
@@ -5147,7 +5293,7 @@ void(entity e, float n) SV_SaveLocLoad =
 	  the ground flag under a frozen player who is demonstrably standing still.
 	  Loading is the event; re-pinning is not.
 	*/
-	e.flags = e.flags - (e.flags & FL_ONGROUND);
+	if (!native) e.flags = e.flags - (e.flags & FL_ONGROUND);
 
 	/*
 	  The run state, and it is a full restore rather than a "keep going".
@@ -5158,8 +5304,32 @@ void(entity e, float n) SV_SaveLocLoad =
 	  were standing in does not fire again, and the recorder rewinds to the
 	  movement you had done by then.
 	*/
-	SV_SaveProfileBind(e);
-	SV_SaveApplyStateRows(e, id, FALSE, rows);
+	if (!native) SV_SaveProfileBind(e);
+	if (!SV_SaveApplyStateRows(e, id, FALSE, rows))
+	{
+		buf_del(rows);
+		if (snapshot) strunzone(snapshot);
+		sprint(e, PRINT_HIGH, "^3save: native restore failed; source preserved\n");
+		return;
+	}
+	if (native) SV_SaveProfileBind(e);
+	if (strlen(e.rec_sl_snapshot)) strunzone(e.rec_sl_snapshot);
+	e.rec_sl_snapshot = snapshot; // ownership transfers only after APPLY succeeds
+	if (!native) e.rec_sl_seedwait = FALSE;
+	e.rec_sl_snapshotrow = r;
+	e.rec_sl_snapshotseq = rec_sl_seq[r];
+	e.rec_sl_snapshotticks = SV_TimerTicks(e);
+	e.rec_sl_snapshotelapsed = SV_TimerElapsed(e);
+	// APPLY already restored the exact pose and velocity. A later hold must not
+	// put the rounded light-row/floor/forceduck representation over that body.
+	e.rec_sl_exact = native;
+	e.rec_sl_exactseq = rec_sl_seq[r];
+	e.rec_sl_exactorg = e.origin;
+	e.rec_sl_exactvel = e.velocity;
+	e.rec_sl_exactang = e.v_angle;
+	e.rec_sl_loadt   = time;            // Patch 428 r3: the load a hold may follow
+	e.rec_sl_loadrow = r;
+	e.rec_sl_loadseq = rec_sl_seq[r];
 	buf_del(rows);
 
 	/*
@@ -5375,10 +5545,45 @@ void(entity e, float n) SV_SaveLocLoad =
 void(entity e) SV_NoclipWatch;      // P1706: sv_player.qc
 void(entity e) SV_SaveLocRelease =
 {
+	local float move, wasfrozen;
 	SV_SaveLeadEyeDetach(e);
 	if (!e.rec_sl_hold)
 		return;
 
+	if (strlen(e.rec_sl_snapshot))
+	{
+		if (!checkbuiltin(pm_snapshot))
+		{
+			sprint(e, PRINT_HIGH, "^3save: native release unavailable; still held\n");
+			return;
+		}
+		if (e.rec_sl_snapshotrow != e.rec_sl_holdrow || e.rec_sl_snapshotseq != e.rec_sl_exactseq ||
+		    strcmp(pm_snapshot(e, e.rec_sl_snapshot, 1), "1"))
+		{
+			sprint(e, PRINT_HIGH, "^3save: native release incompatible; still held\n");
+			return;
+		}
+		move = e.movetype;
+		e.movetype = MOVETYPE_WALK;
+		if (strcmp(pm_snapshot(e, e.rec_sl_snapshot, 2), "1"))
+		{
+			e.movetype = move;
+			sprint(e, PRINT_HIGH, "^3save: native release failed; still held\n");
+			return;
+		}
+		e.run_forceduck = e.run_forceagwater = 0;
+		SV_ClearCarrier(e);
+		// Monotonic native counters remain live; rebase only the run's clock.
+		SV_TimerResume(e, e.rec_sl_snapshotticks, e.rec_sl_snapshotelapsed);
+		wasfrozen = e.run_t_frzon;
+		e.run_t_frzon = FALSE;
+		e.run_t_frzat = 0;
+		e.run_t_flags = e.run_t_flags - (e.run_t_flags & TF_FROZEN);
+		if (wasfrozen) SV_HeldEvent(e, "thaw");
+		// The same-frame load arm may accept another hold. Keep its immutable
+		// native payload until admitted input or cancellation revokes that arm.
+		// Otherwise a re-hold silently falls back to velocity-only release.
+	}
 	e.rec_sl_hold = FALSE;
 
 	// MOVETYPE_NONE is 0, so a stored 0 means "it was already frozen when the
@@ -5404,6 +5609,10 @@ void(entity e) SV_SaveLocRelease =
 	if (e.rec_sl_holdrow >= 0)
 		if (e.rec_sl_holdrow < SL_Base(SL_Blk(e)) + rec_sl_nb[SL_Blk(e)])
 			e.velocity = rec_sl_vel[e.rec_sl_holdrow];
+	if (e.rec_sl_exact && e.rec_sl_holdrow >= 0)
+	if (e.rec_sl_holdrow < SL_Base(SL_Blk(e)) + rec_sl_nb[SL_Blk(e)])
+	if (e.rec_sl_exactseq == rec_sl_seq[e.rec_sl_holdrow])
+		e.velocity = e.rec_sl_exactvel;
 
 	// The published copy goes with it.  .velocity is the live answer again from
 	// here on, so leaving this set would give the HUD two sources that disagree
@@ -5415,6 +5624,16 @@ void(entity e) SV_SaveLocRelease =
 	// focus, the save being deleted, the list emptying, a map change, respawn,
 	// setpos -- arrives here, which is why the freeze is safe to make sticky.
 	SV_TimerThaw(e);
+};
+
+// Placements/teardown cancel the held source rather than trapping an unrelated
+// transition behind a failed restore. Existing callers retain their void policy.
+void(entity e) SV_SaveLocCancel =
+{
+	if (e.rec_sl_seedwait && SV_RecLive(e))
+		SV_TimerVoid(e, "native save hold cancelled");
+	SV_SaveLocNativeForget(e);
+	SV_SaveLocRelease(e);
 };
 
 /*
@@ -6499,7 +6718,7 @@ void(entity e) SV_SaveLocHoldFrame =
 	    || e.rec_sl_holdrow < SL_Base(SL_Blk(e))
 	    || e.rec_sl_holdrow >= SL_Base(SL_Blk(e)) + rec_sl_nb[SL_Blk(e)])
 	{
-		SV_SaveLocRelease(e);
+		SV_SaveLocCancel(e);
 		return;
 	}
 
@@ -6512,6 +6731,8 @@ void(entity e) SV_SaveLocHoldFrame =
 	*/
 	// Patch 993 review: against the point SV_SaveLocPlace puts it, lifted or not.
 	o = SL_BoxFloor(e, rec_sl_org[e.rec_sl_holdrow]);
+	if (e.rec_sl_exact && e.rec_sl_exactseq == rec_sl_seq[e.rec_sl_holdrow])
+		o = e.rec_sl_exactorg;
 	if (e.origin != o)
 		SV_SaveLocPlace(e, e.rec_sl_holdrow);
 
@@ -6576,7 +6797,7 @@ void(entity e, float n) SV_SaveLocDeleteRow =
 		if (p.rec_sl_hold)
 			if (p.rec_sl_holdrow >= r)
 			if (p.rec_sl_holdrow < base + cnt)  // Patch 428 r1: rows are laid out by slot, so a
-				SV_SaveLocRelease(p);           // bare >= reached every higher slot's hold
+				SV_SaveLocCancel(p);           // bare >= reached every higher slot's hold
 
 	/*
 	  state.txt FIRST.  It is the file the scan keys on, so if the process dies
@@ -7211,6 +7432,7 @@ void(entity e) SV_RetryPoint =
 	*/
 	SV_SpecRelease(e, "retry");         // Patch 382: before the state is written
 	SV_SaveLocRelease(e);
+	if (e.rec_sl_hold) return;
 	// Patch 477 review round 8: and the rewind's pin, its run ended -- written
 	// frozen, the restart thawed it (SV_WatchLetGo).  A replay's is as before.
 	if (e.rw_pin)

@@ -1196,7 +1196,7 @@ void() SV_EntInfo =
   authoring noise and is deliberately levelled (see SV_ZoneDest), but a SAVE's
   pitch is what the player set up with and 0 is a legitimate value of it.
 */
-void(entity e) SV_SaveLocRelease;      // sv_saveloc.qc
+void(entity e) SV_SaveLocCancel;      // sv_saveloc.qc
 float(entity e) SV_MsBusy;              // sv_resume.qc, Patch 478
 
 void(float n, vector at, float atyaw, float atpit, float haveat, float havepit)
@@ -1216,7 +1216,7 @@ void(float n, vector at, float atyaw, float atpit, float haveat, float havepit)
 	  speed: `!m; !s 3` while holding 2 was a clean stage run at any saved speed.
 	  Released first; the move below zeroes the velocity the release hands back.
 	*/
-	SV_SaveLocRelease(self);
+	SV_SaveLocCancel(self);
 
 	/*
 	  NOT CALLED AT ALL when the caller brought its own point.  SV_ZoneDest is a
