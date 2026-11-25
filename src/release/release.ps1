@@ -391,6 +391,8 @@ $ShipGlobs = @(
     @{ Path = 'ftesurf/gfx/loadwire';   Filter = '*.txt' }
     # P1695: R_SetSky's last stand-in sky (tools/wosdaysky.py, CC0); after loadwire for the same reason.
     @{ Path = 'ftesurf/gfx/env';        Filter = 'wos_day*.jpg' }
+    # P1824: the hl2 plugin's missing-texture relief patterns (tools/p1824_misspatterns.py); last, for the same reason.
+    @{ Path = 'ftesurf/gfx/misspattern'; Filter = '*.png' }
 )
 
 # =============================================================================

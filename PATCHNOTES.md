@@ -24,6 +24,10 @@
 ### P1825 Reflections on more Source materials
 - Materials that set their reflection tint in Source's {r g b} form (surf_thesteve's graffiti ramps and walls, about one map in ten) reflect their cubemap again; before, they had no reflection and their bump detail looked flat.
 
+### P1824 Missing textures get a surface
+- Missing Source textures now get broad bricks, concrete, wood, metal, glass, grass, or cracks over their existing fallback colour, making flat ramps and walls easier to read.
+- Brush faces use a fixed world-space pattern size rather than stretched texture coordinates. Set hl2_missingpattern 0 before loading the map to bring back plain colours.
+
 ### P1823 No far-away ramps in the sky
 - Big brush ramps far outside what you can see (surf_thesteve's floating blocks seen through the sky from stage 3) are no longer drawn: an object that large is now checked by the parts of the map it touches, as Source does.
 

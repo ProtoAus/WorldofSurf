@@ -1,4 +1,8 @@
 # The engine build this QuakeC requires.
+# P1824 (hl2 mat_vmt.c mod_vbsp.c vertexlit.glsl; gfx/misspattern): seven original broad 256px relief pairs for
+# existing missing-texture colours. Brush coordinates keep a fixed size in the face plane; models use detail only.
+# hl2_missingpattern 0 before loading a map restores plain colour. Latest-main integration 348d2eb8a preserves
+# P1814/P1825. Linux HL2-only build + source-bound checks + matched on/off smoke; no release or lobby change.
 # P1814 (engine gl_backend.c gl_vidcommon.c shader.h renderer.c; plugin vmt lightmapped/vertexlit; worldofsurf-67, canals save 36):
 # Source glass and translucent props blend as in linear light (r_linearblend). Client only. Record: ENGINE_PATCHES P1814.
 # P1821-P1823, P1825 (engine client/renderer.c cl_ents.c pr_csqc.c r_surf.c render.h, gl/gl_alias.c; plugin hl2/mat_vmt.c;
@@ -872,7 +876,7 @@
 
 repo     https://github.com/ProtoAus/ftequakers
 branch   main
-commit   03f8d5699
+commit   348d2eb8a
 # ^ The pin is the ENGINE_PATCHES.md work this QuakeC is written against, NOT the
 #   commit a shipped binary was built from -- those drift, deliberately: patches
 #   420-438 are all mod-side, so the engine source moved without any binary

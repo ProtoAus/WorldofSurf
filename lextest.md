@@ -1,6 +1,16 @@
 # lextest.md — things waiting on a human
 
-## Lex list 25 Nov (worldofsurf-e0): P1821-P1825 -- on main; dev install + lobbies after the next install/release
+## P1824 missing-texture patterns (HappyPhoenix recovery, 25 Nov)
+1. On surf_bikini_bottom or surf_fuchnut with missing Source images: the old fallback colours carry broad wood,
+   brick, grass, concrete, metal, glass or crack patterns. Surfaces with installed textures should look unchanged.
+2. Surf a sloped brush ramp: the pattern should stay at a consistent size instead of stretching with map texture
+   scale. Check readability at speed; Linux smoke and source-coordinate checks are not a human speed-readability test.
+3. Set `hl2_missingpattern 0`, then reload the map: the plain-colour fallback returns. Set it to 1 and reload to
+   restore the patterns. `hl2_missingpattern_size 256` is the default world-unit tile size (64-1024).
+4. World faces have normal maps when directional lighting is available; models get projected detail only.
+   Missing geometry is still reported and is not repaired by patterned material fallbacks.
+
+## Lex list 25 Nov (worldofsurf-e0): P1821-P1825 -- dev build; lobbies need the next release
 1. surf_thesteve, stage 3's window room (your deleted save 6, 797 -7584 -11694 facing west): no dark blocks hang in the
    sky. Any other map where far ramps showed through the sky: same. Nothing nearby should vanish (r_entpvs_exact 0 to
    compare).
@@ -11,7 +21,7 @@
    the IN THIS SERVER list and the Players view show each player's stage.
 4. Load a save mid-run on stage 3 (a segmented run), type `!s 3`: "run cancelled (!s ends a segmented run)" and a fresh
    stage 3 attempt; on a clean run `!s 3` on stage 3 still restarts the stage on the run's clock.
-5. P1824 (missing-texture patterns): pending -- see its entry when it lands.
+5. P1824 (missing-texture patterns): recovered and integrated; see the entry above.
 
 ## 0.1.70 release -- PUBLISHED 24 Nov 20:53Z UTC; your dev install has it (P1812 mover 17); lobbies: engine + plugin + progs
 1. Save 5: walk at the corrugated metal ramp -- you go up and over it (and land on its slope from a drop) instead of

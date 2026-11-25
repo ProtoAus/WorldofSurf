@@ -311,6 +311,10 @@ __pycache__/
 !/ftesurf/gfx/crosshairs/xhair3.png
 !/ftesurf/gfx/crosshairs/xhair4.png
 !/ftesurf/gfx/crosshairs/xhair5.png
+# P1824: missing-texture relief patterns the hl2 plugin loads (tools/p1824_misspatterns.py, original procedural art).
+!/ftesurf/gfx/misspattern/
+/ftesurf/gfx/misspattern/*
+!/ftesurf/gfx/misspattern/*.png
 # Authored shared SUI chrome; no other UI files are implicitly publishable.
 !/ftesurf/gfx/ui/
 /ftesurf/gfx/ui/*
