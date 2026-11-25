@@ -1,12 +1,25 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
-## P1820 admin half -- READY for the next generation (worldofsurf-47, 25 Nov; Lex's site list)
+## 25 Nov 2026 05:27Z: gen1820 LIVE -- the base for the NEXT generation (worldofsurf-47, Lex "can you push the new update?")
+Primary b80a84f5 (members-v1, 93) = gen1745's files + at REF 281b7417: P1820's admin.py, eight admin templates, five
+web/ files, ADDED templates/_admin_brand.html; mapwatch.py stays at its held live bytes (held_patch empty); fallback
+47436076 = gen1745's 92 exactly; guard 4b6a9fb3 unchanged; native 190160f1 (0.1.70's lobby engine, mover 17). Root
+/srv/nvme/agent-work/gen1820-20261125-47; private kit FTESurf-private/worktrees/gen1820-20261125-47 (OWNER.md, RUNBOOK.md);
+genkit "built" recorded. Root install (Lex) 05:07:55Z (rotation kept p1820 + p1745, removed p1710); kit review: no
+blocking (fixes applied); token review CLEAR (PIN 21dd13da, REF_SHA b426f22d, REV c6a8fdda); swap 05:24:15-05:27:19Z
+(rc 0); POSTFLIGHT PASS, MAPNEW PASS (mapwatch's functional grade waits for the 06:23Z run). The board-follow timer's
+05:25 run published the FALLBACK's web files mid-swap (state.json 47436076, the old board without download buttons) and
+its 05:30:22 run corrected to b80a84f5 (as at gen1702): check state.json after a swap, not during it. Live: /admin/login serves the new page,
+health ok/12, lobbies.json and /api/board 200. Next kit: CURRENT b80a84f5 (members-v1, 93), crontab 9ce3cfe9, native =
+the lobby engine live when it is built (190160f1 today), reader pins still pending, retention keeps gen1745 + gen1820
+(gen1710's root goes by the 14-day rule). main had no surfd change after 281b7417 at the swap.
+
+## P1820 admin half -- LIVE in gen1820 (25 Nov 05:27Z; worldofsurf-47, Lex's site list)
 LIVE 24 Nov UTC (game main cbefd439, engine record 0a01afc05): site 19:08Z (src/release/sitepage.ps1 into releases/0.1.68;
 backups /srv/nvme/ftesurf-site/.sitepage-prev/0.1.68-20261124T190746Z), board 19:09Z (publish_board.py --commit e0905e56,
 cut from gen1745's source_ref c2cbe46f; holds until the next generation, which carries the same web/ bytes from main),
 reportd's reportd_reports.html + _admin_style.html + _admin_brand.html 19:09Z (HUP; backups templates/*.pre1820-20261124T190919Z).
-tasupd: in 8b's single root upgrade at cbefd439 (top entry). Until the generation, /admin pages other than Reports keep
-the old look.
+tasupd: LIVE at cbefd439 (Lex's root upgrade, 25 Nov 00:51Z). The admin half went live with gen1820 (entry above).
 surfd/admin.py (runs list SQL ~10x faster, same rows: 88 state/search/page combos identical to gen1745's on the Pi's
 surfd.db.bak-pre1710, worst 2.55 s -> 0.19 s; key_for 0.55 -> 0.07 s; `reason` + `why` = explain_verdict on each row and
 verdict), templates/_admin_style.html, admin*.html (site look, sitenav admin menu, tooltips), ADDED
