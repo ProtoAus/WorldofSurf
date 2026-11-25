@@ -1,6 +1,29 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
-## 25 Nov 2026 05:27Z: gen1820 LIVE -- the base for the NEXT generation (worldofsurf-47, Lex "can you push the new update?")
+## 25 Nov 2026: generation 1837 LIVE — current base for the next generation (QuickPhoenix; public web performance)
+Primary d1ba8efa (members-v1/93), manifest6211197c, public application REF5cbebf3c: generation 1820 plus ONLY
+surfd.py, web/board.html and web/board.js. Fallback5b9ac3d9 is the exact generation 1820 runtime, CLOSED/qualified;
+old primary b80a84f5 is CLOSED. Native190160f1 and all six readers unchanged; schema26/55 unchanged; no lobby restart,
+new runtime members, database restore, peer reader/native changes or P1838 batch in this generation.
+Private kit FTESurf-private/worktrees/gen1837-20261125-phoenix; remote primary runtime
+/srv/nvme/agent-work/gen1837-20261125-phoenix/backend/primary/runtime. Lex installed the checked three-file Root guard
+package at11:40Z (reload only). Initial waiting scheduler expired before any gate or execute; independently reviewed
+prelaunch-only recovery preserved that failure, corrected the native runtime limit, then used the unchanged launcher:
+12:44 DEFER-BUSY, 12:54 GO, one execute12:54:15, rc0/completedprimary, independent POSTFLIGHT PASS. No transaction replay.
+Genkit built metadata recorded AFTER acceptance. generation.json.current remains the construction predecessor;
+freshly acquire the LIVE primary for any successor—do not literal-advance or reuse this kit's phase refs/clearance.
+Mapwatch and mapnew scheduled functional observations are separately pending their normal ticks, not credited by the
+core postflight or unchanged-module compilation. Owner-stopped KSF remains a comment; existing producer bytes and
+five canonical schedules preserved. Native/reader/backend coordination hold explicitly released after acceptance.
+Board-follow/current now publishes the accepted primary's eight files with matching CSP. zoning.js is live from5cb
+through the tested site-only asset publisher; signed client feed/version bytes remain unchanged (0.1.70 retained).
+Live Chromium browser-cold observations: board list-ready3.48s->0.20s, player directory1.64s->0.38s; zoning~0.2s,
+no demonstrated improvement there. Initial board DOM11301->862. These are individual observations, not p95 or a
+cold-server/recycle claim. Public API cache expiry/background refresh observed without blocking on a fresh build.
+Existing GC remains fail-closed on unreadable root-owned nginx backup directories, untouched; required generation-code
+protection is deployed. See tools/p1837-claim.md for qualification, publication safety and retained failure details.
+
+## Historical: 25 Nov 2026 05:27Z — generation 1820 (superseded by generation 1837; worldofsurf-47, Lex "can you push the new update?")
 Primary b80a84f5 (members-v1, 93) = gen1745's files + at REF 281b7417: P1820's admin.py, eight admin templates, five
 web/ files, ADDED templates/_admin_brand.html; mapwatch.py stays at its held live bytes (held_patch empty); fallback
 47436076 = gen1745's 92 exactly; guard 4b6a9fb3 unchanged; native 190160f1 (0.1.70's lobby engine, mover 17). Root
