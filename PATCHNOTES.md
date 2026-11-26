@@ -21,6 +21,8 @@
 
 ## next
 
+## 0.1.71 2026-11-26
+
 ### P1843 Correct prop shading
 - Fixed featureless white patches on some map props while keeping their textures, sunlight, reflections and shadows.
 
