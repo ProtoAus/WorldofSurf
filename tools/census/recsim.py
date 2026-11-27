@@ -184,6 +184,9 @@ class UnmodelledRec(MalformedRec):
 
 # Capability marker for collectors that must never fall back to unbounded reads.
 BOUNDED_INPUT_VERSION = 1
+# P1859: bumped when the reader may compare a pair an older revision skipped (simcheck re-measures its
+# unmodelled/malformed/no-rows skips).  2 = REC 12/14 move rows (P1671) and stored-twice/yaw (P1689).
+READER_REVISION = 2
 SOURCE_CAPTURE_VERSION = 1
 
 

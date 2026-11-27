@@ -105,6 +105,28 @@ SKIP_CODES = {
 }
 KNOWN_SKIP_CODES = frozenset(SKIP_CODES.values()) | {"peer_unresolved", "unknown"}
 
+# P1859: skips a better reader may not make.  Each row records the recsim READER_REVISION that made it (older rows:
+# 1); a pair whose only rows are such skips from an older revision is unobserved again and re-measured in place.
+# Live 28 Nov: 15,237 of 15,873 rows were unmodelled/malformed skips from a reader that predates REC 12/14 rows.
+REMEASURE_CODES = ("unmodelled", "malformed", "no_rows")
+
+
+def reader_revision(rs):
+    value = getattr(rs, "READER_REVISION", 1)
+    return value if type(value) is int and value >= 1 else 1
+
+
+def _settles(alias, revision):
+    """SQL: the `alias` sims row settles its pair for a reader of `revision` (an int, never caller text)."""
+    if type(revision) is not int or revision <= 1:
+        return ""
+    return (" AND NOT (%s.verdict = 'skip' AND %s.skip_code IN (%s) AND %s.reader < %d)"
+            % (alias, alias, ",".join("'%s'" % c for c in REMEASURE_CODES), alias, revision))
+
+
+def _has_reader_column(conn):
+    return "reader" in {r[1] for r in conn.execute("PRAGMA table_info(sims)")}
+
 SOURCE_SNAPSHOT_MAX = 512
 TF_HELPED = 1048576         # sh_defs.qc; surfd.TF_HELPED is pinned by test_board
 
@@ -469,6 +491,7 @@ CREATE TABLE IF NOT EXISTS sims (
     tick_b     REAL    NOT NULL DEFAULT 0,
     yaw_agree  INTEGER,
     yaw_turning INTEGER,
+    reader     INTEGER NOT NULL DEFAULT 1,
     at         INTEGER NOT NULL,
     UNIQUE (a_id, b_id)
 );
@@ -607,7 +630,8 @@ def ensure_schema(conn):
     conn.executescript(SIMS_SQL + CURSOR_SQL)
     for column, definition in (("skip_code", "TEXT NOT NULL DEFAULT ''"),
                                ("source_capture", "TEXT NOT NULL DEFAULT ''"),
-                               ("yaw_agree", "INTEGER"), ("yaw_turning", "INTEGER")):
+                               ("yaw_agree", "INTEGER"), ("yaw_turning", "INTEGER"),
+                               ("reader", "INTEGER NOT NULL DEFAULT 1")):
         if column not in {r[1] for r in conn.execute("PRAGMA table_info(sims)")}:
             try:
                 conn.execute("ALTER TABLE sims ADD COLUMN %s %s" % (column, definition))
@@ -751,13 +775,14 @@ def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
         return 0, 0, 0
     # Stored pairs must not occupy the bounded candidate window. Historical
     # observations use either orientation, so exclude both before LIMIT.
+    revision = reader_revision(rs) if _has_reader_column(conn) else 1
     after = _cursor(conn, "peer", a_id, read_budget=read_budget)
     peers = _rotated_rows(conn,
         "SELECT p.* FROM replays p WHERE p.map = ? AND p.track = ? AND p.leg = ?"
         " AND p.kind = 'run' AND p.id != ?"
         " AND NOT EXISTS (SELECT 1 FROM sims s"
-        "     WHERE (s.a_id = ? AND s.b_id = p.id)"
-        "        OR (s.a_id = p.id AND s.b_id = ?))",
+        "     WHERE ((s.a_id = ? AND s.b_id = p.id)"
+        "        OR (s.a_id = p.id AND s.b_id = ?))" + _settles("s", revision) + ")",
         (row["map"], row["track"], row["leg"], a_id, a_id, a_id),
         "p.id", after, limit_peers, read_budget)
     if not peers:
@@ -773,8 +798,8 @@ def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
         # Late recheck remains before admission and cursor advancement.
         try:
             have = _read(conn,
-                "SELECT id FROM sims WHERE (a_id = ? AND b_id = ?) OR (a_id = ? AND b_id = ?)",
-                (a_id, pr["id"], pr["id"], a_id), read_budget)
+                "SELECT id FROM sims WHERE ((a_id = ? AND b_id = ?) OR (a_id = ? AND b_id = ?))"
+                + _settles("sims", revision), (a_id, pr["id"], pr["id"], a_id), read_budget)
         except ReadDeadline:
             if budget is not None:
                 budget.time_exhausted = True
@@ -816,16 +841,30 @@ def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
             r[1] for r in conn.execute('PRAGMA table_info(sims)')}
         if store_yaw:
             columns += ", yaw_agree, yaw_turning"
-        sql = "INSERT OR IGNORE INTO sims (%s) VALUES (%s)" % (
-            columns, ",".join("?" for _ in columns.split(",")))
-        # Count only this flush's additions, not overlap or trigger writes.
+        store_reader = not check_yaw_schema or _has_reader_column(conn)
+        if store_reader:
+            columns += ", reader"
+        names = [c.strip() for c in columns.split(",")]
+        sql = "INSERT OR IGNORE INTO sims (%s) VALUES (%s)" % (columns, ",".join("?" for _ in names))
+        # P1859: a stale skip (see REMEASURE_CODES) is replaced in place, keeping its id, never duplicated.
+        update = "UPDATE sims SET %s WHERE id = ?%s" % (
+            ", ".join("%s = ?" % c for c in names), _settles("sims", revision).replace(" AND NOT ", " AND ", 1))
+        # Count only this flush's additions and replacements, not overlap or trigger writes.
         for f in found:
             a, b = f[0][:2]
-            if conn.execute("SELECT 1 FROM sims WHERE (a_id=? AND b_id=?)"
-                            " OR (a_id=? AND b_id=?) LIMIT 1", (a, b, b, a)).fetchone():
+            values = (f[0] if store_yaw else f[0][:-2]) + ((revision,) if store_reader else ())
+            rows = conn.execute("SELECT id FROM sims WHERE ((a_id=? AND b_id=?) OR (a_id=? AND b_id=?))"
+                                + _settles("sims", revision), (a, b, b, a)).fetchall()
+            if rows:
                 continue
-            values = f[0] if store_yaw else f[0][:-2]
-            if conn.execute(sql, values).rowcount == 1:
+            # Same orientation first: rewriting a (b, a) row while an (a, b) row exists would break UNIQUE.
+            stale = conn.execute("SELECT id FROM sims WHERE (a_id=? AND b_id=?) OR (a_id=? AND b_id=?)"
+                                 " ORDER BY (a_id = ? AND b_id = ?) DESC, id LIMIT 1",
+                                 (a, b, b, a, a, b)).fetchone()
+            if stale is not None:
+                if conn.execute(update, values + (stale[0],)).rowcount == 1:
+                    inserted.append(f)
+            elif conn.execute(sql, values).rowcount == 1:
                 inserted.append(f)
         conn.execute("COMMIT")
     except BaseException:
@@ -837,14 +876,17 @@ def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
     return len(inserted), skipped, notable
 
 
-_PENDING_WHERE = (
-    "r.kind = 'run'"
-    " AND EXISTS (SELECT 1 FROM replays p WHERE p.map = r.map"
-    "             AND p.track = r.track AND p.leg = r.leg"
-    "             AND p.kind = 'run' AND p.id != r.id"
-    "             AND NOT EXISTS (SELECT 1 FROM sims s"
-    "                 WHERE (s.a_id = r.id AND s.b_id = p.id)"
-    "                    OR (s.a_id = p.id AND s.b_id = r.id)))")
+def _pending_where(revision=1):
+    return ("r.kind = 'run'"
+            " AND EXISTS (SELECT 1 FROM replays p WHERE p.map = r.map"
+            "             AND p.track = r.track AND p.leg = r.leg"
+            "             AND p.kind = 'run' AND p.id != r.id"
+            "             AND NOT EXISTS (SELECT 1 FROM sims s"
+            "                 WHERE ((s.a_id = r.id AND s.b_id = p.id)"
+            "                    OR (s.a_id = p.id AND s.b_id = r.id))" + _settles("s", revision) + "))")
+
+
+_PENDING_WHERE = _pending_where()     # reader-agnostic diagnostics count only pairs with no row at all
 
 
 def pending_count(conn, limit=1000000, read_budget=None):
@@ -882,7 +924,7 @@ def _pending_sources(conn, limit, read_budget):
     return recovered, inflight
 
 
-def _owned_sources(conn, limit, read_budget, budget):
+def _owned_sources(conn, limit, read_budget, budget, revision=1):
     """Select only the next needed source, around one fixed rotation anchor.
 
     Eligibility is current at each read, not a snapshot of the initial window.
@@ -902,7 +944,7 @@ def _owned_sources(conn, limit, read_budget, budget):
             inflight = value
         else:
             after = value
-    sql = "SELECT r.* FROM replays r WHERE " + _PENDING_WHERE
+    sql = "SELECT r.* FROM replays r WHERE " + _pending_where(revision)
     args = ()
     selected = 0
     if inflight is not None:
@@ -1161,7 +1203,8 @@ def _similarity_step(conn, surfd, limit=50, now=None, tools_dir=None,
         ensure_schema(conn)
         if budget.available():
             retired = _retire_peer_cursors(conn, read_budget=read_budget)
-        rows = _owned_sources(conn, limit, read_budget, budget)
+        rows = _owned_sources(conn, limit, read_budget, budget,
+                              reader_revision(rs) if _has_reader_column(conn) else 1)
     except ReadDeadline:
         return 0, 0, "sims time limit reached (selected SQL read interrupted; coverage not measured)"
     except ReadLimit:
