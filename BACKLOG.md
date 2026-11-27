@@ -1,5 +1,17 @@
 # BACKLOG.md
 
+## ahop_coast movement reports (27 Nov)
+- Release of forward on a downhill displacement: the current mover stopped normally in `pm_stepsim chain`
+  from `8379.3 -6097.4 13968.2`, yaw 101, at 100 and 66.667 Hz under the map's bhop rules.
+  Falsify using the reported build's
+  full input sequence and `PMSrc_CategorizePosition` ground traces; do not infer a collision fix from a newer build.
+- Uncrouch while walking: after releasing duck while forward stays held, the current mover stood after about
+  0.21 s from `8338.6 -6048.0 13956.0`, yaw 97.6, at both rates. `PMSrc_Duck` and the stand hull trace
+  need the original input and starting duck state if the player still gets stuck.
+- Speed loss coming out of water near `4746.9 -7816.8 -14077.7`: no entry speed or input sequence recorded.
+  Reproduce the approach in both engines and compare individual `PMSrc_WaterMove` and exit ticks with the
+  same entry speed, angles and commands before changing water movement.
+
 ## P1837 public web performance (25 Nov, QuickPhoenix; root FTESurf-worktrees/webperf-20261125-phoenix)
 - Audit baseline: local browser-cold board 3.48 s (maps API 3.16 s), players 1.64 s (API 1.57 s), zoning 0.19 s;
   repeat 0.23/0.05/0.16 s. Backend cache uncontrolled; individual observations, not cold-server benchmarks or p95.

@@ -21,6 +21,9 @@
 
 ## next
 
+### P1852 Missing water textures on surf_utopia
+- With texture replacement on, the pools draw translucent water instead of a pink-and-black checkerboard when the original water material is missing.
+
 ### P1851 Reset after finishing and disconnect from a server
 - Reset (!r) returns to the map start after you finish a run. Mid-run resets still return to the current stage.
 - Type !disconnect in game chat or click the red Disconnect button to the left of Lobbies. The button is only shown while connected.
