@@ -259,8 +259,8 @@ void(vector org) PVS_Publish =
 #define FSK_RIGHT   3
 #define FSK_JUMP    4
 #define FSK_DUCK    5
-#define FSK_TLEFT   6           // +left
-#define FSK_TRIGHT  7           // +right
+#define FSK_TLEFT   6           // +left / +left2
+#define FSK_TRIGHT  7           // +right / +right2
 #define FSK_COUNT   8
 
 // How many keys may be held for one action at once.  Three is already used
@@ -282,8 +282,8 @@ float(string bind) Keys_Action =
 	if (bind == "+moveright") return FSK_RIGHT;
 	if (bind == "+jump")      return FSK_JUMP;
 	if (bind == "+duck")      return FSK_DUCK;
-	if (bind == "+left")      return FSK_TLEFT;
-	if (bind == "+right")     return FSK_TRIGHT;
+	if (bind == "+left" || bind == "+left2")    return FSK_TLEFT;
+	if (bind == "+right" || bind == "+right2")  return FSK_TRIGHT;
 	return -1;
 };
 
@@ -319,6 +319,8 @@ float(string b, string c) Keys_BindHas =
 float(string b) Keys_TurnBind =
 {
 	if (Keys_BindHas(b, "+left") || Keys_BindHas(b, "+right"))
+		return TRUE;
+	if (Keys_BindHas(b, "+left2") || Keys_BindHas(b, "+right2"))
 		return TRUE;
 	return (Keys_BindHas(b, "+lookup") || Keys_BindHas(b, "+lookdown"));
 };

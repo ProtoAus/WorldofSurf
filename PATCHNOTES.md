@@ -21,6 +21,9 @@
 
 ## next
 
+### P1847 Second keyboard turn speed
+- Bind +left2 and +right2 to optional turn keys and set cl_yawspeed2 to choose their speed. Existing turn keys stay the same; the two speeds do not stack.
+
 ### P1846 Compact tournament standings
 - Tournament standings stay on the left and clear of the run timer. The dark background is gone, and long names shorten without pushing times out of view.
 

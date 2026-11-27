@@ -200,6 +200,8 @@ void(float dx, float dy) Spec_Look =
 void() Spec_TurnRelease =
 {
 	localcmd("-left\n-right\n-lookup\n-lookdown\n-klook\n-rollleft\n-rollright\n");
+	if (checkcommand("-left2") == 1)
+		localcmd("-left2\n-right2\n");
 };
 
 // What a key may run while spectating: the free camera's movement, chat, the

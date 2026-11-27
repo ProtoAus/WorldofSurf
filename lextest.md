@@ -1,5 +1,9 @@
 # lextest.md — things waiting on a human
 
+## P1847 second keyboard turn speed
+
+- In the new client, set `cl_yawspeed2 120`, bind two spare keys to `+left2` and `+right2`, and compare them with your usual turn keys while surfing. Hold a usual turn key, briefly hold an alternate key, and confirm releasing it returns to the original speed. No default bindings change.
+
 ## P1846 compact tournament standings
 
 - Join a busy tournament at your normal resolution and in a narrow window. The phase, round clock, ranks and times should stay readable without a black rectangle or overlap with the run timer. Try a bright map, a longer player name and a timer dragged toward the left. F6 should still show the full standings. Check the separate centre countdown and round announcements are unchanged.
