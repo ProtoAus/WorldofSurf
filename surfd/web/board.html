@@ -9,7 +9,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <title>World of Surf Leaderboard</title>
-<meta name="description" content="Times on every zoned World of Surf map, from the official servers, alongside imported Momentum and KSF records.">
+<meta name="description" content="Official World of Surf times by default, with separate Counter-Strike: Source (KSF) and Momentum Mod boards.">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="board.css">
 <script src="board.js" defer></script>
@@ -40,8 +40,7 @@
 
   <header class="mast">
     <h1>Leaderboard</h1>
-    <p class="tagline">Times from the official servers on every zoned map, with
-      Momentum and KSF records beside them.</p>
+    <p class="tagline">Official World of Surf times by default. Open a map to switch to CS:S (KSF) or Momentum Mod.</p>
   </header>
 
   <p id="err" class="err" role="alert" hidden></p>
@@ -53,12 +52,13 @@
       <div class="chips" role="group" aria-label="Sort maps">
         <button type="button" class="chip" data-sort="active" aria-pressed="true">Active</button>
         <button type="button" class="chip" data-sort="az" aria-pressed="false">A-Z</button>
-        <button type="button" class="chip" data-sort="runs" aria-pressed="false">Most runs</button>
-        <button type="button" class="chip" data-sort="times" aria-pressed="false">Most times</button>
-        <button type="button" class="chip" data-sort="demos" aria-pressed="false">Most demos</button>
+        <button type="button" class="chip" data-sort="runs" aria-pressed="false">Most WOS runs</button>
+        <button type="button" class="chip" data-sort="times" aria-pressed="false" hidden>Most times (all games)</button>
+        <button type="button" class="chip" data-sort="demos" aria-pressed="false" hidden>Most imported demos</button>
         <button type="button" class="chip" data-sort="tier" aria-pressed="false">By tier</button>
       </div>
     </div>
+    <label class="summary"><input type="checkbox" id="archive" aria-controls="maps"> Include archive-only maps</label>
     <div id="tiers" class="chips tierrow" role="group" aria-label="Filter by difficulty tier" hidden></div>
     <p id="summary" class="summary" role="status" aria-live="polite" aria-atomic="true">Loading maps&hellip;</p>
     <ul id="maps" class="req"></ul>
@@ -78,7 +78,7 @@
          stays empty rather than repeating it to a screen reader. board.js
          removes it entirely for the 110 maps we hold no picture for. -->
     <img id="maphero" class="hero" alt="" hidden>
-    <div id="srcs" class="tabrow seg" role="group" aria-label="Source"></div>
+    <div id="srcs" class="tabrow seg" role="group" aria-label="Record source"></div>
     <div id="legs" class="tabrow" role="group" aria-label="Track"></div>
     <div class="tabrow">
       <span id="styles" class="seg" role="group" aria-label="Style"></span>

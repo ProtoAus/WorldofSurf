@@ -52,6 +52,7 @@ function harness(file) {
     wosDownload: { NAME: /^[a-z0-9_]+$/i, button(kind, map) { const e = new Element('a'); e.href = kind + '/' + map; return e; } },
     document, location: { hash: '' },
     history: { replaceState(_state, _title, hash) { context.location.hash = hash; } }, console, Date,
+    Image: function () {},
     setTimeout(f, ms) { timers.set(++tid, { f, ms }); return tid; },
     clearTimeout(id) { timers.delete(id); },
     fetch(url) {
@@ -70,10 +71,21 @@ async function board() {
   const h = harness('surfd/web/board.js');
   h.events.DOMContentLoaded();
   assert.equal(h.document.head.children.length, 0, 'no viewer on list route');
-  const maps = Array.from({ length: 2500 }, (_, i) => ({ map: 'surf_' + String(i).padStart(4, '0'), runs: i % 2, imp: 0, last: i, mt: i % 2 + 1 }));
+  const maps = Array.from({ length: 2500 }, (_, i) => ({ map: 'surf_' + String(i).padStart(4, '0'), runs: i % 2, imp: 0, last: i, mt: i % 2 + 1, have: 1 }));
+  maps.push({ map: 'surf_archive', have: 0, runs: 0, imp: 56, reps: 1 });
   h.requests[0].resolve({ maps, tiers: true }); await tick();
   assert.equal(h.ids.maps.children.length, 100);
-  assert.match(h.ids.summary.textContent, /2500 maps/);
+  assert.match(h.ids.summary.textContent, /2500 maps · 1250 with WOS times/);
+  assert.ok(h.chips[3].hidden, 'mixing record counts is not a default sort');
+  h.ids.q.value = 'surf_archive'; h.ids.q.events.input();
+  assert.equal(h.ids.maps.children.length, 0);
+  h.ids.archive.checked = true; h.ids.archive.events.change();
+  assert.equal(h.ids.maps.children.length, 1, 'archive toggle recovers imported-only maps');
+  assert.match(h.ids.maps.children[0].textContent, /56 imported/);
+  h.chips[3].events.click();
+  h.ids.archive.checked = false; h.ids.archive.events.change();
+  assert.equal(h.chips[0].getAttribute('aria-pressed'), 'true', 'reset archive sort');
+  h.ids.q.value = ''; h.ids.q.events.input();
   const firstMapNode = h.ids.maps.children[0];
   h.ids.mapsmore.events.click();
   assert.equal(h.ids.maps.children.length, 200);
@@ -138,6 +150,54 @@ async function board() {
   assert.equal(h.context.location.hash, '', 'obsolete pause cannot hijack another route');
   console.log('PASS board: cap/search/focus/reset/back, lazy retry and callback-faithful stale navigation controls');
 }
+async function boardSources() {
+  const h = harness('surfd/web/board.js');
+  const route = hash => { h.context.location.hash = hash; h.winEvents.hashchange(); };
+  const reply = async (tier, name, style = 'clean', track = 0, leg = 0) => {
+    const req = h.requests.at(-1);
+    const q = new URLSearchParams(req.url.split('?')[1]);
+    assert.equal(q.get('tier'), tier);
+    assert.equal(q.get('style'), style);
+    assert.equal(Number(q.get('track')), track);
+    assert.equal(Number(q.get('leg')), leg);
+    const rows = name ? [{ r: 1, who: 'player', name, when: 1, ms: 3000, tr: tier }] : [];
+    req.resolve({ tier, style, track, leg, map: 'surf_fixture', disp: 'surf_fixture', have: 1,
+      n: rows.length, rows, counts: { ranked: 1, ksf: 2, momentum: 3 },
+      ksf_topup: { eligible: true }, mom_topup: { eligible: true } });
+    await tick();
+  };
+  h.context.location.hash = '#m=surf_fixture'; h.events.DOMContentLoaded();
+  assert.match(h.requests.at(-1).url, /track=0&leg=0&style=clean&tier=ranked$/);
+  await reply('ranked', 'Native runner');
+  assert.match(h.ids.rows.textContent, /Native runner/);
+  assert.equal(h.ids.ksftopup.children.length, 0, 'no import controls on WOS');
+  assert.deepEqual(h.ids.srcs.children.map(b => b.textContent), ['WOS1', 'CS:S (KSF)2', 'Momentum Mod3']);
+  assert.equal(h.ids.srcs.children[0].getAttribute('aria-pressed'), 'true');
+  h.ids.srcs.children[1].events.click(); h.winEvents.hashchange();
+  await reply('ksf', 'Source runner');
+  assert.equal(h.ids.srcs.children[1].getAttribute('aria-pressed'), 'true');
+  assert.match(h.ids.rows.textContent, /Source runner/);
+  assert.doesNotMatch(h.ids.rows.textContent, /Native runner/);
+  assert.match(h.context.location.hash, /tier=ksf$/);
+  assert.match(h.ids.ksftopup.textContent, /Fetch/);
+  h.ids.srcs.children[2].events.click(); h.winEvents.hashchange();
+  await reply('momentum', 'Momentum runner');
+  assert.match(h.ids.rows.textContent, /Momentum runner/);
+  route('#m=surf_fixture&t=1&l=2&s=sw');
+  await reply('ksf', 'Sideways runner', 'sw', 1, 2);
+  assert.match(h.context.location.hash, /t=1&l=2&s=sw&tier=ksf$/);
+  h.ids.srcs.children[0].events.click(); h.winEvents.hashchange();
+  await reply('ranked', null, 'clean', 1, 2);
+  assert.match(h.ids.empty.textContent, /for WOS yet.*CS:S.*Momentum/);
+  route('#m=surf_fixture&s=tas');
+  await reply('community', 'TAS runner', 'tas');
+  assert.match(h.ids.srcs.textContent, /assisted/);
+  route('#m=surf_fixture&tier=combined');
+  await reply('combined', 'Legacy combined runner');
+  assert.match(h.context.location.hash, /tier=combined$/);
+  assert.match(h.ids.srcs.textContent, /All games/);
+  console.log('PASS source boards: WOS default, CS:S/Momentum opt-in, TAS, source-specific styles and legacy links');
+}
 async function zoning() {
   const h = harness('src/release/site/zoning.js');
   h.requests[0].resolve({ made: '2026-01-01', cell: [1, 1, 2, 2], rows: [
@@ -196,4 +256,7 @@ async function zoningHistory() {
   assert.match(h.ids.zstats.textContent, /1 map to zone/);
   console.log('PASS zoning history: have=0 canonical names, publication, offline last-good status and rollback');
 }
-(async () => { if (!process.argv.includes('--zoning-only')) await board(); await zoning(); await zoningHistory(); })().catch(e => { console.error(e); process.exitCode = 1; });
+(async () => {
+  if (!process.argv.includes('--zoning-only')) { await board(); await boardSources(); }
+  await zoning(); await zoningHistory();
+})().catch(e => { console.error(e); process.exitCode = 1; });

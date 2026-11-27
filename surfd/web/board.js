@@ -148,11 +148,16 @@
     return o;
   }
 
-  // A board is EVERY GAME'S times unless the link names one (Patch 636): a
-  // link with no `tier` used to open ours alone.
+  // Unqualified links open WOS. A KSF-only style or TAS still implies its board.
+  function mapTier(style, tier) {
+    if (style === 'tas') { return 'community'; }
+    return tier || (KSF_STYLES.indexOf(style) >= 0 ? 'ksf' : 'ranked');
+  }
+
   function hashFor(map, track, leg, style, tier) {
+    tier = mapTier(style, tier);
     return '#m=' + encodeURIComponent(map) + '&t=' + track + '&l=' + leg +
-      '&s=' + style + (tier && tier !== 'combined' ? '&tier=' + tier : '');
+      '&s=' + style + (tier === 'ranked' ? '' : '&tier=' + tier);
   }
 
   function link(cls, href, text) {
@@ -272,10 +277,11 @@
   }
 
   function renderList(append) {
-    var maps = state.maps;
-    if (!maps) { return; }
+    if (!state.maps) { return; }
+    var archive = $('archive').checked;
+    var maps = archive ? state.maps : state.wosMaps;
     var q = $('q').value.trim().toLowerCase();
-    var key = JSON.stringify([q, state.sort, state.mt]);
+    var key = JSON.stringify([q, state.sort, state.mt, archive]);
     var same = key === listKey;
     if (!same) { mapLimit = MAP_PAGE; listKey = key; }
     var list = maps.filter(function (m) {
@@ -286,11 +292,11 @@
     var frag = document.createDocumentFragment();
     var timed = 0, watch = 0, shown = Math.min(list.length, mapLimit);
     maps.forEach(function (m) {
-      if (m.runs > 0 || m.imp > 0) { timed++; }
-      watch += n0(m.reps);
+      if (m.runs > 0) { timed++; }
+      if (archive) { watch += n0(m.reps); }
     });
     list.slice(start, shown).forEach(function (m) {
-      var has = m.runs > 0 || m.imp > 0;
+      var has = m.runs > 0 || (archive && m.imp > 0);
       var li = el('li', has ? '' : 'opt');
       var a = el('a');
       a.href = '#m=' + encodeURIComponent(m.map);
@@ -317,9 +323,9 @@
         bits.push(m.runs + (m.runs === 1 ? ' run' : ' runs') +
           (m.last ? ' · last ' + ago(m.last) : ''));
       }
-      if (m.imp > 0) { bits.push(m.imp + ' imported'); }
-      if (n0(m.reps) > 0) { bits.push(m.reps + ' to watch'); }
-      if (!bits.length) { bits.push('no times yet'); }
+      if (archive && m.imp > 0) { bits.push(m.imp + ' imported'); }
+      if (archive && n0(m.reps) > 0) { bits.push(m.reps + ' to watch'); }
+      if (!bits.length) { bits.push('no WOS times yet'); }
       if (!m.have) { bits.push('not installed here'); }
       a.appendChild(el('span', 'why', bits.join(' · ')));
       li.appendChild(a);
@@ -327,8 +333,8 @@
     });
     if (!start) { ul.textContent = ''; }
     ul.appendChild(frag);
-    var bits = [maps.length + ' maps', timed + ' with times',
-                watch.toLocaleString() + ' runs to watch'];
+    var bits = [maps.length + ' maps', timed + ' with WOS times'];
+    if (archive) { bits.push(watch.toLocaleString() + ' imported runs to watch'); }
     if (q || state.mt) { bits.push(list.length + ' matching'); }
     if (shown < list.length) { bits.push('showing ' + shown + ' of ' + list.length); }
     $('mapsmore').hidden = shown >= list.length;
@@ -345,6 +351,7 @@
         if (m.imp === undefined) { m.imp = 0; }
         return m;
       });
+      state.wosMaps = state.maps.filter(function (m) { return m.have || m.runs > 0; });
       $('tiers').hidden = !body.tiers;
       showError('');
       renderList();
@@ -369,8 +376,9 @@
     location.hash = hashFor(v.map, track, leg, style, tier);
   }
 
-  var TIER_TABS = [['combined', 'All games'], ['ranked', 'WOS'],
-                   ['momentum', 'Momentum Mod'], ['ksf', 'KSF']];
+  var TIER_TABS = [['ranked', 'WOS'], ['ksf', 'CS:S (KSF)'], ['momentum', 'Momentum Mod']];
+  var TIER_NAMES = { ranked: 'WOS', ksf: 'CS:S (KSF)', momentum: 'Momentum Mod',
+                     combined: 'All games', imported: 'Imported records', community: 'Community' };
 
   function renderTabs(v, counts) {
     var legs = $('legs'), styles = $('styles'), srcs = $('srcs');
@@ -412,10 +420,13 @@
 
     var cnt = { ranked: n0(counts.ranked), momentum: n0(counts.momentum),
                 ksf: n0(counts.ksf) };
-    cnt.combined = cnt.ranked + cnt.momentum + cnt.ksf;
     if (v.style === 'tas') {
       srcs.appendChild(el('span', 'of', 'Community · assisted, not verified physics'));
       return;
+    }
+    // Old shared links still work, without offering a mixed board to new visitors.
+    if (v.tier === 'combined' || v.tier === 'imported') {
+      srcs.appendChild(el('span', 'of', TIER_NAMES[v.tier]));
     }
     TIER_TABS.forEach(function (p) {
       srcs.appendChild(tabButton(p[1],
@@ -507,7 +518,8 @@
     var box = $('ksftopup');
     box.textContent = '';
     var ksf = body.ksf_topup || { state: 'idle' }, mom = body.mom_topup || { state: 'idle' };
-    if (v.style === 'tas' || v.style === 'segmented' || !(ksf.eligible || mom.eligible && v.style === 'clean')) { return; }
+    if (v.tier === 'ranked' || v.style === 'tas' || v.style === 'segmented' ||
+        !(ksf.eligible || mom.eligible && v.style === 'clean')) { return; }
     var busy = function (x) { return ['queued', 'partial'].indexOf(x.state) >= 0; };
     var button = tabButton('Fetch', null, false, function () {
       button.disabled = true;
@@ -539,7 +551,7 @@
   function renderMap(body) {
     var v = {
       map: body.disp, key: body.map, track: body.track, leg: body.leg,
-      style: body.style, tier: body.tier || 'combined',
+      style: body.style, tier: mapTier(body.style, body.tier),
       boards: body.boards || [], total: body.n || 0, shown: 0, best: 0,
       // THE SERVER'S PAGE SIZE, NOT OURS.  `more` stops when a page comes back
       // short, so a PAGE that disagreed with surfd's WEB_PAGE would end the
@@ -575,18 +587,18 @@
     pumpMore();
     var empty = $('empty');
     if (rows.length === 0) {
-      empty.textContent = 'No ' + styleName(v.style).toLowerCase() + ' times on ' +
-        legName(v.track, v.leg) + ' yet';
+      empty.textContent = v.style === 'tas' ? 'No TAS times on ' + legName(v.track, v.leg) + ' yet'
+        : 'No ' + styleName(v.style).toLowerCase() + ' times on ' + legName(v.track, v.leg) +
+          ' for ' + (TIER_NAMES[v.tier] || 'WOS') + ' yet';
+      if (v.tier === 'ranked') { empty.textContent += '. Select CS:S (KSF) or Momentum Mod to see imported times.'; }
       empty.hidden = false;
     } else {
       empty.hidden = true;
     }
     var note = $('mapnote');
     note.textContent = body.have ? ''
-      : body.bsp ? 'This map is on the servers but has no zones yet, so times '
-        + 'cannot be set on it here. The times below are imported.'
-      : 'This map is not installed on the servers — the times below are '
-        + 'imported, and you cannot play it here yet.';
+      : body.bsp ? 'This map is on the servers but has no zones yet, so times cannot be set here.'
+      : 'This map is not installed on the World of Surf servers.';
     note.hidden = !!body.have;
     // Downloads: the BSP whenever the servers hold it, the zones once it has them (`have`).
     var get = '../get.html?map=' + encodeURIComponent(body.disp);
@@ -601,13 +613,11 @@
   }
 
   function mapQuery(h, offset) {
-    var q = 'api/map?map=' + encodeURIComponent(h.m);
-    if (h.t !== undefined || h.l !== undefined || h.s !== undefined) {
-      q += '&track=' + encodeURIComponent(h.t || '0') +
-        '&leg=' + encodeURIComponent(h.l || '0') +
-        '&style=' + encodeURIComponent(h.s || 'clean');
-    }
-    q += '&tier=' + encodeURIComponent(h.tier || 'combined');
+    // Name the default course/style so the API cannot auto-pick an imported-only leg or TAS.
+    var style = h.s || 'clean';
+    var q = 'api/map?map=' + encodeURIComponent(h.m) +
+      '&track=' + encodeURIComponent(h.t || '0') + '&leg=' + encodeURIComponent(h.l || '0') +
+      '&style=' + encodeURIComponent(style) + '&tier=' + encodeURIComponent(mapTier(style, h.tier));
     return q + (offset ? '&offset=' + offset : '');
   }
 
@@ -721,7 +731,7 @@
     h.appendChild(el('span', 'rt-time', fmt(body.ms)));
     h.appendChild(el('span', 'rt-sep', '·'));
     h.appendChild(link('rt-map', hashFor(body.disp, body.track, body.leg,
-      body.style, imported ? 'combined' : 'ranked'), body.disp));
+      body.style, body.tr), body.disp));
 
     var sub = $('runsub');
     sub.textContent = '';
@@ -1123,7 +1133,7 @@
     var ul = el('ul', 'cml');
     maps.forEach(function (m) {
       var li = el('li', done ? 'cm done' : (m.have ? 'cm' : 'cm away'));
-      li.appendChild(link('plink', hashFor(m.map, 0, 0, m.s || 'clean'), m.map));
+      li.appendChild(link('plink', hashFor(m.map, 0, 0, m.s || 'clean', m.tr), m.map));
       if (done) {
         li.appendChild(el('span', 'ct', fmt(m.ms)));
         (m.games || []).forEach(function (g) {
@@ -1196,7 +1206,7 @@
       pos.appendChild(el('span', 'of', ' / ' + r.of));
       tr.appendChild(pos);
       var mp = el('td', 'name');
-      mp.appendChild(link('plink', hashFor(r.disp, r.track, r.leg, r.style), r.disp));
+      mp.appendChild(link('plink', hashFor(r.disp, r.track, r.leg, r.style, r.tr), r.disp));
       // Only when the profile actually spans sources: a chip on every row of a
       // single-source profile is noise that says the same thing 100 times.
       if (multi) {
@@ -1289,15 +1299,24 @@
     });
     $('runretry').addEventListener('click', route);
     var chips = document.querySelectorAll('.chip[data-sort]');
+    function sortState() {
+      var archive = $('archive').checked;
+      if (!archive && (state.sort === 'times' || state.sort === 'demos')) { state.sort = 'active'; }
+      Array.prototype.forEach.call(chips, function (c) {
+        var sort = c.getAttribute('data-sort');
+        c.hidden = !archive && (sort === 'times' || sort === 'demos');
+        c.setAttribute('aria-pressed', sort === state.sort ? 'true' : 'false');
+      });
+    }
     Array.prototype.forEach.call(chips, function (c) {
       c.addEventListener('click', function () {
         state.sort = c.getAttribute('data-sort');
-        Array.prototype.forEach.call(chips, function (o) {
-          o.setAttribute('aria-pressed', o === c ? 'true' : 'false');
-        });
+        sortState();
         renderList();
       });
     });
+    $('archive').addEventListener('change', function () { sortState(); renderList(); });
+    sortState();
     $('more').addEventListener('click', more);
     $('pmore').addEventListener('click', moreProfile);
     watchMore();
