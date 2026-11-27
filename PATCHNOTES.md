@@ -21,6 +21,10 @@
 
 ## next
 
+### P1851 Reset after finishing and disconnect from a server
+- Reset (!r) returns to the map start after you finish a run. Mid-run resets still return to the current stage.
+- Type !disconnect in game chat or click the red Disconnect button to the left of Lobbies. The button is only shown while connected.
+
 ### P1850 Tournament buzzer beaters and map picks
 - Tournament draft cards give Tier and Stages priority over the name of the player who picked or banned the map.
 - Buzzer beaters are on by default. Eligible runs in progress can finish in up to two minutes of overtime. Hosts can change the setting or save their choice as the default; competitors can vote to skip overtime from F6.

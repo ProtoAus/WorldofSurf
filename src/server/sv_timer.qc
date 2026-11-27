@@ -14313,6 +14313,14 @@ float(entity e, float n) SV_TimerWouldRestartSeg =
 	return restart;
 };
 
+// A terminal finish starts a fresh map attempt. A stage handoff is not terminal.
+string(entity e, string word) SV_TimerResetWord =
+{
+	if (!strcmp(word, "!r") && e.run_t_state == TS_FINISHED && e.run_t_pendarm < 0)
+		return "!m";
+	return word;
+};
+
 // Only the run's opening leg may replace its reset position.
 float(entity e, float z) SV_TimerAtRunOrigin =
 {

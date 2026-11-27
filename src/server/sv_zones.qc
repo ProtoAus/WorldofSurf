@@ -1678,6 +1678,7 @@ void(string word, string what, float n, string kindover) SV_ZoneSayWhere =
   request is standing once the word has been applied.
 */
 float(entity e, string word, float n) SV_TimerChatLeg;
+string(entity e, string word) SV_TimerResetWord;
 // Patch 415: `!r` prefers a spot left in the leg's own start box.  Both live in
 // files that compile after this one -- sv_timer.qc and sv_saveloc.qc -- so they
 // arrive the way SV_TimerVoid and the rest above do.
@@ -1688,6 +1689,7 @@ float(entity e, float z, __out vector org, __out float yaw, __out float pit)
 // P680: resolve the same leg without touching the timer's stage-1 request.
 float(entity e, string word, float n) SV_ZoneRequestZone =
 {
+	word = SV_TimerResetWord(e, word);
 	if (!strcmp(word, "!m")) return SV_ZoneFindLeg(0, 0);
 	if (!strcmp(word, "!s")) return SV_ZoneFindLeg(0, max(1, n) - 1);
 	if (!strcmp(word, "!b")) return SV_ZoneFindLeg(max(1, n), 0);
@@ -1699,7 +1701,7 @@ float(entity e, string word, float n) SV_ZoneRequestZone =
 void(string word, float n) SV_ZoneChatCommand =
 {
 	local float track, seg, z;
-	local string what;
+	local string what, request;
 	local vector sorg;              // Patch 415: the save `!r` landed on, if any
 	local float  syaw, spit;
 	local entity mark;
@@ -1715,8 +1717,9 @@ void(string word, float n) SV_ZoneChatCommand =
 		return;
 	}
 
-	z = SV_ZoneRequestZone(self, word, n);
-	if (word == "!m")
+	request = SV_TimerResetWord(self, word);
+	z = SV_ZoneRequestZone(self, request, n);
+	if (request == "!m")
 	{
 		track = 0;  seg = 0;  what = "start of the map";
 	}
@@ -1824,9 +1827,8 @@ void(string word, float n) SV_ZoneChatCommand =
 
 	// BUILD 57: the request, applied only once the destination exists -- a `!s 9`
 	// on a five-stage map changes nothing, including a stage-1 request already
-	// standing.  `!r` reaches here only when its latched zone was invalid, and
-	// asking again is a no-op for it.
-	SV_TimerChatLeg(self, word, n);
+	// standing. After a finish `!r` takes the map path, clearing stage-1 mode too.
+	SV_TimerChatLeg(self, request, n);
 
 	SV_TpDestReset(self);		// Patch 1050: past the refusal, so a warp that does not move keeps it
 	SV_ZoneMove(z);

@@ -1,5 +1,9 @@
 # lextest.md — things waiting on a human
 
+## P1851 post-finish reset and disconnect
+
+- On a staged map, reach a later stage and press your normal reset key before and after finishing: the first reset should be to your current stage, the second to the map start. On the Windows client, try `!disconnect` in the chat box, rejoin, then use the red **Disconnect** button immediately left of **Lobbies**. You should return without quitting, and the button should disappear.
+
 ## P1850 tournament buzzer beaters and draft cards
 
 - In the draft, pick and ban a staged map with a long player name. The Tier and Stages line should stay readable in the same width; only the player's name should shorten. The native menu fixture checks emitted text, not the shipping fonts or every window size.

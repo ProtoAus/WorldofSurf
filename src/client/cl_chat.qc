@@ -140,6 +140,17 @@ float  chat_dr_x;
 // Prototype: Chat_InputEvent submits through it, and it is defined last.
 void(string cmd, string text) Chat_RunSafe;
 float(string text) WarpOp_Chat;  // cl_warpop.qc, Patch 753
+
+float(string text) Chat_Disconnect =
+{
+	text = strtrim(text);
+	if (strlen(text) >= 2)
+	if (substring(text, 0, 1) == "\"" && substring(text, strlen(text) - 1, 1) == "\"")
+		text = strtrim(substring(text, 1, strlen(text) - 2));
+	if (strcmp(strtolower(text), "!disconnect")) return FALSE;
+	localcmd("disconnect\n");
+	return TRUE;
+};
 string chat_buf;
 string chat_private, chat_private_name;
 // P1010: the room goes through the lobby's relay, so it needs a linked lobby.
@@ -2151,7 +2162,8 @@ float(float evtype, float scanx, float chary, float devid) Chat_InputEvent =
 				Chat_SentAdd(chat_buf);
 			if (chat_private != "" && chat_private != "-" && chat_private != ".")
 				localcmd(sprintf("cmd friend message %s %s\n", chat_private, uri_escape(chat_buf)));
-			else if (!WarpOp_Chat(chat_buf))
+			else if (!Chat_Disconnect(chat_buf))
+			if (!WarpOp_Chat(chat_buf))
 			{
 				// P1187: said here (the lobby echoes it), and to everyone posted to the room
 				// too -- not a !command, which is this lobby's alone, quoted or not (the
@@ -2276,6 +2288,8 @@ float(string args, float team) CSQC_ChatSay =
 {
 	if (team)
 		return FALSE;          // say_team: no teams here, let the engine answer
+	if (Chat_Disconnect(args))
+		return TRUE;
 	if (WarpOp_Chat(args))
 		return TRUE;           // Patch 753: `!r` / `!m` predicted, not sent as chat
 	if (strtrim(args) != "")

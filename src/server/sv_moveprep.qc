@@ -494,6 +494,7 @@ float(entity e, string word, float n, moveprep_t *out) SV_MovePrepReset =
 	if (strcmp(word, "!r") && strcmp(word, "!m") && strcmp(word, "!s") && strcmp(word, "!b"))
 		return MP_REFUSED;
 	if (!(n > -10000000 && n < 10000000 && n == floor(n))) return MP_REFUSED;
+	word = SV_TimerResetWord(e, word);
 	z = SV_ZoneRequestZone(e, word, n);
 	if (!(z >= 0 && z < zone_count && z == floor(z))) return MP_MISSING;
 	pick = FALSE; row = -1; pit = yaw = fallback = blk = 0; org = '0 0 0';

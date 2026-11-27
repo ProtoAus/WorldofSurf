@@ -213,48 +213,67 @@ vector(vector screensize) MH_ShellOrigin =
 	return [floor((screensize_x - size_x) * 0.5), 44 + floor((screensize_y - 56 - size_y) * 0.5)];
 };
 
+string(float slot, float n) MH_TabLabel =
+{
+	if (slot < 0) return "DISCONNECT";
+	if (slot == 0) return "LOBBIES";
+	if (slot == 1) return "MAPS";
+	if (slot == 2) return "STORY";
+	if (slot == 3) return "EVENT";
+	if (n == 7 && slot == 4) return "TOURNAMENT";
+	return slot == n - 1 ? "QUIT" : "SETTINGS";
+};
+
 void(vector screensize) MH_Tabs =
 {
-	local float x, w, total, i, j, n, target, on;
+	local float x, w, total, i, j, first, n, gap, target, on;
 	local string id, label;
-	local vector pos, textsize;
+	local vector pos, textsize, colour;
 	pos = MH_ShellOrigin(screensize);
 	screensize = MH_ShellSize(screensize);
 	mh_header_pos = pos; mh_header_size = [screensize_x, screensize_x < 900 ? 32 : 40];
-	// 24/32 are rungs of the display ladder: native glyphs, not a scaled face.
+	// Keep native display-font sizes even when the extra button needs a smaller row.
 	textsize = screensize_x < 900 ? '24 24 0' : '32 32 0';
 	Font_Set(ui_font_display);
-	// Draw order LOBBIES MAPS STORY EVENT [TOURNAMENT] SETTINGS QUIT; i keeps each
-	// tab's old index (ids home_tab0..6, targets), j is its slot.
+	// Slot -1 is the connected-only action. Keep existing tab indices and targets.
+	first = (!strcmp(serverkey("constate"), "active") && !isdemo()) ? -1 : 0;
 	n = MT_TabVisible() ? 7 : 6;
-	total = -28;
-	for (j = 0; j < n; j = j + 1)
+	total = 0;
+	for (j = first; j < n; j = j + 1)
+		total = total + stringwidth(MH_TabLabel(j, n), TRUE, textsize);
+	if (total + 12 * (n - first - 1) + 8 > screensize_x)
 	{
-		i = (n == 7 && j == 4) ? 6 : ((n == 7 && j > 4) ? j - 1 : j);
-		label = (i == 6) ? "TOURNAMENT" : ((i == 0) ? "LOBBIES" : ((i == 1) ? "MAPS" : ((i == 2) ? "STORY" : ((i == 3) ? "EVENT" : ((i == 4) ? "SETTINGS" : "QUIT")))));
-		total = total + stringwidth(label, TRUE, textsize) + 28;
+		textsize = '16 16 0';
+		Font_Set(ui_font_dispsm);
+		total = 0;
+		for (j = first; j < n; j = j + 1)
+			total = total + stringwidth(MH_TabLabel(j, n), TRUE, textsize);
 	}
+	gap = bound(12, floor((screensize_x - total - 8) / (n - first - 1)), 28);
+	total = total + gap * (n - first - 1);
 	x = max(4, floor((screensize_x - total) * 0.5));
 	sui_push_frame(pos, mh_header_size);
-	for (j = 0; j < n; j = j + 1)
+	for (j = first; j < n; j = j + 1)
 	{
 		i = (n == 7 && j == 4) ? 6 : ((n == 7 && j > 4) ? j - 1 : j);
-		label = (i == 6) ? "TOURNAMENT" : ((i == 0) ? "LOBBIES" : ((i == 1) ? "MAPS" : ((i == 2) ? "STORY" : ((i == 3) ? "EVENT" : ((i == 4) ? "SETTINGS" : "QUIT")))));
+		label = MH_TabLabel(j, n);
 		target = (i == 6) ? SCREEN_TOURNAMENT : ((i == 0) ? SCREEN_MAIN : ((i == 1) ? SCREEN_CREATE : ((i <= 3) ? SCREEN_STORY : SCREEN_SETTINGS)));
 		on = (menu_screen == target);
 		if (i == 4 && menu_screen == SCREEN_VISUALS) on = TRUE;
 		if (i == 0 && menu_screen == SCREEN_STATS) on = TRUE;       // P1084: opened from the Lobbies home
 		if (i == 2 || i == 3) on = (menu_screen == SCREEN_STORY && sty_tab == i - 2);
-		if (i == 5) on = FALSE;
-		id = i == 5 ? "home_quit" : strcat("home_tab", ftos(i));
+		if (i < 0 || i == 5) on = FALSE;
+		id = i < 0 ? "home_disconnect" : (i == 5 ? "home_quit" : strcat("home_tab", ftos(i)));
+		colour = i < 0 ? '1 0.35 0.35' : '1 1 1';
 		w = stringwidth(label, TRUE, textsize);
 		sui_action_element([x - 6, 0], [w + 12, mh_header_size_y], id, sui_noop);
-		sui_text([x, floor((mh_header_size_y - textsize_y) * 0.5)], textsize, label, '1 1 1', 1, 0);
-		if (on || sui_is_hovered(id)) sui_fill([x, mh_header_size_y - 2], [w, 2], '1 1 1', 1, 0);
-		x = x + w + 28;
+		sui_text([x, floor((mh_header_size_y - textsize_y) * 0.5)], textsize, label, colour, 1, 0);
+		if (on || sui_is_hovered(id)) sui_fill([x, mh_header_size_y - 2], [w, 2], colour, 1, 0);
+		x = x + w + gap;
 		if (!sui_is_released(id)) continue;
 		sui_text_unfocus();
-		if (i == 1) { menu_screen = target; ui_create_open(); }
+		if (i < 0) { if (!ui_synth()) localcmd("disconnect\n"); }
+		else if (i == 1) { menu_screen = target; ui_create_open(); }
 		else if (i == 2 || i == 3) { Sty_Open(); sty_tab = i - 2; }
 		else if (i == 5) { if (!ui_synth()) localcmd("quit\n"); }
 		else menu_screen = target;

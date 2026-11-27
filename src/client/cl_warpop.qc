@@ -2034,8 +2034,8 @@ float() WarpOp_Console =
 		return TRUE;
 	}
 
-	// Patch 848: reset is `!r`, the start of the leg you are on (mid-run past the leg's first
-	// segment, a stage restart: SV_TimerWouldRestartSeg).
+	// Reset is `!r`: the map start after a finish, otherwise the start of the
+	// current leg (a stage restart can keep a mid-run clock running).
 	// Patch 1051: goto_start is the start of the track `!r`'s latched leg is on: `!r` itself where that
 	// leg is the track's first segment (startmark, save in the box, P415), else `!m` or `!b N`.  It read
 	// the timer before, whose segment is 0 whenever it is idle, so it "only reset" to the latched stage.
