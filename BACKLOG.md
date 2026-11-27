@@ -321,20 +321,17 @@ once the reload clock is rebased -- scratchpad p1716_rebase.py), giving a "re-si
 - Game: Archive_Seal / Archive_SealFile (sv_archive.qc) still lose the owner seal when `<run>.rec.owner-p<port>-<n>.part`
   exceeds MAX_QPATH (7 of 4632 recordings since 1 Nov; Archive_Seal removes the old `.owner` first). Write the part
   under data/parts/ or check FS_WritePathStatus first, as sv_archive_stream.qc does. Then those runs can be fetched again.
-- Engine: FS_EnumerateFilesEachSys (fs.c ~4895) passes a possibly-NULL match to Sys_EnumerateFiles (search_begin
-  FORCESEARCH|FULLPACKAGE on an inactive gamedir; a server's CSQC could). A NULL guard at the top of FS_NativePath would
-  cover future callers. common.h's "0 on success" comment on FS_Rename/FS_Remove is wrong (both return true).
+- Engine: P1853 made FS_EnumerateFilesEachSys skip a NULL/empty match. Left: a NULL guard at the top of FS_NativePath
+  would cover future callers; common.h's "0 on success" comment on FS_Rename/FS_Remove is wrong (both return true).
 - P1704 first real try: Markbeaton54's 0.1.55 client POSTed a world-record view at 12:14:28Z and nginx answered 408
   (the /api/view location's 5 s client_body_timeout: the body stalled), and no retry reached nginx afterwards (408 is
   in the client's retry list). Find why the body stalls (is the POST pumped only from CL_Receipt_Think, and does a
   frame stall or the lobby crash stop it?) and why no retry followed; consider a longer body timeout.
+  P1854 (28 Nov) fixes a reproduced Windows Schannel stall of exactly this shape (writer stopped above 8 KB of
+  ciphertext; a dead socket read as "try later", so no retry). Not proven to be this one; after the release that
+  carries P1854, count `stored view` vs receipts again before closing.
 
 ## P1704 views over HTTPS -- what it leaves (21 Nov, worldofsurf-47)
-- Found by P1704's review 14, older than it: a server can list `quake.rc`/`hexen.rc` in its model precache;
-  CL_EnqueDownload lets it into ftesurf/downloads/, and CL_ExecInitialConfigs (cl_main.c ~8348) then picks the quake.rc
-  branch (the addon hit counts) and skips cfg/default.cfg, ftesurf.cfg and autoexec.cfg on every later launch: engine
-  defaults, rec_upload back on, rec_hid_upload off. Fix: ignore addon-only hits there (FS_FileIsAddonOnly, as for
-  config.cfg) or refuse .rc/.cfg downloads.
 - Deploy order: surfd generation + `setup_public.sh --view-only` (nginx /api/view), then the lobby engine, then
   `set sv_recupload_https 1` in the Pi-only lobby_local.cfg (lobby.cfg ships 0; test cfgs exec it), then measure:
   of the views receipts sign, how many land (netchan baseline 18-21 Nov: 23 of 67; surfd logs `stored view` / `view

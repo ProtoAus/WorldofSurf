@@ -21,6 +21,13 @@
 
 ## next
 
+### P1854 Run uploads on Windows
+- Large run uploads over HTTPS no longer stall halfway on Windows, and an upload cut off by a dropped connection is retried.
+
+### P1853 Your settings survive a bad download
+- A file downloaded from a server can no longer make the game skip your saved settings at the next launch.
+- Your own autoexec file now runs at startup, as in other Quake games. Autoexec files downloaded from servers never run.
+
 ### P1852 Missing water textures on surf_utopia
 - With texture replacement on, the pools draw translucent water instead of a pink-and-black checkerboard when the original water material is missing.
 
