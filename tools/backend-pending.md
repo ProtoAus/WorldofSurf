@@ -1,5 +1,16 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 27-28 Nov 2026 UTC: generation 1855 STAGED, waiting for Lex's Root install (worldofsurf-62; not live)
+Kit FTESurf-private/worktrees/gen1855-20261128-62 (RUNBOOK.md), advanced from gen1837 with genkit; Pi root
+/srv/nvme/agent-work/gen1855-20261128-62 (inert, both roles INITIALIZED CLOSED 19:40Z). Ships main 9ee36b2b's 13 changed
+surfd members: P1838 surfd half, P1845 (mapper access + badges), site defaults 466fd394/23e2f3ae, P1850, P1855. No added
+member; guard, five routes, six readers and native (df333e50 = lobby engine 7b08b0476) unchanged.
+LIVE DB ALREADY CHANGED (step 2c, 19:39Z, under the sweep lock): P1845's empty `account_badges` table exists (56 tables,
+user_version 26); backup surfd.db.bak-pre1855-20261127T193815Z (sha256 490d1703). gen1837's code never names it. Any other
+kit advanced from gen1837 (GoldQuartz's gen1849) must re-advance from gen1855 once it is live and expect 56 tables.
+P1855's sims.yaw_agree/yaw_turning arrive on the first collector sweep after the swap. The reader pins (P1613 reccheck,
+P1671/P1689/P1855 recsim) are still NOT in any generation: the kit's reader publication path is disabled and untested.
+
 ## 28 Nov 2026: P1855 waits for the next generation (worldofsurf-62; not live)
 surfd/admin.py, surfd/simcheck.py, surfd/sweep.py, surfd/templates/admin_run.html, surfd/web/board.js and the reader
 tools/census/recsim.py (+ tools/simcheck_runtime.py package v2, which now pins heldmeta.py with the paired readers).
