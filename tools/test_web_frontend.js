@@ -198,6 +198,46 @@ async function boardSources() {
   assert.match(h.ids.srcs.textContent, /All games/);
   console.log('PASS source boards: WOS default, CS:S/Momentum opt-in, TAS, source-specific styles and legacy links');
 }
+async function peopleSources() {
+  const h = harness('surfd/web/board.js');
+  const route = hash => { h.context.location.hash = hash; h.winEvents.hashchange(); };
+  const player = { who: 'abc123def456', name: 'Multi-source player', n: 991, ranked: 3, mom: 980, ksf: 8 };
+  const result = (source, n = 1) => ({ source, n, players: n ? [player] : [] });
+  h.context.location.hash = '#who=';
+  h.events.DOMContentLoaded();
+  assert.equal(h.requests.at(-1).url, 'api/players?source=ranked');
+  h.requests.at(-1).resolve(result('ranked')); await tick();
+  assert.match(h.ids['people-list'].textContent, /3 times/);
+  assert.doesNotMatch(h.ids['people-list'].textContent, /991/);
+  assert.equal(h.ids.playersources.children[0].getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(h.ids.playersources.children.map(b => b.textContent), ['WOS', 'CS:S (KSF)', 'Momentum Mod']);
+  h.ids.pq.value = 'Multi';
+  h.ids.playersources.children[1].events.click(); h.winEvents.hashchange();
+  assert.equal(h.requests.at(-1).url, 'api/players?source=ksf&q=Multi');
+  h.requests.at(-1).resolve(result('ksf')); await tick();
+  assert.match(h.ids['people-list'].textContent, /8 times/);
+  const profile = h.ids['people-list'].children[0].children[0].href;
+  route(profile);
+  assert.equal(h.ids.playersback.href, '#who=Multi&source=ksf');
+  assert.equal(h.requests.at(-1).url, 'api/player/abc123def456');
+  route(h.ids.playersback.href);
+  const old = h.requests.at(-1);
+  h.ids.playersources.children[2].events.click(); h.winEvents.hashchange();
+  assert.equal(h.requests.at(-1).url, 'api/players?source=momentum&q=Multi');
+  h.requests.at(-1).resolve(result('momentum')); await tick();
+  old.resolve(result('ksf')); await tick();
+  assert.match(h.ids['people-list'].textContent, /980 times/);
+  h.ids.pq.value = 'missing player'; h.ids.pq.events.input(); h.timer(220); h.winEvents.hashchange();
+  assert.equal(h.requests.at(-1).url, 'api/players?source=momentum&q=missing%20player');
+  h.requests.at(-1).resolve(result('momentum', 0)); await tick();
+  assert.match(h.ids.psummary.textContent, /No Momentum Mod players match/);
+  route('#who=&source=bad');
+  assert.equal(h.requests.at(-1).url, 'api/players?source=ranked');
+  h.requests.at(-1).resolve({ n: 1, players: [player] }); await tick();
+  assert.equal(h.ids['people-list'].children.length, 0, 'refuse a legacy mixed response');
+  assert.match(h.ids.err.textContent, /source filter is unavailable/);
+  console.log('PASS player directory: filtered requests, source counts, deep links, search and stale responses');
+}
 async function zoning() {
   const h = harness('src/release/site/zoning.js');
   h.requests[0].resolve({ made: '2026-01-01', cell: [1, 1, 2, 2], rows: [
@@ -257,6 +297,6 @@ async function zoningHistory() {
   console.log('PASS zoning history: have=0 canonical names, publication, offline last-good status and rollback');
 }
 (async () => {
-  if (!process.argv.includes('--zoning-only')) { await board(); await boardSources(); }
+  if (!process.argv.includes('--zoning-only')) { await board(); await boardSources(); await peopleSources(); }
   await zoning(); await zoningHistory();
 })().catch(e => { console.error(e); process.exitCode = 1; });

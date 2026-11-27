@@ -833,6 +833,30 @@ def main():
     s = body(get(m, "/board/api/players?q=nobody"))
     check("...and a miss is 200 with nothing", (s["n"], s["players"]), (0, []))
 
+    cap = m.WEB_SEARCH_MAX
+    try:
+        m.WEB_SEARCH_MAX = 1  # exercise limiting against the real mixed fixture cache
+        for source, field, total in (("ranked", "ranked", 2), ("ksf", "ksf", 1),
+                                     ("momentum", "mom", 3)):
+            s = body(get(m, "/board/api/players?source=" + source))
+            check("player source is applied before the result cap: " + source,
+                  (s["source"], s["n"], len(s["players"]), s["players"][0][field] > 0),
+                  (source, total, 1, True))
+        s = body(get(m, "/board/api/players?source=momentum&q=momo"))
+        check("name query AND record source", (s["n"], [p["name"] for p in s["players"]]), (1, ["MomOne"]))
+        s = body(get(m, "/board/api/players?source=ranked&q=momo"))
+        check("WOS search doesn't return imported-only matches", (s["n"], s["players"]), (0, []))
+        check("unknown player source rejected", get(m, "/board/api/players?source=typo").status_code, 400)
+        multi = dict(who="a", key="multi", n=1000, ranked=1, mom=999, ksf=0)
+        wos = dict(who="b", key="wos", n=5, ranked=5, mom=0, ksf=0)
+        tracked = dict(who="c", key="new", n=0, ranked=0, mom=0, ksf=0)
+        check("WOS source sorts by WOS runs, including tracked players in its total",
+              m._directory_page([multi, wos, tracked], "", "ranked"), (3, [wos]))
+        check("the same mixed player qualifies under Momentum", m._directory_page([multi, wos, tracked], "", "momentum"),
+              (1, [multi]))
+    finally:
+        m.WEB_SEARCH_MAX = cap
+
     # A colour-coded name must match the plain text the page renders.
     imported(m, "bhop_eazy", "76561198000000005", "^1Red^7Shift", 5000, "momentum")
     m.people_reset()

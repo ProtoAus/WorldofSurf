@@ -123,13 +123,14 @@
     <div class="tools">
       <input id="pq" type="search" placeholder="Search players" autocomplete="off"
              spellcheck="false" aria-label="Search players">
+      <div id="playersources" class="seg" role="group" aria-label="Player record source"></div>
     </div>
-    <p id="psummary" class="summary"></p>
+    <p id="psummary" class="summary" role="status" aria-live="polite"></p>
     <ul id="people-list" class="req"></ul>
   </section>
 
   <section id="player" hidden>
-    <a class="back" href="#who=">&larr; All players</a>
+    <a class="back" id="playersback" href="#who=">&larr; Players</a>
     <h2 id="ptitle" class="maptitle"></h2>
     <p id="psub" class="runsub"></p>
     <div id="pstats" class="stats"></div>

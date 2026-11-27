@@ -137,7 +137,7 @@
   //   #m=<map>&t=&l=&s=&tier=   one board
   //   #r=<rid>                  one run
   //   #p=<handle>               one player
-  //   #who=<query>              player search
+  //   #who=<query>[&source=...]  player search (WOS unless specified)
   function readHash() {
     var o = {};
     location.hash.replace(/^#/, '').split('&').forEach(function (kv) {
@@ -873,40 +873,59 @@
   }
 
   // ---- players -----------------------------------------------------------
-  function personRow(p) {
+  function peopleSource(source) {
+    return source === 'ksf' || source === 'momentum' ? source : 'ranked';
+  }
+
+  function peopleHash(q, source) {
+    return '#who=' + encodeURIComponent(q) + (source === 'ranked' ? '' : '&source=' + source);
+  }
+
+  function personRow(p, source, q) {
     var li = el('li');
     var a = el('a');
-    a.href = '#p=' + p.who;
+    a.href = '#p=' + p.who + '&who=' + encodeURIComponent(q) +
+      (source === 'ranked' ? '' : '&source=' + source);
     if (p.av) { a.appendChild(avatar(p.who)); }
     a.appendChild(el('span', 'who', plain(p.name) || '(no name)'));
-    var chip = srcChip(p.src);
-    if (chip) { a.appendChild(chip); }
-    a.appendChild(el('span', 'wr', p.n + (p.n === 1 ? ' time' : ' times')));
-    a.appendChild(el('span', 'why', p.maps + ' maps' +
-      (p.last ? ' · last ' + ago(p.last) : '')));
+    a.appendChild(srcChip(source));
+    var n = n0(p[source === 'momentum' ? 'mom' : source]);
+    a.appendChild(el('span', 'wr', n + (n === 1 ? ' time' : ' times')));
     li.appendChild(a);
     return li;
   }
 
-  function showPeople(q) {
+  function showPeople(q, source) {
     showOnly('people');
     document.title = 'Players · World of Surf';
-    var box = $('pq');
+    var box = $('pq'), tabs = $('playersources');
     if (box.value !== q) { box.value = q; }
+    tabs.textContent = '';
+    TIER_TABS.forEach(function (p) {
+      tabs.appendChild(tabButton(p[1], null, p[0] === source, function () {
+        location.hash = peopleHash(box.value.trim(), p[0]);
+      }));
+    });
     var seq = ++state.seq;
-    get('api/players' + (q ? '?q=' + encodeURIComponent(q) : ''))
+    $('people-list').textContent = '';
+    $('psummary').textContent = 'Loading ' + TIER_NAMES[source] + ' players…';
+    get('api/players?source=' + source + (q ? '&q=' + encodeURIComponent(q) : ''))
+      .then(function (body) {
+        if (body.source !== source) { throw new Error('Player source filter is unavailable.'); }
+        return body;
+      })
       .then(function (body) {
         if (seq !== state.seq) { return; }
         showError('');
         var ul = $('people-list');
         ul.textContent = '';
         var frag = document.createDocumentFragment();
-        (body.players || []).forEach(function (p) { frag.appendChild(personRow(p)); });
+        (body.players || []).forEach(function (p) { frag.appendChild(personRow(p, source, q)); });
         ul.appendChild(frag);
         var shown = (body.players || []).length;
         $('psummary').textContent = body.n === 0
-          ? (q ? 'No player matches “' + q + '”' : 'No players yet')
-          : body.n + ' player' + (body.n === 1 ? '' : 's') +
+          ? (q ? 'No ' + TIER_NAMES[source] + ' players match “' + q + '”' : 'No ' + TIER_NAMES[source] + ' players yet')
+          : body.n + ' ' + TIER_NAMES[source] + ' player' + (body.n === 1 ? '' : 's') +
             (shown < body.n ? ' · showing the top ' + shown : '');
       }, function (e) {
         if (seq !== state.seq) { return; }
@@ -1278,8 +1297,12 @@
     // to one is through that list, and its back link goes there.
     navTab((h.p || h.who !== undefined) ? 'people' : 'board');
     if (h.r) { showRun(h.r, h.at); return; }
-    if (h.p) { showProfile(h.p); return; }
-    if (h.who !== undefined) { showPeople(h.who); return; }
+    if (h.p) {
+      $('playersback').href = peopleHash(h.who || '', peopleSource(h.source));
+      showProfile(h.p);
+      return;
+    }
+    if (h.who !== undefined) { showPeople(h.who, peopleSource(h.source)); return; }
     if (h.m) { showMap(h); return; }
     state.seq++;
     state.view = null;
@@ -1324,7 +1347,8 @@
       var v = $('pq').value.trim();
       window.clearTimeout(tsearch);
       tsearch = window.setTimeout(function () {
-        location.hash = '#who=' + encodeURIComponent(v);
+        var h = readHash();
+        if (h.who !== undefined && !h.p) { location.hash = peopleHash(v, peopleSource(h.source)); }
       }, 220);
     });
     window.addEventListener('hashchange', route);

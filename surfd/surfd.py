@@ -8190,27 +8190,58 @@ def people_reset():
         _mt["at"], _mt["tier"] = -1e9, None
 
 
+PEOPLE_SOURCES = {TIER_RANKED: "ranked", TIER_KSF: "ksf", TIER_MOMENTUM: "mom"}
+
+
+def _directory_page(people, q, source):
+    if not source and not q:
+        return len(people), people[:WEB_SEARCH_MAX]
+    field = PEOPLE_SOURCES.get(source)
+    total, hits = 0, []
+
+    def matches(e):
+        # Keep tracked players without a finish on the WOS side only.
+        return ((not field or e[field] or (source == TIER_RANKED and not e["n"]))
+                and (not q or q in e["key"]))
+
+    if field:
+        import heapq
+
+        def candidates():
+            nonlocal total
+            for e in people:
+                if matches(e):
+                    total += 1
+                    yield e
+
+        # Sort within the chosen source across the whole cached directory,
+        # not the mixed top 60. Keep only a bounded heap on busy searches.
+        hits = heapq.nsmallest(WEB_SEARCH_MAX, candidates(),
+                               key=lambda e: (-e[field], e["key"], e["who"]))
+    else:
+        for e in people:
+            if matches(e):
+                total += 1
+                if len(hits) < WEB_SEARCH_MAX:
+                    hits.append(e)
+    return total, hits
+
+
 @app.get("/board/api/players")
 def web_players():
     now = int(time.time())
     if not rate_ok(rate_key(), now, WEB_RATE_MAX, "web"):
         return fail(429, "rate limited")
     q = web_plain(clean_text(request.args.get("q"), 64) or "").lower()
+    source = request.args.get("source", "")
+    if source and source not in PEOPLE_SOURCES:
+        return fail(400, "bad player source")
     try:
         _by_handle, people = web_people(get_db(), now)
     except sqlite3.Error as exc:
         log.exception("web players db error: %s", exc)
         return fail(500, "storage error")
-    if not q:
-        total = len(people)
-        hits = people[:WEB_SEARCH_MAX]
-    else:
-        total, hits = 0, []
-        for e in people:
-            if q in e["key"]:
-                total += 1
-                if len(hits) < WEB_SEARCH_MAX:
-                    hits.append(e)
+    total, hits = _directory_page(people, q, source)
     out = [{"who": e["who"], "name": e["name"], "n": e["n"], "maps": e["maps"],
             "last": e["last"], "src": e["src"], "ranked": e["ranked"],
             "mom": e["mom"], "ksf": e["ksf"]}
@@ -8223,7 +8254,8 @@ def web_players():
         if e["who"] in pics:
             e["av"] = 1
     return _json({"v": 1, "t": now, "q": q, "n": total,
-                  "limit": WEB_SEARCH_MAX, "players": out}, "max-age=30")
+                  "limit": WEB_SEARCH_MAX, "players": out,
+                  **({"source": source} if source else {})}, "max-age=30")
 
 
 def _completion_scope(have_main):
