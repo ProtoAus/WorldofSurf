@@ -96,7 +96,8 @@ limit_conn_zone $server_name zone=mapupd_all:64k;
 """
 FILES = {'surfd/mapupd.py': 'mapupd.py', 'surfd/mapupd_wsgi.py': 'mapupd_wsgi.py', 'surfd/mapmanifest.py': 'mapmanifest.py',
          'surfd/zonepub.py': 'zonepub.py', 'surfd/zonepub_publish.py': 'zonepub_publish.py', 'surfd/tascontent.py': 'tascontent.py',
-         'surfd/accounts.py': 'accounts.py', 'surfd/steam.py': 'steam.py', 'surfd/rcon.py': 'rcon.py',
+         'surfd/accounts.py': 'accounts.py', 'surfd/inventory.py': 'inventory.py',
+         'surfd/steam.py': 'steam.py', 'surfd/rcon.py': 'rcon.py',
          'surfd/ksfprofile.py': 'ksfprofile.py', 'surfd/momprofile.py': 'momprofile.py', 'surfd/fetchq.py': 'fetchq.py',
          'tools/ed25519.py': 'tools/ed25519.py'}      # accounts -> ksfprofile -> fetchq (the Pi dry run found it)
 

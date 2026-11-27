@@ -21,6 +21,11 @@
 
 ## next
 
+### P1845 Player badges and mapper uploads
+- Mapper Admins can publish maps with F8. The badge does not give access to the zone editor or admin panel.
+- Players who compete in a live round during the tournament beta earn the Tournament Tester badge, even if they do not finish the round.
+- Player badges are visible on profiles in the main menu and in game. The account admin page now keeps badges and items in one Manage menu per player.
+
 ## 0.1.71 2026-11-26
 
 ### P1843 Correct prop shading

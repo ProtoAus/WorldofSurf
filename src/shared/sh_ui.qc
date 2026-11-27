@@ -548,6 +548,43 @@ void(vector pos, vector size, float radius, vector color, float alpha) sui_round
 	_sui_round_draw(pos, size, radius, color, alpha);
 };
 
+// Profile badges are presentation only. Limit the separate extra field to its known bits.
+float(float roles, float badges) sui_badge_mask =
+{
+	if (!(roles & 1)) return roles;
+	if (badges < 0 || badges > 24 || badges != floor(badges)) return roles;
+	return roles | (badges & 24);
+};
+
+// Give badges their own full-width row rather than stealing space from the name.
+// Returns the height used, including for rows that wrap at smaller viewport sizes.
+float(vector p, float mask, float textsize, float width) sui_profile_badges =
+{
+	local float bit, w, x, y, h, font;
+	local string label;
+	local vector colour;
+	if (!mask || width <= 0) return 0;
+	h = ceil(textsize * 1.9);
+	x = y = 0;
+	for (bit = 16; bit >= 1; bit = bit / 2)
+	{
+		if (!(mask & bit)) continue;
+		if (bit == 16) { label = "Tournament Tester"; colour = '0.43 0.94 0.66'; }
+		else if (bit == 8) { label = "Mapper Admin"; colour = '1 0.66 0.37'; }
+		else if (bit == 4) { label = "Developer"; colour = '0.86 0.55 1'; }
+		else if (bit == 2) { label = "Zoner"; colour = '1 0.76 0.3'; }
+		else { label = "Tester"; colour = '0.4 0.83 1'; }
+		w = stringwidth(label, TRUE, [textsize, textsize]) + textsize;
+		font = textsize;
+		if (w > width) { font = font * width / w; w = width; }
+		if (x && x + w > width) { x = 0; y = y + h; }
+		sui_roundbox(p + [x, y], [w, h - 2], textsize * 0.5, colour * 0.19, 1);
+		sui_text(p + [x + font * 0.5, y + (h - font) * 0.5], [font, font], label, colour, 1, 0);
+		x = x + w + textsize * 0.4;
+	}
+	return y + h;
+};
+
 void(vector pos, vector size, float radius, vector fill, vector border, float alpha) sui_style_box =
 {
 	sui_transform_box(pos, size);

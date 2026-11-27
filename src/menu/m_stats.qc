@@ -211,9 +211,12 @@ void(vector size) MStats_Draw =
 	}
 	sui_text([x, y + 2], [hint, hint], ui_fit_text(s, cx - x - hint, [hint, hint]), COL_DIM, 1, 0);
 	Profile_Field("pf_qa", [size_x - pad - fw, pad], [fw, fh], tsz);
-	sui_fill([pad, pad + pic + 12], [size_x - pad * 2, 1], SUI_THEME_EDGE, 1, 0);
+	y0 = pad + pic + 12;
+	if (who != "" && pf_state == PFS_OK)
+		y0 = y0 + sui_profile_badges([pad, y0], pf_badge_mask, hint, size_x - pad * 2);
+	sui_fill([pad, y0], [size_x - pad * 2, 1], SUI_THEME_EDGE, 1, 0);
 
-	y0 = pad + pic + 24;
+	y0 = y0 + 12;
 	if (who == "")
 		sui_text([pad, y0 + hint], [tsz, tsz], "Link your Steam account on a lobby to have a World of Surf profile here.",
 		         COL_DIM, 1, 0);

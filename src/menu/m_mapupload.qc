@@ -926,7 +926,7 @@ void(vector screensize) MUp_Draw =
 	sui_style_panel(p, [w, h], 12, 1);
 	Font_Set(ui_font_ui);
 	sui_text(p + '18 16 0', SZ_HEAD, "Upload a map", COL_TEXT, 1, 0);
-	sui_text(p + '18 46 0', SZ_LABEL, "Map admins only: it goes live for everyone. Drop .bsp, pictures or a zone .json on the window.", COL_DIM, 1, 0);
+	sui_text(p + '18 46 0', SZ_LABEL, "Mapper Admin access required. Publishing goes live for everyone. Drop a .bsp, picture or zone .json here.", COL_DIM, 1, 0);
 	if (ui_button("mup_close", [p_x + w - 16 - 90, p_y + 14], [90, 30], "Close") && !MUp_Busy())
 	{
 		MUp_Close();

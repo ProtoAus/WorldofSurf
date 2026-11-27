@@ -71,6 +71,7 @@ float  pf_base, pf_seq;         // this VM's request ids: Profile_Get
 vector pf_f_scr;                // the screen the field was last drawn on
 string pf_name, pf_handle;
 vector pf_cosmetics;
+float  pf_badge_mask;
 vector pf_inventory;                 // owned aura, owned crown, saved crown colour
 float pf_inventory_known, pf_play_known, pf_play_seconds, pf_ownsanta, pf_santa;
 float pf_on_play_known, pf_on_play_seconds, pf_on_attempts;
@@ -175,12 +176,20 @@ string() Profile_ModeArg =
 	return "";
 };
 
+float() Profile_OnlineTerms =
+{
+#ifdef MENU
+	// Use the title menu's actual consent record, not CSQC's copy or queued mirror.
+	return ms_consent >= FS_TERMS_ONLINE;
+#else
+	return ui_consent_ver >= FS_TERMS_ONLINE || cvar("rec_terms") >= FS_TERMS_ONLINE;
+#endif
+};
+
 // Anything that contacts a server needs the online terms: Online_Fetch has the essay.
 float() Profile_Gate =
 {
-	if (ui_consent_ver < FS_TERMS_ONLINE)
-	if (cvar("rec_terms") < FS_TERMS_ONLINE)
-		return PFS_NOTERMS;
+	if (!Profile_OnlineTerms()) return PFS_NOTERMS;
 	if (cvar_string("lobby_dir") == "")
 		return PFS_NODIR;
 	return PFS_NONE;
@@ -277,8 +286,7 @@ void() Profile_Fetch =
 {
 	local string url;
 	if (strlen(pf_handle) != 12 || cltime < pf_f_after) return;
-	if (ui_consent_ver < FS_TERMS_ONLINE)          // Online_MomAllowed; this file also builds into menu
-	if (cvar("rec_terms") < FS_TERMS_ONLINE) return;
+	if (!Profile_OnlineTerms()) return;
 	if (!pf_base)
 		pf_base = 8000000 + floor(random() * 1000) * 4000;
 	pf_seq = (pf_seq >= 3999) ? 1 : pf_seq + 1;
@@ -531,6 +539,7 @@ void(string who) Profile_Show =
 	pf_total = 0;
 	pf_name = "";
 	pf_cosmetics = '0 0 0';
+	pf_badge_mask = 0;
 	pf_inventory = '0 0 0';
 	pf_inventory_known = pf_play_known = pf_play_seconds = pf_ownsanta = pf_santa = 0;
 	pf_handle = "";
@@ -808,6 +817,8 @@ void(string bdy) Profile_Parse =
 	Profile_FigsRead(json_find_object_child(c, "all"), 0);
 	Profile_FigsRead(json_find_object_child(c, "wos"), 15);
 	c = json_find_object_child(root, "cosmetics");
+	pf_badge_mask = sui_badge_mask(bound(0, json_get_float(json_find_object_child(c, "roles")), 7),
+	                              json_get_float(json_find_object_child(c, "badges")));
 	pf_cosmetics = [bound(0, json_get_float(json_find_object_child(c, "roles")), 7),
 	                bound(0, json_get_float(json_find_object_child(c, "outline")), 1),
 	                bound(0, json_get_float(json_find_object_child(c, "hat")), 12)];

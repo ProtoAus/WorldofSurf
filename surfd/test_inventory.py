@@ -31,6 +31,7 @@ class InventoryTests(unittest.TestCase):
         self.db.execute("DELETE FROM account_event_grants")
         self.db.execute("DELETE FROM account_items")
         self.db.execute("DELETE FROM account_cosmetics")
+        self.db.execute("DELETE FROM account_badges")
         self.db.commit()
 
     def kit(self, index=0, op="get", **extra):
@@ -167,12 +168,32 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(c.post("/admin/api/inventory", data=form, headers={"Sec-Fetch-Site": "same-origin"}).get_json()["ok"], True)
         self.assertEqual(self.kit().get_json()["roles"], 5)
         self.assertEqual(self.kit(1).get_json()["roles"], 1)
-        form["steamid"] = "Alice"
-        self.assertEqual(c.post("/admin/api/inventory", data=form).status_code, 400)
+        for value in ("mapper-admin", "tournament-tester"):
+            self.assertEqual(c.post("/admin/api/inventory", data=dict(form, value=value)).get_json()["ok"], True)
+        self.assertEqual(c.post("/admin/api/inventory", data=dict(form, action="grant", value="3")).get_json()["ok"], True)
+        self.assertEqual(self.kit().get_json()["badges"], 24)
+        roster = json.dumps([dict(token=self.tokens[0], hash="", inventory=1, inventory_version=2)])
+        kit = self.post("/api/social/poll", roster=roster).get_json()["players"][0]["inventory"]
+        self.assertEqual((kit["roles"], kit["badges"]), (5, 24))
+        # A newly badged mapper can open a title profile even without a finish.
+        S._people_install(*S._people_build(self.db), at=self.now)
+        response = self.client.get("/api/board", query_string={"player": S.web_handle(IDS[0])})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        profile = response.get_json()
+        self.assertEqual((profile["n"], profile["cosmetics"]["roles"], profile["cosmetics"]["badges"]), (0, 5, 24))
+        self.assertEqual(c.post("/admin/api/inventory", data=dict(form, steamid="Alice")).status_code, 400)
         rows = c.get("/admin/api/accounts").get_json()
         self.assertTrue(rows["ok"])
-        self.assertTrue(any(r["cosmetics"]["roles"] == 5 for r in rows["accounts"]))
-        self.assertEqual(c.get("/admin/accounts").status_code, 200)
+        cosmetics = next(r["cosmetics"] for r in rows["accounts"] if r["steamid"] == IDS[0])
+        self.assertEqual((cosmetics["roles"], cosmetics["badges"], [r["id"] for r in cosmetics["items"]]), (5, 24, [1, 2, 3]))
+        page = c.get("/admin/accounts")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b'id="kit-dialog"', page.data)
+        self.assertIn(b'Mapper Admin', page.data)
+        self.assertIn(b'Tournament Tester', page.data)
+        self.assertTrue(c.post("/admin/api/inventory", data=dict(form, action="remove-role", value="mapper-admin")).get_json()["ok"])
+        self.assertEqual(self.kit().get_json()["badges"], 16)
+        self.assertNotIn("badges", self.kit(1).get_json())
 
     def test_schema24_migration_transaction_cuts_preserve_accounts(self):
         before = list(map(tuple, self.db.execute("SELECT * FROM accounts ORDER BY steamid")))

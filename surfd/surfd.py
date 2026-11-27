@@ -1999,6 +1999,10 @@ def migrate():
         conn.execute("CREATE TABLE IF NOT EXISTS lobby_handoffs"
                      " (node TEXT PRIMARY KEY, until INTEGER NOT NULL)")
         conn.commit()
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if inventory.ensure_badge_schema(conn):
+                tournaments.backfill_beta_badges(conn)
         if RANKED_LINKED:
             moved = accounts.ranked_now(conn, TIERS_IMPORTED)
             if moved != (0, 0):
@@ -7871,9 +7875,11 @@ def _people_build(db):
         rows[r["player"]] = {"n": r["n"], "maps": r["maps"], "last": r["last"],
                              "ranked": r["ranked"], "mom": r["mom"],
                              "ksf": r["ksf"], "name": r["name"] or ""}
-    # A tracked linked player need not have completed a run yet.
+    # A tracked or badged linked player need not have completed a run yet.
     for sid, name in db.execute("SELECT steamid,name FROM accounts a WHERE banned_at=0"
-                               " AND EXISTS(SELECT 1 FROM play_maps p WHERE p.steamid=a.steamid)"):
+                               " AND (EXISTS(SELECT 1 FROM play_maps p WHERE p.steamid=a.steamid)"
+                               " OR (EXISTS(SELECT 1 FROM account_badges b WHERE b.steamid=a.steamid AND b.active=1)"
+                               " AND EXISTS(SELECT 1 FROM keylinks k WHERE k.steamid=a.steamid)))"):
         rows.setdefault(sid, dict(n=0, maps=0, last=0, ranked=0, mom=0, ksf=0,
                                   name=accounts.game_name(name) or "player"))
     # An account is listed under its Steam name, not under whichever of its

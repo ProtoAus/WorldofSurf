@@ -216,6 +216,37 @@ class Flow(unittest.TestCase):
         self.assertEqual(b['ok'], 0)
         self.assertIn('not a map uploader', b['error'])
 
+    def test_mapper_badge_is_required_for_signed_upload_without_legacy_role(self):
+        with sqlite3.connect(self.store / 'mapupd.db') as db:
+            db.execute('DELETE FROM roles')
+        with sqlite3.connect(self.main) as db:
+            M.inventory.ensure_badge_schema(db)
+            M.inventory.award_tournament_tester(db, SID)
+        bsp = vbsp()
+        denied, _ = self.begin(manifest('surf_denied', bsp))
+        self.assertIn('not a map uploader', denied['error'])
+        with sqlite3.connect(self.main) as db:
+            db.execute('INSERT INTO account_badges VALUES (?,?,1)', (SID, M.inventory.MAPPER_ADMIN))
+        self.assertEqual(self.upload('surf_mapper', bsp)[1]['ok'], 1)
+        tok = self.begin(manifest('surf_mapper_revoked', bsp))[0]['session']
+        self.assertEqual(self.part(tok, 'bsp', bsp)['ok'], 1)
+        with sqlite3.connect(self.main) as db:
+            db.execute('UPDATE account_badges SET active=0 WHERE badge=?', (M.inventory.MAPPER_ADMIN,))
+        self.assertIn('not a map uploader', self.finish(tok)['error'])
+        self.assertFalse((self.maps / 'surf_mapper_revoked.bsp').exists())
+        with sqlite3.connect(self.main) as db:
+            db.execute('UPDATE account_badges SET active=1')
+            db.execute('UPDATE accounts SET banned_at=1')
+        self.assertEqual(self.begin(manifest('surf_mapper_banned', bsp))[0]['ok'], 0)
+        with sqlite3.connect(self.main) as db:
+            db.execute('UPDATE accounts SET banned_at=0')
+        tok = self.begin(manifest('surf_mapper_unlinked', bsp))[0]['session']
+        self.part(tok, 'bsp', bsp)
+        with sqlite3.connect(self.main) as db:
+            db.execute('DELETE FROM keylinks')
+        self.assertIn('cannot upload', self.finish(tok)['error'])
+        self.assertFalse((self.maps / 'surf_mapper_unlinked.bsp').exists())
+
     def test_unlinked_and_banned(self):
         b, _ = self.begin(manifest('surf_stranger', vbsp()), seed=bytes(range(1, 33)))
         self.assertIn('Link your Steam account', b['error'])

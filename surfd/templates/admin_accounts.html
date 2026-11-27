@@ -6,6 +6,13 @@
 <meta name="robots" content="noindex, nofollow">
 <title>Accounts · World of Surf admin</title>
 {% include "_admin_style.html" %}
+<style>
+  #kit-dialog { color:var(--text); width:min(30rem, calc(100% - 2rem)); }
+  #kit-dialog::backdrop { background:rgba(0,0,0,.72); }
+  #kit-choice { display:block; width:100%; margin-top:.35rem; }
+  #kit-hint { min-height:2.8em; }
+  .kit-cell { min-width:10rem; }
+</style>
 </head>
 <body>
 <header>
@@ -44,11 +51,80 @@
   </div>
 </main>
 
-<div class="toast" id="toast"></div>
+<dialog class="card" id="kit-dialog" aria-labelledby="kit-title">
+  <h2 id="kit-title">Manage inventory / badges</h2>
+  <p class="lead" id="kit-account"></p>
+  <form id="kit-form">
+    <label for="kit-choice">Choose a change</label>
+    <select id="kit-choice" aria-describedby="kit-hint" autofocus required></select>
+    <p class="note" id="kit-hint" aria-live="polite"></p>
+    <div class="row">
+      <button type="submit" id="kit-apply" class="primary" disabled>Apply change</button>
+      <button type="button" id="kit-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+<div class="toast" id="toast" role="status"></div>
 
 <script>
 "use strict";
 const CSRF = {{ csrf | tojson }};
+const BADGES = {{ badges | tojson }};
+const ITEMS = {{ items | tojson }};
+const kitDialog = document.getElementById("kit-dialog");
+const kitChoice = document.getElementById("kit-choice");
+const kitHint = document.getElementById("kit-hint");
+const kitApply = document.getElementById("kit-apply");
+let kitAccount, kitActions;
+
+function badgeMask(c) { return c.roles | (c.badges || 0); }
+function showKitAction() {
+  const action = kitActions[kitChoice.value];
+  kitApply.disabled = !action;
+  kitApply.textContent = action ? action.label : "Apply change";
+  kitHint.textContent = action ? action.hint : "Select a badge or item to see what the change does.";
+}
+function openKit(a, c) {
+  kitAccount = a;
+  kitActions = [];
+  document.getElementById("kit-account").textContent = (a.name || "(unnamed account)") + " · " + a.steamid;
+  const placeholder = el("option", "", "Select a badge or item…");
+  placeholder.disabled = true;
+  placeholder.value = "";
+  kitChoice.replaceChildren(placeholder);
+  const mask = badgeMask(c);
+  for (const [label, catalog, has, add, remove, verb, undo] of [
+    ["Badges", BADGES, entry => !!(mask & entry.bit), "add-role", "remove-role", "Add", "Remove"],
+    ["Items", ITEMS, entry => c.items.some(i => i.id === entry.id), "grant", "revoke", "Give", "Revoke"]
+  ]) {
+    const group = el("optgroup");
+    group.label = label;
+    for (const entry of catalog) {
+      const owned = has(entry), actionLabel = (owned ? undo : verb) + " " + entry.name;
+      const option = el("option", "", actionLabel);
+      option.value = String(kitActions.length);
+      kitActions.push({op: owned ? remove : add, id: entry.id, label: actionLabel, hint: entry.hint});
+      group.appendChild(option);
+    }
+    kitChoice.appendChild(group);
+  }
+  kitChoice.value = "";
+  showKitAction();
+  kitDialog.showModal();
+}
+kitChoice.addEventListener("change", showKitAction);
+document.getElementById("kit-cancel").addEventListener("click", () => kitDialog.close());
+document.getElementById("kit-form").addEventListener("submit", ev => {
+  ev.preventDefault();
+  const action = kitActions[kitChoice.value];
+  if (!action || busy) return;
+  const sid = kitAccount.steamid;
+  if (action.id === "mapper-admin" && !confirm(action.label + " for " + sid + "? " + action.hint)) return;
+  kitDialog.close();
+  void post({steamid: sid, action: action.op, value: action.id}, "inventory").then(() => {
+    document.querySelector(`.kit-cell button[data-sid="${CSS.escape(sid)}"]`)?.focus();
+  });
+});
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -88,7 +164,7 @@ async function post(fields, endpoint = "ban") {
     ok = !!j.ok;
     toast(ok ? (j.message || "done") : (j.error || "failed"), ok);
   } catch (e) { toast("could not reach surfd: " + e.message, false); }
-  if (ok) {
+  if (ok && endpoint === "ban") {
     document.getElementById("sid").value = "";
     document.getElementById("note").value = "";
   }
@@ -107,20 +183,20 @@ function accountRow(a) {
   b.dataset.seen = String(a.banned);
   b.dataset.name = a.name || "(never signed in)";
   act.appendChild(b);
-  const kit = el("td"), c = a.cosmetics || {roles: 0, items: []};
-  kit.appendChild(el("div", "muted", (c.roles & 1) ? "Tester" : "Not linked"));
-  for (const [value, label, bit] of [["zoner", "Zoner", 2], ["developer", "Developer", 4]]) {
-    const button = el("button", "", ((c.roles & bit) ? "Remove " : "Add ") + label);
-    Object.assign(button.dataset, {sid: a.steamid, inventory: "1", name: a.name,
-      action: (c.roles & bit) ? "remove-role" : "add-role", value});
-    kit.appendChild(button);
-  }
-  for (const [id, label] of [[1, "Ice outline"], [2, "Party hat"], [3, "Santa hat"]]) {
-    const owned = c.items.some(i => i.id === id);
-    const button = el("button", "", (owned ? "Revoke " : "Give ") + label);
-    Object.assign(button.dataset, {sid: a.steamid, inventory: "1", name: a.name,
-      action: owned ? "revoke" : "grant", value: String(id)});
-    kit.appendChild(button);
+  const kit = el("td", "kit-cell"), c = a.cosmetics || {roles: 0, items: []};
+  const mask = badgeMask(c);
+  if (mask & 1) {
+    const names = ["Tester", ...BADGES.filter(entry => mask & entry.bit).map(entry => entry.name)];
+    const summary = el("div", "muted", names.length + (names.length === 1 ? " badge" : " badges") +
+      " · " + c.items.length + (c.items.length === 1 ? " item" : " items"));
+    summary.title = names.join(", ");
+    const manage = el("button", "", "Manage…");
+    manage.dataset.sid = a.steamid;
+    manage.setAttribute("aria-label", "Manage inventory and badges for " + (a.name || a.steamid));
+    manage.addEventListener("click", () => { if (!busy) openKit(a, c); });
+    kit.append(summary, manage);
+  } else {
+    kit.appendChild(el("span", "muted", a.banned ? "Unavailable while banned" : "Not linked"));
   }
   tr.append(el("td", "", a.name || "(never signed in)"), el("td", "mono", a.steamid),
             el("td", "num mono", a.installs), el("td", "num mono", a.shown),
@@ -164,12 +240,7 @@ document.getElementById("ban").addEventListener("click", () => {
 // first, by name.
 document.querySelector("#accounts tbody").addEventListener("click", ev => {
   const b = ev.target.closest("button[data-sid]");
-  if (!b || busy) return;
-  if (b.dataset.inventory) {
-    if (!confirm(b.textContent + " for " + b.dataset.name + "? Badges do not grant editing permissions.")) return;
-    post({steamid: b.dataset.sid, action: b.dataset.action, value: b.dataset.value}, "inventory");
-    return;
-  }
+  if (!b || busy || !b.dataset.action) return;
   if (b.dataset.action === "ban") {
     document.getElementById("sid").value = b.dataset.sid;
     document.getElementById("note").value = "";

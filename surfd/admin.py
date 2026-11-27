@@ -2301,8 +2301,12 @@ def build_blueprint(app, log, db_connect, lobby_ttl, client_identity=None,
         def accounts_page():
             if not logged_in():
                 return redirect(url_for("admin.login_form"))
+            badges = [dict(id=key, name=name, hint=hint, bit=(inventory.ROLES | inventory.EXTRA_BADGES)[key])
+                      for key, (name, hint) in inventory.BADGE_CATALOG.items()]
+            items = [dict(id=id_, name=name, hint=f"Inventory item · {slot} slot.")
+                     for id_, (name, slot) in inventory.CATALOG.items()]
             return render_template("admin_accounts.html", csrf=csrf_token(),
-                                   have_runs=runs is not None)
+                                   have_runs=runs is not None, badges=badges, items=items)
 
         @bp.get("/api/accounts")
         def accounts_list():
@@ -2330,7 +2334,7 @@ def build_blueprint(app, log, db_connect, lobby_ttl, client_identity=None,
             op = request.form.get("action", "")
             value = request.form.get("value", "")
             if op in ("grant", "revoke"):
-                if value not in ("1", "2"):
+                if value not in {str(item) for item in inventory.CATALOG}:
                     raise AdminError("Unknown item")
                 value = int(value)
             conn = db_connect()

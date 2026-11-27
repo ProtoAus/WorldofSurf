@@ -26,7 +26,9 @@ back. `--upgrade-from <installed commit>` moves it to a new commit and keeps the
 
 ## Roles (as proto)
 
-Every account is refused until granted. The zone admins (Proto, Markbeaton54 on 23 Nov) in one step, ids never printed:
+For ordinary grants, use `/admin/accounts` → **Manage…** → **Add Mapper Admin** on the exact linked Steam account. This grants F8 uploads, not the zone editor, admin panel or server administration. Use **Remove Mapper Admin** to revoke it. The independent legacy allowlist still works; remove that grant too if present. `Tournament Tester`, `Zoner` and `Developer` badges confer no upload access.
+
+For legacy grants from the host, the zone admins (Proto, Markbeaton54 on 23 Nov) in one step, ids never printed:
 
     python3 /opt/ftesurf-mapupd/<commit>/mapupd.py --store /srv/nvme/ftesurf-ops/mapupd-state grant-zone-admins
     ... grant --identity-file F | revoke --identity-file F    (F: one SteamID64, kept private; revoke closes open uploads)
@@ -38,7 +40,7 @@ Every account is refused until granted. The zone admins (Proto, Markbeaton54 on 
 2. `begin` = the manifest + `nonce/pub/sig`: the signature is the menu's `friends_sign(nonce, "mapupload",
    sha256(manifest))` (the FTESURF-FRIENDS statement, op mapupload; the engine signs it off a lobby, or on one only
    under a device's press, and the menu offers it only in the main menu, a game it hosts, or a lobby the directory
-   lists). The key must be linked to an unbanned account holding the role; the name must be new (`surf_`/`bhop_`):
+   lists). The key must be linked to an unbanned account with Mapper Admin or a legacy grant; the name must be new (`surf_`/`bhop_`):
    no BSP in the library, no row in the list or table; 20 GB must stay free; 10 maps / 8 GB an account a day. A retry
    replaces the account's earlier attempt at that name. P1799: zones are optional for every mode, and zone files
    already on the server do not hold a name -- zone files are all zone_edit's Publish (zonepub) writes, so a name

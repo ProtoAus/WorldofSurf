@@ -1,4 +1,4 @@
-"""Account cosmetics. No gameplay privileges, client paths or identity claims.
+"""Account cosmetics and badge grants. Only Mapper Admin is an upload permission.
 
 Caller owns BEGIN IMMEDIATE for grants/equipment. Account identity comes only
 from social.session or the authenticated, CSRF-checked operator panel. Catalog
@@ -13,6 +13,15 @@ COLOURS = 12
 CATALOG = {1: ("Ice outline", "aura"), 2: ("Paper party hat", "hat"), 3: ("Santa hat", "hat")}
 CHRISTMAS_EVENT = "christmas-2026"
 ROLES = {"zoner": 2, "developer": 4}
+MAPPER_ADMIN = "mapper-admin"
+TOURNAMENT_TESTER = "tournament-tester"
+EXTRA_BADGES = {MAPPER_ADMIN: 8, TOURNAMENT_TESTER: 16}
+BADGE_CATALOG = {
+    "zoner": ("Zoner", "Recognition only. Does not grant the zone editor role."),
+    "developer": ("Developer", "Recognition only. Does not grant site or game administration."),
+    MAPPER_ADMIN: ("Mapper Admin", "Allows this linked Steam account to publish maps through F8. It does not grant zone editor or site administration. The legacy upload allowlist is managed separately."),
+    TOURNAMENT_TESTER: ("Tournament Tester", "Recognition for playing a live round during the tournament beta. No permissions."),
+}
 SQL = """
 CREATE TABLE IF NOT EXISTS account_cosmetics (
  steamid TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0
@@ -68,6 +77,31 @@ def ensure_event_schema(db):
         if db.in_transaction:
             db.rollback()
         raise
+
+
+def ensure_badge_schema(db):
+    """Additive, so older services keep reading the original CHECK-constrained mask."""
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='account_badges'").fetchone():
+        return False
+    db.execute("CREATE TABLE account_badges (steamid TEXT NOT NULL REFERENCES accounts(steamid),"
+               " badge TEXT NOT NULL, active INTEGER NOT NULL CHECK(active IN (0,1)),"
+               " PRIMARY KEY(steamid,badge))")
+    return True
+
+
+def has_mapper_badge(db, sid):
+    # The separately deployed upload service also supports a pre-badge surfd DB.
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='account_badges'").fetchone():
+        return False
+    return db.execute("SELECT 1 FROM account_badges WHERE steamid=? AND badge=? AND active=1",
+                      (sid, MAPPER_ADMIN)).fetchone() is not None
+
+
+def award_tournament_tester(db, sid):
+    # A manual revoke leaves a tombstone so later tournaments cannot re-award it.
+    db.execute("INSERT INTO account_badges(steamid,badge,active)"
+               " SELECT steamid,?,1 FROM accounts WHERE steamid=?"
+               " ON CONFLICT(steamid,badge) DO NOTHING", (TOURNAMENT_TESTER, sid))
 
 
 def item_table(item):
@@ -143,6 +177,10 @@ def public(db, sid):
         return {"roles": 0, "outline": 0, "hat": 0, "santa": 0, "items": []}
     row = db.execute("SELECT badges FROM account_cosmetics WHERE steamid=?", (sid,)).fetchone()
     result = {"roles": 1 | (row[0] if row else 0), "outline": 0, "hat": 0, "santa": 0, "items": owned(db, sid)}
+    badges = sum(EXTRA_BADGES.get(r[0], 0) for r in db.execute(
+        "SELECT badge FROM account_badges WHERE steamid=? AND active=1", (sid,)))
+    if badges:
+        result["badges"] = badges  # separate wire field; old VMs reject roles > 7
     for r in result["items"]:
         if r["equipped"]:
             if r["id"] == 1:
@@ -220,6 +258,11 @@ def equip(db, sid, item, on, revision):
 def administer(db, sid, op, value):
     if not linked(db, sid):
         raise ValueError("Choose a linked, non-banned Steam account")
+    if op in ("add-role", "remove-role") and value in EXTRA_BADGES:
+        db.execute("INSERT INTO account_badges(steamid,badge,active) VALUES(?,?,?)"
+                   " ON CONFLICT(steamid,badge) DO UPDATE SET active=excluded.active",
+                   (sid, value, int(op == "add-role")))
+        return snapshot(db, sid)
     ensure(db, sid)
     if op == "grant":
         grant(db, sid, value)

@@ -36,6 +36,7 @@ import time
 import zlib
 from flask import Flask, jsonify, request
 import accounts
+import inventory
 import mapmanifest
 import zonepub
 import zonepub_publish
@@ -697,23 +698,32 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
         return answer(nonce=code_for(int(clock()), secrets.token_hex(4), msha))
 
     def account(pub=None, sid=None):
-        """(RANK_*, steamid) for a key, or for a Steam account (finish's second look)."""
+        """State, identity and Mapper Admin from the authoritative read-only account DB."""
         try:
             with connect(account_db, readonly=True) as main:
                 if pub is not None:
-                    return accounts.ranked_as(main, pub)
-                row = main.execute('SELECT banned_at FROM accounts WHERE steamid=?', (sid,)).fetchone()
-                return ((accounts.RANK_BANNED if row[0] else accounts.RANK_LINKED) if row else accounts.RANK_UNLINKED), sid
+                    state, sid = accounts.ranked_as(main, pub)
+                else:
+                    state = accounts.RANK_LINKED if inventory.linked(main, sid) else accounts.RANK_UNLINKED
+                return state, sid, state == accounts.RANK_LINKED and inventory.has_mapper_badge(main, sid)
         except sqlite3.Error:
             raise Refused('Accounts cannot be read right now; try again later.')
 
-    def has_role(db, sid):
-        return db.execute('SELECT 1 FROM roles WHERE steamid=?', (sid,)).fetchone() is not None
+    def require_role(db, sid, mapper):
+        if not mapper and not db.execute('SELECT 1 FROM roles WHERE steamid=?', (sid,)).fetchone():
+            raise Refused('This Steam account is not a map uploader. Ask Proto for Mapper Admin.')
 
     def drop_session(db, token):
         db.execute('DELETE FROM sessions WHERE token=?', (token,))
         for p in spool.glob(token + '.*'):
             p.unlink(missing_ok=True)
+
+    def require_uploader(sid):
+        state, sid, mapper = account(sid=sid)
+        if state != accounts.RANK_LINKED:
+            raise Refused('This Steam account cannot upload.')
+        with connect(db_path, readonly=True) as db:
+            require_role(db, sid, mapper)
 
     @app.post('/mapup/api/begin')
     def begin():
@@ -738,7 +748,7 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                 verifier.append(verify or ed25519_verifier())
             if not verifier[0](bytes.fromhex(pub), (STATEMENT % (SITE, nonce, msha)).encode(), bytes.fromhex(sig)):
                 raise Refused('The account proof did not check out.')
-            state, sid = account(pub=pub)
+            state, sid, mapper = account(pub=pub)
             if state in (accounts.RANK_UNLINKED, accounts.RANK_UNPROVEN):
                 raise Refused('Link your Steam account in Settings first.')
             if state != accounts.RANK_LINKED:
@@ -749,8 +759,7 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             if free_bytes() < 2 * m['bsp'][1] + FREE_FLOOR:
                 raise Refused('The server is short of disk space; ask Proto.')
             with connect(db_path) as db, writing(db):
-                if not has_role(db, sid):
-                    raise Refused('This Steam account is not a map uploader. Ask Proto for the role.')
+                require_role(db, sid, mapper)
                 db.execute('DELETE FROM nonces WHERE seen<?', (now - CODE_TTL - 60,))
                 try:
                     db.execute('INSERT INTO nonces VALUES(?,?)', (nonce, now))
@@ -915,6 +924,8 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
                 os.fsync(dst.fileno())
             os.chmod(part, 0o644)       # nginx (www-data) serves the library
             with zone_lock(zonepub_lock, lock_wait), zonepub_publish.content_publication():
+                # Authorization can change while we stage the BSP or wait on another publisher.
+                require_uploader(row['steamid'])
                 why = taken(name, maps_dir, list_path, media_dir)
                 if why:
                     raise Refused(why)
@@ -1057,12 +1068,7 @@ def create_app(store, account_db, maps_dir, zone_dirs=(), media_dir=None, list_p
             need = [k for k in ('bsp', 'shot', 'zone') if m[k]]
             if sorted(need) != sorted(row['got'].split()):
                 raise Refused('Not every file has arrived yet.')
-            # a role revoked or an account banned since begin stops it here
-            if account(sid=row['steamid'])[0] != accounts.RANK_LINKED:
-                raise Refused('This Steam account cannot upload.')
-            with connect(db_path) as db:
-                if not has_role(db, row['steamid']):
-                    raise Refused('This Steam account is not a map uploader. Ask Proto for the role.')
+            require_uploader(row['steamid'])
             if not state_lock.acquire(timeout=30):
                 raise Refused('Another map is being published; try again in a minute.')
             try:

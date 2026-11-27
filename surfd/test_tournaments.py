@@ -598,7 +598,8 @@ class API(unittest.TestCase):
         self.client = S.app.test_client()
         self.db = S.connect()
         for table in ('tournament_requests', 'tournament_reservations', 'tournament_matches',
-                      'tournament_nodes', 'lobby_handoffs', 'assignments', 'lobbies', 'social_sessions', 'keylinks', 'accounts', 'map_pool'):
+                      'tournament_nodes', 'lobby_handoffs', 'assignments', 'lobbies', 'social_sessions', 'keylinks',
+                      'account_badges', 'accounts', 'map_pool'):
             self.db.execute('DELETE FROM ' + table)
         self.tokens = []
         self.whos = []
@@ -783,6 +784,7 @@ class API(unittest.TestCase):
             self.assertEqual(res['ok'], 1, res)
             m = res['match']
         act('enter', 1)
+        act('enter', 2)  # a linked spectator, deliberately never seated
         act('seat', 0, target=self.whos[1])
         act('accept', 0)
         act('accept', 1)
@@ -806,15 +808,47 @@ class API(unittest.TestCase):
         self.assertEqual(m['players'][0]['ready'], 1)
         act('ready', 1, **data)
         act('start', 0)
+        def badges():
+            return list(map(tuple, self.db.execute('SELECT * FROM account_badges ORDER BY steamid')))
+
+        self.assertEqual(badges(), [])  # an accepted seat and countdown are not participation
+        self.assertEqual(self.action(m, 'go', elapsed_ms=1, tickrate=1000000/15000)['ok'], 0)
+        self.assertEqual(badges(), [])
         act('go', elapsed_ms=5000, tickrate=1000000/15000)
+        expected_badges = [(str(76561198000000001 + i), 'tournament-tester', 1) for i in range(2)]
+        self.assertEqual(badges(), expected_badges)
         act('score', who=self.whos[0], ticks=60, tickrate=1000000/15000, elapsed_ms=1000,
             start_elapsed_ms=0, runid='a'*32, **data)
         act('settle', elapsed_ms=60000)
-        self.assertEqual([p['place'] for p in m['players']], [1,2])
+        self.assertEqual([p['place'] for p in m['players'] if p['role'] != 'spectator'], [1,2])
         act('advance')
         self.assertEqual(m['phase'], 'finished')
         act('release', restored=1)
         self.assertFalse(T.reserved(self.db, 'n1'))
+
+        # Mimic first deployment over the old schema: recover both competitors,
+        # including the eliminated DNF, without rewriting the match or journal.
+        tables = ('tournament_matches', 'tournament_requests', 'accounts', 'keylinks')
+        def source_rows():
+            return [list(map(tuple, self.db.execute('SELECT * FROM ' + table))) for table in tables]
+        source = source_rows()
+        with self.db:
+            self.db.execute('DROP TABLE account_badges')
+        S.migrate()
+        self.assertEqual(badges(), expected_badges)
+        self.assertEqual(source_rows(), source)
+        with self.db:
+            S.inventory.administer(self.db, expected_badges[0][0], 'remove-role', 'tournament-tester')
+            T.backfill_beta_badges(self.db)
+        self.assertEqual(badges(), [(expected_badges[0][0], 'tournament-tester', 0), expected_badges[1]])
+
+    def test_beta_awards_can_be_closed_without_stopping_play(self):
+        m = self.arrived_ready()
+        m = self.action(m, 'autostart')['match']
+        with patch.dict(os.environ, SURFD_TOURNAMENT_TESTER_AWARDS='0'):
+            out = self.action(m, 'go', elapsed_ms=5000, tickrate=1000000/15000)
+        self.assertEqual((out['ok'], out['match']['phase']), (1, 'live'))
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM account_badges').fetchone()[0], 0)
 
     def test_leave_p1650_after_arrival_forfeits_through_game_endpoint(self):
         m = self.create()

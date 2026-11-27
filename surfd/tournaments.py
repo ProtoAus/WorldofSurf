@@ -7,6 +7,7 @@ import secrets
 import sqlite3
 from flask import Response, request
 import accounts
+import inventory
 import social
 import tournament_rules as rules
 import tournament_pool
@@ -32,6 +33,41 @@ def schema(db):
             db.execute('ALTER TABLE tournament_nodes ADD COLUMN ' + name + ' ' + sqltype + ' NOT NULL DEFAULT ' + default)
     if 'native_occupants' not in columns:
         db.execute('ALTER TABLE tournament_nodes ADD COLUMN native_occupants INTEGER NOT NULL DEFAULT -1')
+
+
+def beta_competitors(match, identities):
+    """A seat in a live round counts, including DNFs; spectators/no-shows forfeited before GO do not."""
+    try:
+        rules.require_current_settings(match)
+    except rules.Refusal:
+        return
+    if match['phase'] != 'live':
+        return
+    for p in rules.competitors(match):
+        sid = identities.get(p['who'])
+        if sid and accounts.who_of(sid) == p['who']:
+            yield sid
+
+
+def backfill_beta_badges(db):
+    # Match state retains the authenticated identities, but later rounds reset scores and
+    # eliminate players. The accepted action journal preserves their actual live seats.
+    identities, awarded = {}, set()
+    for (raw,) in db.execute("SELECT reply FROM tournament_requests WHERE CASE WHEN json_valid(reply)"
+                             " THEN json_extract(reply,'$.match.phase') END = 'live'"):
+        historical = json.loads(raw)
+        if historical.get('ok') != 1:
+            continue
+        match = historical['match']
+        ident = match['id']
+        if ident not in identities:
+            row = db.execute('SELECT state FROM tournament_matches WHERE id=? AND node=?',
+                             (ident, match['node'])).fetchone()
+            identities[ident] = json.loads(row[0]).get('_accounts', {}) if row else {}
+        for sid in beta_competitors(match, identities[ident]):
+            if sid not in awarded:
+                inventory.award_tournament_tester(db, sid)
+                awarded.add(sid)
 
 
 def reserved(db, node):
@@ -241,6 +277,10 @@ def register(app, d):
                     if actor:
                         m['_accounts'][actor] = sid
                     db.execute('UPDATE tournament_matches SET state=? WHERE id=?', (d.game_json(m), m['id']))
+                    if (op == 'go' and hosting_allowed(d) and
+                            d.setting('SURFD_TOURNAMENT_TESTER_AWARDS', '1') == '1'):
+                        for participant in beta_competitors(m, m['_accounts']):
+                            inventory.award_tournament_tester(db, participant)
                     if op == 'release':
                         db.execute('DELETE FROM tournament_reservations WHERE node=? AND match_id=?', (node, m['id']))
                 out = reply(True, 'released' if op == 'release' else 'ok', m)

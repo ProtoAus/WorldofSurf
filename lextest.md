@@ -1,5 +1,10 @@
 # lextest.md — things waiting on a human
 
+## P1845 player badges and F8 access
+
+- Once deployed, grant Mapper Admin to a linked non-legacy mapper under `/admin/accounts` → **Manage…**. Check their profile from the title menu and from `hud_player`, then have them upload a real new map through F8. Confirm that the badge does not confer zone editing and that removing it stops future F8 uploads.
+- Check that one known past beta competitor has Tournament Tester while a spectator who never competed does not. Local fixtures covered historical/current awards and rendered both profile menus at 640×480 and 1280×720. Production accounts and a real mapper upload are not covered by those controls.
+
 ## P1832 static Source prop lighting references (25 Nov)
 
 - On bhop_canals compare `vbsp_lightingorigin 0/1` at the two vent props. Their pose/tint/visibility should not change; only ordinary world-light sampling is redirected. Compare the appearance with the same map revision in Source when available. This engine still uses its existing origin+24Z base sample; exact closed-Source illumination-centre/attachment/bone/scale and attenuation parity is NOT certified, and no brightness/quality tuning was used to conceal that boundary. Restore 1 afterward.

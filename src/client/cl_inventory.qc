@@ -94,34 +94,9 @@ float(float count) Inv_ConsoleCommand =
 	return TRUE;
 };
 
-float(float roles, float textsize) Inv_BadgeWidth =
+float(float slot, float roles) Inv_PublicBadges =
 {
-	local float w;
-	w = 0;
-	if (roles & 4) w = w + stringwidth("Developer", TRUE, [textsize, textsize]) + textsize * 1.4;
-	if (roles & 2) w = w + stringwidth("Zoner", TRUE, [textsize, textsize]) + textsize * 1.4;
-	if (roles & 1) w = w + stringwidth("Tester", TRUE, [textsize, textsize]) + textsize * 1.4;
-	return w;
-};
-
-float(vector p, float roles, float textsize, float width) Inv_Badges =
-{
-	local float bit, w, x;
-	local string label;
-	local vector colour;
-	x = p_x;
-	for (bit = 4; bit >= 1; bit = bit / 2)
-	{
-		if (!(roles & bit)) continue;
-		label = bit == 4 ? "Developer" : (bit == 2 ? "Zoner" : "Tester");
-		colour = bit == 4 ? '0.86 0.55 1' : (bit == 2 ? '1 0.76 0.3' : '0.4 0.83 1');
-		w = stringwidth(label, TRUE, [textsize, textsize]) + textsize;
-		if (x + w > p_x + width) break;
-		sui_roundbox([x, p_y], [w, textsize * 1.7], textsize * 0.5, colour * 0.19, 1);
-		sui_text([x + textsize * 0.5, p_y + textsize * 0.3], [textsize, textsize], label, colour, 1, 0);
-		x = x + w + textsize * 0.4;
-	}
-	return x - p_x;
+	return sui_badge_mask(roles, stof(Gfx_Field(getplayerkeyvalue(slot, "*kit"), 4, " ")));
 };
 
 // P1221: an item cell's ON / OWNED tag, a pill in its bottom-left corner (m_stats.qc draws the same).

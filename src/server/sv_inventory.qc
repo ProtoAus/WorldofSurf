@@ -1,5 +1,5 @@
-/* Account-owned cosmetics, never client userinfo or gameplay privileges.
-   Public *kit is roles/outline/party-colour+1/Santa; old clients read its first3.
+/* Account cosmetics, never sourced from client userinfo or used for authorization.
+   Public *kit is roles/outline/party-colour+1/Santa/extra badges; old clients read the prefix.
    Private ownership stays on owner. P1304 capability uses the existing equip command. */
 .float inv_revision, inv_req, inv_deadline, inv_next, inv_proto;
 
@@ -14,12 +14,15 @@ void(entity e) Inv_SVReset =
 
 void(entity e, float root) Inv_SVApply =
 {
-	local float revision, roles, outline, hat, santa, items, i, row, id, colour, on;
+	local float revision, roles, badges, outline, hat, santa, items, i, row, id, colour, on;
 	local float own1, own2, own3, hatcolour, eq1, eq2, eq3;
 	local string state;
 	if (!root || e.acct_state != 2 || strlen(e.social_token) != 64) return;
 	revision = json_get_float(json_find_object_child(root, "revision"));
 	roles = json_get_float(json_find_object_child(root, "roles"));
+	badges = json_get_float(json_find_object_child(root, "badges"));
+	if (badges < 0 || badges > 24 || badges != floor(badges)) badges = 0;
+	badges = badges & 24;
 	outline = json_get_float(json_find_object_child(root, "outline"));
 	hat = json_get_float(json_find_object_child(root, "hat"));
 	santa = json_get_float(json_find_object_child(root, "santa"));
@@ -44,7 +47,7 @@ void(entity e, float root) Inv_SVApply =
 	}
 	if (outline != eq1 || hat != (eq2 ? hatcolour + 1 : 0) || santa != eq3 || (eq2 && eq3)) return;
 	e.inv_revision = revision;
-	forceinfokey(e, "*kit", sprintf("%g %g %g %g", roles, outline, hat, santa));
+	forceinfokey(e, "*kit", sprintf("%g %g %g %g %g", roles, outline, hat, santa, badges));
 	state = strcat(sprintf("inventory_state %s %.0f %g %g %g %g",
 	        infokey(e, "*ahash"), revision, roles, own1, own2, hatcolour), sprintf(" %g %g", eq1, eq2));
 	if (e.inv_proto == 2) state = strcat(state, sprintf(" %g %g", own3, eq3));

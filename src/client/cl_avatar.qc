@@ -963,7 +963,7 @@ void() Av_SelfMark =
 void(vector scr) Av_Draw =
 {
 	local vector p, sz, tv, bv, kit, winter;
-	local float kitw, namew, badgew;
+	local float kitw, badges;
 	local float i, x, y, y0, sw, fx, want, got, eff, askt, pad, tsz, ttl, hint, sc, me;
 	local float hh, pic, fw, fh, lw, slh, stop, segw, tabh, segs, lit, stripw, striph, chw, link, fr_slot;
 	local float pw, px, psw, ph;
@@ -1042,6 +1042,9 @@ void(vector scr) Av_Draw =
 	fr_target = me ? "" : Friends_ProfileTarget(av_other);
 	if (me) kit = Inv_Public(player_localnum);
 	else kit = fr_slot >= 0 ? Inv_Public(fr_slot) : ((pf_state == PFS_OK) ? pf_cosmetics : '0 0 0');
+	if (me) badges = Inv_PublicBadges(player_localnum, kit_x);
+	else if (fr_slot >= 0) badges = Inv_PublicBadges(fr_slot, kit_x);
+	else badges = (pf_state == PFS_OK) ? pf_badge_mask : 0;
 	winter = [pf_ownsanta, 0, 0];
 	if (me) winter_y = Inv_SantaFlag(player_localnum);
 	else if (fr_slot >= 0) winter_y = Inv_SantaFlag(fr_slot);
@@ -1064,12 +1067,8 @@ void(vector scr) Av_Draw =
 		             pf_state == PFS_OK && pf_av, nm);
 	}
 	x = p_x + pad * 2 + pic;
-	badgew = Inv_BadgeWidth(kit_x, hint);
-	nm = Chat_Fit(UI_NameShow(nm, 0), max(ttl * 2, sz_x - pad * 4 - pic - fw - badgew), ttl);
-	namew = stringwidth(nm, TRUE, [ttl, ttl]);
+	nm = Chat_Fit(UI_NameShow(nm, 0), max(ttl * 2, sz_x - pad * 4 - pic - fw), ttl);
 	sui_text([x, p_y + pad + 2], [ttl, ttl], nm, SUI_THEME_TEXT, 1, 0);
-	Inv_Badges([x + namew + hint * 0.6, p_y + pad + 2], kit_x, hint,
-	           max(0, p_x + sz_x - pad - fw - hint - x - namew));
 	y = p_y + pad + ttl + ceil(hint * 0.9);
 	chw = ceil(hint * 8);
 	if (me)
@@ -1107,6 +1106,7 @@ void(vector scr) Av_Draw =
 			av_saidtab = FALSE;
 		}
 	}
+	hh = hh + sui_profile_badges([p_x + pad, p_y + hh], badges, hint, sz_x - pad * 2);
 	Profile_Field("pf_qa", [p_x + sz_x - pad - fw, p_y + pad], [fw, fh], tsz);
 	sui_fill([p_x + pad, p_y + hh], [sz_x - pad * 2, 1], SUI_THEME_EDGE, 1, 0);
 
