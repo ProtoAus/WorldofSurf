@@ -21,6 +21,9 @@
 
 ## next
 
+### P1846 Compact tournament standings
+- Tournament standings stay on the left and clear of the run timer. The dark background is gone, and long names shorten without pushing times out of view.
+
 ### P1845 Player badges and mapper uploads
 - Mapper Admins can publish maps with F8. The badge does not give access to the zone editor or admin panel.
 - Players who compete in a live round during the tournament beta earn the Tournament Tester badge, even if they do not finish the round.

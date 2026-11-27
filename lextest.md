@@ -1,5 +1,10 @@
 # lextest.md — things waiting on a human
 
+## P1846 compact tournament standings
+
+- Join a busy tournament at your normal resolution and in a narrow window. The phase, round clock, ranks and times should stay readable without a black rectangle or overlap with the run timer. Try a bright map, a longer player name and a timer dragged toward the left. F6 should still show the full standings. Check the separate centre countdown and round announcements are unchanged.
+- In isolated Linux GL, a seeded 10-player HUD at 640x480 changed pixels only from x=16 through 207, versus x=16 through 639 on the old HUD. The timer crop matched its no-tournament control exactly, including with the run timer moved left. A wider 1278x692 frame also passed the no-overlap and transparency checks. These are presentation fixtures, not a live tournament acceptance test.
+
 ## P1845 player badges and F8 access
 
 - Once deployed, grant Mapper Admin to a linked non-legacy mapper under `/admin/accounts` → **Manage…**. Check their profile from the title menu and from `hud_player`, then have them upload a real new map through F8. Confirm that the badge does not confer zone editing and that removing it stops future F8 uploads.

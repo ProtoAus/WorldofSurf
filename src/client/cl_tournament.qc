@@ -822,10 +822,42 @@ float(vector scr) Tour_CentreBusy =
 	return (tour_evt != "" && cltime - tour_evtat < tour_evtfor);
 };
 
+// Same font and markup as the draw; never split a UTF-8 or markup unit.
+string(string text, float width, float px) Tour_HudFit =
+{
+	local float i, next, n;
+	local vector glyph;
+	glyph = [px, px];
+	if (width <= 0) return "";
+	if (stringwidth(text, TRUE, glyph) <= width) return text;
+	if (stringwidth("...", TRUE, glyph) > width) return "";
+	n = strlen(text);
+	for (i = 0; i < n; i = next)
+	{
+		next = i + Chat_UnitLen(text, i, n);
+		if (stringwidth(strcat(substring(text, 0, next), "..."), TRUE, glyph) > width) break;
+	}
+	return strcat(substring(text, 0, i), "...");
+};
+
+float(vector pos, string text, float px, vector colour, float right = FALSE) Tour_HudInk =
+{
+	local vector glyph;
+	glyph = [px, px];
+	if (right) pos_x -= stringwidth(text, TRUE, glyph);
+	if (text != "")
+	{
+		// Readable over bright maps without a backdrop across the HUD.
+		drawstring(pos + '1 1 0', strdecolorize(text), glyph, '0 0 0', 0.85, 0);
+		drawstring(pos, text, glyph, colour, 1, 0);
+	}
+	return pos_x;
+};
+
 void(vector scr) Tour_Hud =
 {
 	local vector p, at, colour;
-	local float w, h, x, remaining, i, rows, rh, risk, big, n, dnf, starts, sz1, sz2, lh1, lh2, pad, bigpx;
+	local float w, h, x, remaining, i, rows, rh, risk, big, n, dnf, starts, sz2, lh1, lh2, pad, bigpx, scale;
 	local string line, title, name, tm;
 	// Plain draws only: sui_begin empties sui's single hit-test list and sui_end clears the click and typing
 	// buffers, so an always-on bracket here broke every menu drawn after it (P1649 review). Hidden while
@@ -842,19 +874,31 @@ void(vector scr) Tour_Hud =
 	if (tour_phase == "aborted" || tour_phase == "cancelled") { colour = '1 0.4 0.35'; line = "NO CONTEST"; }
 	title = (tour_rounds > 0) ? sprintf("Round %g of %g", max(1, tour_round), tour_rounds) : "Tournament";
 	if (tour_map != "" && tour_map != "-") title = strcat(title, "  |  ", tour_map);
-	// Each line's rung in its own face: lh1 measured with no face set read 9 px against a 24 px title.
-	sz1 = 9 * ui_cv_scale; sz2 = 6.5 * ui_cv_scale; pad = 8 * ui_cv_scale;
-	Font_Set(ui_font_display); lh1 = Font_Px(sz1); Font_Set(ui_font_ui); lh2 = Font_Px(sz2);
-	w = min(scr_x - 32, max(380, 68 * sz1)); h = pad * 2 + lh1 + 4 * ui_cv_scale + lh2; // 612 at scale 1: clear of the run timer
+	scale = bound(1, ui_cv_scale, 2); pad = 6;
 	p = '16 8 0';
-	// Top-left: the run timer owns the top centre and the map card the top right (first playtest shots).
-	drawfill(p, [w, h], '0.05 0.06 0.09', 0.78, 0);
-	drawfill(p, [3 * ui_cv_scale, h], colour, 0.95, 0);
+	w = min(288, floor(scr_x / 3) - p_x - pad);
+	Font_Set(ui_font_ui);
+	lh2 = Font_Px(6.5 * scale); rh = lh2 + 3;
 	Font_Set(ui_font_display);
-	x = p_x + pad + 3 * ui_cv_scale;
-	HUD_Text([x, p_y + pad, 0], line, sz1, colour, 1);
-	x = x + stringwidth(line, TRUE, [lh1, lh1]) + pad;
-	HUD_Text([x, p_y + pad, 0], title, sz1, '1 1 1', 1);
+	lh1 = Font_Px(9 * scale);
+	rows = min(tour_hn, 8);
+	h = lh1 + 2 + pad + (2 + rows + (tour_hn > rows)) * rh;
+	// A wider run clock (or one moved left) takes priority if the bounds meet.
+	if (ui_tm_hudsize_x > 0 && p_x + w + pad > ui_tm_hudpos_x && p_x < ui_tm_hudpos_x + ui_tm_hudsize_x + pad)
+	if (p_y + h + pad > ui_tm_hudpos_y)
+		p_y = max(p_y, ceil(ui_tm_hudpos_y + ui_tm_hudsize_y + pad));
+	x = p_x + w;
+	starts = (tour_phase == "loading" && serverkey("tournament_starts") != "");
+	if (tour_phase == "live" || tour_phase == "countdown" || tour_phase == "results" || starts)
+		x = Tour_HudInk([x, p_y], Tour_Clock(remaining), lh1, (tour_phase == "live" && remaining <= 30) ? '1 0.4 0.35' : '1 1 1', TRUE) - pad;
+	Tour_HudInk(p, Tour_HudFit(line, x - p_x, lh1), lh1, colour);
+
+	Font_Set(ui_font_ui);
+	at = [p_x, p_y + lh1 + 2];
+	Tour_HudInk(at, Tour_HudFit(title, w, lh2), lh2, '1 1 1');
+	at_y += rh;
+	Tour_HudInk(at, Tour_HudFit(Tour_NextStep(remaining), w, lh2), lh2, '0.86 0.88 0.92');
+	at_y += rh + pad;
 	n = dnf = 0; risk = -1;
 	for (i = 0; i < tour_hn; i += 1)
 	{
@@ -864,33 +908,24 @@ void(vector scr) Tour_Hud =
 		if (!(stof(argv(6)) > 0)) dnf += 1;
 	}
 	if (n < 2) risk = -1;
-	starts = (tour_phase == "loading" && serverkey("tournament_starts") != "");
-	if (tour_phase == "live" || tour_phase == "countdown" || tour_phase == "results" || starts)
-		HUD_TextR([p_x + w - pad, p_y + pad, 0], Tour_Clock(remaining), sz1, (tour_phase == "live" && remaining <= 30) ? '1 0.4 0.35' : '1 1 1', 1);
-	Font_Set(ui_font_ui);
-	HUD_Text([p_x + pad + 3 * ui_cv_scale, p_y + pad + lh1 + 4 * ui_cv_scale, 0], Tour_NextStep(remaining), sz2, '0.75 0.78 0.84', 1);
 
-	// Standings: rank, name, best. While live, who would be out now is red: everyone without a time, or else
-	// the slowest (surfd's settle).
-	rows = min(tour_hn, 8); rh = lh2 + 5 * ui_cv_scale;
-	at = [p_x, p_y + h + 6];
-	if (rows > 0)
+	// Reserve each time's width before fitting the name; long names cannot move the time column.
+	for (i = 0; i < rows; i += 1)
 	{
-		drawfill(at, [w, rows * rh + pad], '0.05 0.06 0.09', 0.7, 0);
-		for (i = 0; i < rows; i += 1)
-		{
-			tokenize(bufstr_get(tour_players, tour_hrow[i]));
-			name = Tour_Text(argv(2), 28);
-			tm = (stof(argv(6)) > 0 && stof(argv(7)) > 0) ? Time_TickString(stof(argv(6)), 1 / stof(argv(7))) : "no time";
-			colour = '1 1 1';
-			if (argv(3) == "eliminated") { colour = '0.55 0.57 0.62'; tm = "out"; }
-			else if (tour_phase == "live" && risk >= 0 && (dnf ? !(stof(argv(6)) > 0) : i == risk)) colour = '1 0.45 0.4';
-			if (argv(3) == "player" && stof(argv(8)) == 1) { colour = '0.45 1 0.55'; tm = "WINNER"; }
-			if (!strcmp(argv(1), tour_me)) name = strcat(name, " (you)");
-			HUD_Text([at_x + pad, at_y + pad * 0.5 + i * rh, 0], strcat(ftos(i + 1), "  ", name), sz2, colour, 1);
-			HUD_TextR([at_x + w - pad, at_y + pad * 0.5 + i * rh, 0], tm, sz2, colour, 1);
-		}
+		tokenize(bufstr_get(tour_players, tour_hrow[i]));
+		name = UI_NameShow(strdecolorize(Tour_Text(argv(2), 256)), 0);
+		tm = (stof(argv(6)) > 0 && stof(argv(7)) > 0) ? Time_TickString(stof(argv(6)), 1 / stof(argv(7))) : "no time";
+		colour = '1 1 1';
+		if (argv(3) == "eliminated") { colour = '0.72 0.74 0.78'; tm = "out"; }
+		else if (tour_phase == "live" && risk >= 0 && (dnf ? !(stof(argv(6)) > 0) : i == risk)) colour = '1 0.45 0.4';
+		if (argv(3) == "player" && stof(argv(8)) == 1) { colour = '0.45 1 0.55'; tm = "WINNER"; }
+		name = strcat(ftos(i + 1), !strcmp(argv(1), tour_me) ? "  (you) " : "  ", name);
+		x = Tour_HudInk([p_x + w, at_y], tm, lh2, colour, TRUE);
+		Tour_HudInk(at, Tour_HudFit(name, x - p_x - pad, lh2), lh2, colour);
+		at_y += rh;
 	}
+	if (tour_hn > rows)
+		Tour_HudInk(at, sprintf("+%g more (F6)", tour_hn - rows), lh2, '0.86 0.88 0.92');
 
 	// Centre: the countdown digits, then the phase's announcement, on a plate (map warnings draw here too).
 	// Sizes are display-font rungs taken before any switch: the UI font's put "Out: ..." inside the winner line.

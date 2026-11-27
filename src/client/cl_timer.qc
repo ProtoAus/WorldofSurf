@@ -23,6 +23,7 @@
 */
 
 float  ui_tm_cv, ui_tm_x, ui_tm_y, ui_tm_splittime;
+vector ui_tm_hudpos, ui_tm_hudsize; // this frame's run timer, for tournament HUD placement
 float  ui_tm_cvpace;            // build 86: hud_timer_pace, mirrored per frame
 
 // Split flash.
@@ -1235,7 +1236,9 @@ float(vector scr, float state, float ticks, float flags, float pb,
 	// codes in the sub-label ("^5ghost^7") are counted by stringwidth as drawn,
 	// which is what TRUE in the second argument is for -- so the box matches the
 	// glyphs rather than the source string.
-	HUD_Rect("timer", [bp_x - bw * 0.5, bt, 0], [bw, y - bt, 0], bp);
+	ui_tm_hudpos = [bp_x - bw * 0.5, bt, 0];
+	ui_tm_hudsize = [bw, y - bt + small, 0]; // reserve the split/reset flash row too
+	HUD_Rect("timer", ui_tm_hudpos, [bw, y - bt, 0], bp);
 
 	return y;
 };
@@ -1413,6 +1416,7 @@ void(vector scr) Timer_Draw =
 	local float cpd;                // build 86: the checkpoint delta, read once
 	local vector p;
 
+	ui_tm_hudsize = '0 0 0';
 	if (zone_mapname != ui_tm_map)
 	{
 		ui_tm_map = zone_mapname;
