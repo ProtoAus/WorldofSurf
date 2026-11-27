@@ -26,6 +26,7 @@ ABORT_REASONS = {
 NOTE_BYTES = 160
 NAME_BYTES = 20  # per name inside a note, so two names, a count and the winner fit NOTE_BYTES
 
+BUZZER_SECONDS = 120  # must match TQ_BUZZER_SECONDS in sv_tournament.qc
 TIER_MASK = 1023 | 1 << 20
 MAP_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z')
 HEX8 = re.compile(r'[0-9a-f]{8}\Z')
@@ -128,10 +129,16 @@ def player(who, name, role='spectator'):
                 best_ticks=0, tickrate=0, place=0)
 
 
+def buzzer_setting(data):
+    raw = str(data.get('buzzer_beaters', '1'))
+    require(raw in ('0', '1'), 'bad buzzer beaters setting')
+    return int(raw)
+
+
 def create(ident, node, name, addr, who, display, data):
     return dict(id=ident, epoch=ident, revision=1, node=node, name=name[:64], addr=addr,
                 phase='lobby', host=who, capacity=integer(data, 'capacity', 2, 8),
-                round_seconds=integer(data, 'round_seconds', 60, 900),
+                round_seconds=integer(data, 'round_seconds', 60, 900), buzzer_beaters=buzzer_setting(data),
                 settings=settings(data, legacy=True), ruleset_id='', _pins={}, _zonegen=0,
                 round_index=0, generation=0, round_total=0, current_map='', reserve='',
                 turn_who='', turn_kind='', note='Free Beta: manual readiness; no payments.',
@@ -236,8 +243,9 @@ def transition(original, op, actor, display, data, pool=()):
         seconds = integer(data, 'round_seconds', 60, 900)
         configured = settings(data)
         require(len(competitors(m)) <= capacity, 'capacity below roster')
-        if (capacity, seconds, configured) != (m['capacity'], m['round_seconds'], m['settings']):
-            m.update(capacity=capacity, round_seconds=seconds, settings=configured)
+        buzzer = buzzer_setting(data) if 'buzzer_beaters' in data else m.get('buzzer_beaters', 0)
+        if (capacity, seconds, configured, buzzer) != (m['capacity'], m['round_seconds'], m['settings'], m.get('buzzer_beaters', 0)):
+            m.update(capacity=capacity, round_seconds=seconds, settings=configured, buzzer_beaters=buzzer)
             for p in m['players']:
                 p.update(accepted=0, ready=0, menu_ready=0)
     elif op == 'enter':
@@ -302,7 +310,8 @@ def transition(original, op, actor, display, data, pool=()):
         candidates = candidates[:3 * len(roster)]
         m['_pins'] = {n: copy.deepcopy(pool[n]['pin']) for n in candidates}
         # Event settings/build binding only, not a full game or anti-cheat rules proof.
-        identity = dict(settings=m['settings'], maps=candidates, pins=m['_pins'])
+        identity = dict(settings=m['settings'], maps=candidates, pins=m['_pins'],
+                        buzzer_beaters=m.get('buzzer_beaters', 0))
         m['ruleset_id'] = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
         m.update(phase='draft', maps=[dict(name=n, kind=pool[n]['kind'], tier=pool[n]['tier'], status='pool', by='') for n in candidates],
                  _order=order, _turn=0, turn_who=order[0], turn_kind='ban',
@@ -390,10 +399,16 @@ def transition(original, op, actor, display, data, pool=()):
         require(target is not None, 'not a surviving competitor')
         tickrate = rate(data)
         require(tickrate == m['_rate'], 'round tickrate changed')
-        ticks = integer(data, 'ticks', 1, int(m['round_seconds'] * tickrate))
-        finish = integer(data, 'elapsed_ms', 1, m['round_seconds']*1000)
-        start = integer(data, 'start_elapsed_ms', 0, m['round_seconds']*1000)
-        require(start < finish, 'run must start and finish inside live round')
+        seconds = m['round_seconds']
+        # Only the owning server reports a buzzer finish. It checks the actual
+        # attempt and whether overtime is still open; starts never get extra time.
+        buzzer = data.get('buzzer') == '1'
+        require(not buzzer or m.get('buzzer_beaters') == 1, 'buzzer beaters disabled')
+        limit = seconds + (BUZZER_SECONDS if buzzer else 0)
+        ticks = integer(data, 'ticks', 1, int(limit * tickrate))
+        finish = integer(data, 'elapsed_ms', seconds*1000 if buzzer else 1, limit*1000)
+        start = integer(data, 'start_elapsed_ms', 0, seconds*1000 - 1)
+        require(start < finish, 'run must start before the round clock expires and before the finish')
         require(ticks * 1000 / tickrate <= finish - start + 1000 / tickrate + 1,
                 'run duration exceeds live elapsed time')
         runid = data.get('runid', '')

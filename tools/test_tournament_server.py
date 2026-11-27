@@ -94,6 +94,32 @@ void() TQ_TestFrame =
     TQ_Test(tq_qwrite == queued, "stale or warmup start ignored");
     e.tq_runround = 1; e.run_t_finflags = TF_NOJOURNAL; Tour_Finished(e);
     TQ_Test(tq_qwrite == queued + 1, "an improving finish with only a journal opt-out still scores");
+    queued = tq_qwrite;
+    tq_buzzer = TRUE; tq_goat = time - 61;
+    e.tq_runstart = 50; e.tq_runwall = e.run_t_startwall = time - 11;
+    e.run_t_flags = 0; e.run_t_state = TS_RUNNING; e.run_t_finflags = 0; e.run_t_finticks = 35;
+    TQ_Test(Tour_OvertimeRunner(e), "clean in-progress main attempt can keep round open");
+    e.run_t_startwall -= 1;
+    TQ_Test(!Tour_OvertimeRunner(e), "restored timer cannot keep overtime open");
+    Tour_Finished(e);
+    TQ_Test(tq_qwrite == queued, "restored timer cannot score a buzzer finish");
+    e.run_t_startwall = e.tq_runwall;
+    e.run_t_track = 1;
+    TQ_Test(!Tour_OvertimeRunner(e), "bonus can't keep overtime open");
+    e.run_t_track = 0;
+    Tour_Finished(e);
+    TQ_Test(tq_qwrite == queued + 1 && strstrofs(bufstr_get(tq_queue, queued * 4 + 1), "&buzzer=1", 0) >= 0,
+            "pre-cutoff run can score once the clock expires");
+    queued = tq_qwrite; e.run_t_finticks = 30;
+    Tour_RunStart(e); Tour_Finished(e);
+    TQ_Test(!e.tq_runround && tq_qwrite == queued, "overtime restart never scores");
+    e.tq_runround = tq_round; tq_goat = time - 181; Tour_Finished(e);
+    TQ_Test(tq_qwrite == queued, "overtime cap rejects late finishes");
+    TQ_Test(!Tour_SkipWins(1, 1) && !Tour_SkipWins(2, 1) && !Tour_SkipWins(4, 2) &&
+            Tour_SkipWins(2, 2) && Tour_SkipWins(3, 2), "skip requires a strict majority and at least two competitors");
+    Tour_SetOvertime(TRUE); Tour_CloseWindow(); Tour_CloseWindow();
+    TQ_Test(!tq_live && !tq_overtime && tq_qwrite == queued + 1 && bufstr_get(tq_queue, queued * 4) == "settle",
+            "overtime cap settles once, behind queued scores");
     tq_test_stub_observe = FALSE; tq_arrived = FALSE;
     e.run_t_state = TS_RUNNING; e.run_t_ticks = 321;
     Tour_Hold(e); TQ_Test(e.run_pmhold && e.tq_hold, "countdown owns native movement hold");

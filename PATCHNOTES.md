@@ -21,6 +21,11 @@
 
 ## next
 
+### P1850 Tournament buzzer beaters and map picks
+- Tournament draft cards give Tier and Stages priority over the name of the player who picked or banned the map.
+- Buzzer beaters are on by default. Eligible runs in progress can finish in up to two minutes of overtime. Hosts can change the setting or save their choice as the default; competitors can vote to skip overtime from F6.
+- Tournament map pools prefer the Momentum build and its tier. The CS:S build is eligible only if the map does not exist in Momentum. Eligible tournament times still count on the normal leaderboards.
+
 ### P1847 Second keyboard turn speed
 - Bind +left2 and +right2 to optional turn keys and set cl_yawspeed2 to choose their speed. Existing turn keys stay the same; the two speeds do not stack.
 

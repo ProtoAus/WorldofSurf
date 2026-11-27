@@ -1,5 +1,11 @@
 # lextest.md — things waiting on a human
 
+## P1850 tournament buzzer beaters and draft cards
+
+- In the draft, pick and ban a staged map with a long player name. The Tier and Stages line should stay readable in the same width; only the player's name should shorten. The native menu fixture checks emitted text, not the shipping fonts or every window size.
+- With buzzer beaters on, start a main run just before zero and finish once the HUD shows **Overtime**. Confirm the time in both F6 and the usual leaderboard. On another round, have the connected competitors vote in F6; a strict majority (both players in a duel) ends overtime. With no majority, overtime ends when the last qualifying attempt stops or after two minutes. No new attempt can score after zero.
+- Change Buzzer beaters, click **Make default**, then create a new tournament after restarting the game. Check that the new room uses your choice. In a manual pool, look for a Momentum map with a CS:S variant (only Momentum should be offered) and a CS:S-only map (still eligible if qualified).
+
 ## P1847 second keyboard turn speed
 
 - In the new client, set `cl_yawspeed2 120`, bind two spare keys to `+left2` and `+right2`, and compare them with your usual turn keys while surfing. Hold a usual turn key, briefly hold an alternate key, and confirm releasing it returns to the original speed. No default bindings change.

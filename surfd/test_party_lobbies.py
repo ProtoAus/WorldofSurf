@@ -733,6 +733,25 @@ class PartyAPI(unittest.TestCase):
         changed = self.act('lock', 0, changed)['party']
         self.assertEqual(self.send(self.form('configure', 0, changed))['ok'], 0)
 
+    def test_buzzer_default_and_host_toggle_are_signed_and_frozen(self):
+        m = self.act('create')['party']  # older client omitted this optional field
+        self.assertEqual(m['buzzer_beaters'], 1)
+        m = self.act('join', 1, m)['party']
+        m = self.act('seat', 0, m, target=self.whos[1], value=1)['party']
+        m = self.act('accept', 0, m)['party']
+        for who, value in ((0, '01'), (1, 0)):
+            self.assertEqual(self.send(self.form('configure', who, m, buzzer_beaters=value))['ok'], 0)
+        m = self.act('configure', 0, m, buzzer_beaters=0)['party']
+        self.assertEqual(m['buzzer_beaters'], 0)
+        self.assertFalse(m['players'][0]['accepted'])
+        m = self.act('configure', 0, m, round_seconds=120)['party']
+        self.assertEqual(m['buzzer_beaters'], 0)  # old client edits don't overwrite it
+        for i in (0, 1):
+            m = self.act('accept', i, m)['party']
+        m = self.act('lock', 0, m)['party']
+        self.assertEqual(self.send(self.form('configure', 0, m, buzzer_beaters=1))['ok'], 0)
+        self.assertEqual(self.act('state', 1, m)['party']['buzzer_beaters'], 0)
+
     def test_read_state_does_not_fill_mutation_journal_and_proof_replay_still_refuses(self):
         m = self.act('create')['party']
         for _ in range(130):

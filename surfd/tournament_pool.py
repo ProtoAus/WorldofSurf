@@ -53,9 +53,9 @@ def registry(path):
         raise rules.Refusal('qualification registry unavailable or invalid') from exc
 
 
-def catalogue(db, d, settings, fold=True):
+def catalogue(db, d, settings, frozen=False):
     """No hashing on reads. Stat binds trusted provenance to the exact held file."""
-    tiers = d.map_tiers()
+    tiers = d.map_tiers() if not frozen else {}
     rules.require(tiers is not None, 'difficulty catalogue unavailable')
     try:
         # The ordinary map provider deliberately collapses an unreadable library
@@ -69,16 +69,31 @@ def catalogue(db, d, settings, fold=True):
         raise rules.Refusal('map catalogue unavailable') from exc
     rules.require(bsp is not None and timed is not None, 'map catalogue unavailable')
     metadata = {r['map']: r for r in listed}
+    base_of = getattr(d, 'variant_base', lambda key: None)
+
+    def family(key):
+        return metadata.get(key, {}).get('of', '').lower() or base_of(key) or key
+
+    # Determine presence before qualifying or filtering tiers. An unrated,
+    # unavailable or out-of-filter Momentum build is not a CS:S fallback.
+    held_mom = {key for key, row in metadata.items() if 'm' in row['src']}
+    known_mom = set(getattr(d, 'momentum_catalogue', frozenset)()) | held_mom if not frozen else set()
+    momentum_families = {family(key) for key in known_mom}
     disabled = mapmanifest.disabled(db, bsp, d.zone_file_index())
     records = registry(d.setting('SURFD_TOURNAMENT_QUALIFICATIONS', ''))
     qualified, unqualified = {}, 0
     for key, name in sorted(bsp.items(), key=lambda item: item[1]):
         row = metadata.get(key, {})
         kind = mapmanifest.map_mode(key)
-        tier = tiers.get(key, 0)
+        if kind != settings['kind']:
+            continue
+        src = row.get('src', '')
+        if not frozen and family(key) in momentum_families and key not in held_mom:
+            continue
+        tier = row['mt'] if 'm' in src else row['kt'] if 'k' in src else tiers.get(key, 0)
         tier = tier if type(tier) is int and 1 <= tier <= 20 else 0
         bit = 1 << (tier - 1) if tier else 1 << 20
-        if kind != settings['kind'] or not settings['tiers'] & bit:
+        if not frozen and not settings['tiers'] & bit:
             continue
         if key in disabled or key not in timed:
             continue
@@ -95,27 +110,21 @@ def catalogue(db, d, settings, fold=True):
                                    kt=row.get('kt', 0), pin={k: pin[k] for k in PIN_FIELDS})
         else:
             unqualified += 1
-    # Lex 21 Nov: one build per map for the menu and the random draft, the Momentum one when it qualifies here.
-    # Families are mapwatch's `of` (surfd.variant_base, lowercase keys: a build listed there was byte-compared
-    # with KSF's archive); dropped builds are not "unqualified". After the kind/tier filter: a base and its
-    # variant can sit in different tiers. fold=False for exact names already chosen (revalidate, a host's pool):
-    # a drafted variant must not fail when its base qualifies later or mapwatch learns the family.
-    base_of = getattr(d, 'variant_base', None) if fold else None
-    if base_of is not None:
+    if not frozen:
+        # One build per family; prefer the canonical stem if two qualify.
         keep = {}
         for name in qualified:
-            low = name.lower()
-            family = base_of(low) or low
-            have = keep.get(family)
-            if have is None or (have.lower() != family and (low == family or name < have)):
-                keep[family] = name
+            root = family(name.lower())
+            have = keep.get(root)
+            if have is None or (have.lower() != root and (name.lower() == root or name < have)):
+                keep[root] = name
         qualified = {n: qualified[n] for n in sorted(keep.values())}
     rules.require(len(qualified) <= 8192, 'candidate pool exceeds 8192 maps')
     return qualified, unqualified
 
 
 def selected(db, d, settings):
-    qualified, _ = catalogue(db, d, settings, fold=settings['pool'] is None)
+    qualified, _ = catalogue(db, d, settings)
     if settings['pool'] is not None:
         rules.require(all(n in qualified for n in settings['pool']), 'selected map unavailable or unqualified')
         return {n: qualified[n] for n in settings['pool']}
@@ -123,10 +132,10 @@ def selected(db, d, settings):
 
 
 def revalidate(db, d, match):
-    # Added unselected maps cannot invalidate an already frozen event.
+    # Catalogue tier and family changes cannot replace an already drafted build.
     rules.require(isinstance(match.get('settings'), dict) and isinstance(match.get('_pins'), dict),
                   'missing frozen qualification')
-    qualified, _ = catalogue(db, d, match['settings'], fold=False)
+    qualified, _ = catalogue(db, d, match['settings'], frozen=True)
     for name in match['schedule'] + [match['reserve']]:
         rules.require(name in qualified and qualified[name]['pin'] == match['_pins'].get(name),
                       'drafted qualification changed or unavailable')

@@ -581,7 +581,11 @@ void(vector scr) Tour_Draw =
 	phase = tour_phase;
 	remaining = max(0, tour_remaining - (cltime - tour_clock_at)); // P1649: every phase's server clock counts down
 	colour = SUI_THEME_DIM; line = strtoupper(phase);
-	if (phase == "live") { colour = SUI_THEME_GOOD; line = "LIVE"; }
+	if (phase == "live")
+	{
+		colour = SUI_THEME_GOOD; line = "LIVE";
+		if (serverkey("tournament_overtime") == "1") { colour = SUI_THEME_WARN; line = "OVERTIME"; }
+	}
 	if (phase == "countdown") { colour = SUI_THEME_FOCUS; line = "GET READY"; }
 	if (phase == "loading") { colour = SUI_THEME_WARN; line = "READY CHECK"; }
 	if (phase == "results") { colour = SUI_THEME_INFO; line = "ROUND RESULTS"; }
@@ -718,6 +722,12 @@ void(vector scr) Tour_Draw =
 			Tour_Ask("ready");
 		x -= 10;
 	}
+	if (myplayer && phase == "live" && serverkey("tournament_overtime") == "1")
+	{
+		x -= bw;
+		if (Tour_Btn("tour_skip_ot", [x, y], [bw, 40], "Vote skip overtime", 0, TRUE)) Tour_Ask("skipovertime");
+		x -= 10;
+	}
 	if (myplayer && phase == "lobby")
 	{
 		x -= bw; if (Tour_Btn("tour_accept", [x, y], [bw, 40], accepted ? "Accepted" : "Accept seat", accepted ? 0 : 1, !accepted)) Tour_Ask("accept"); x -= 10;
@@ -803,6 +813,7 @@ string(float remaining) Tour_NextStep =
 	if (tour_phase == "countdown") return mine ? "Get ready: you're held at the start until GO" : "The round is about to start";
 	if (tour_phase == "live")
 	{
+		if (serverkey("tournament_overtime") == "1") return mine ? "Finish your run or vote to skip (F6)" : "Waiting for runs in progress";
 		if (!mine) return "Watching: best times so far below";
 		if (mytime != "") return sprintf("Your best: %s (%g of %g). Restart any time to beat it", mytime, myrank, n);
 		return "No time yet: finish a clean run before the clock runs out";
@@ -866,7 +877,11 @@ void(vector scr) Tour_Hud =
 	remaining = max(0, tour_remaining - (cltime - tour_clock_at));
 	Tour_Rank();
 	colour = '0.7 0.72 0.78'; line = strtoupper(tour_phase);
-	if (tour_phase == "live") { colour = '0.45 1 0.55'; line = "LIVE"; }
+	if (tour_phase == "live")
+	{
+		colour = '0.45 1 0.55'; line = "LIVE";
+		if (serverkey("tournament_overtime") == "1") { colour = '1 0.82 0.2'; line = "OVERTIME"; }
+	}
 	if (tour_phase == "countdown") { colour = '0.45 0.85 1'; line = "GET READY"; }
 	if (tour_phase == "loading") { colour = '1 0.82 0.2'; line = "LOADING"; }
 	if (tour_phase == "results") { colour = '0.45 0.85 1'; line = "RESULTS"; }

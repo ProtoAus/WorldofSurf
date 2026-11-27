@@ -48,11 +48,14 @@ def parse_payload(payload):
     rules.require(not re.search(r'%(?![0-9A-Fa-f]{2})', payload), 'bad encoding')
     try:
         # UTF-8 for chat text; every other field is still checked against ASCII patterns below.
-        pairs = parse_qsl(payload, strict_parsing=True, encoding='utf-8', errors='strict', max_num_fields=14)
+        pairs = parse_qsl(payload, strict_parsing=True, encoding='utf-8', errors='strict', max_num_fields=len(FIELDS) + 1)
     except (ValueError, UnicodeError):
         raise rules.Refusal('bad payload')
-    rules.require(tuple(k for k, v in pairs) == FIELDS, 'all fourteen ordered fields required')
+    keys = tuple(k for k, v in pairs)
+    rules.require(keys in (FIELDS, FIELDS + ('buzzer_beaters',)), 'ordered tournament fields required')
     data = dict(pairs)
+    if 'buzzer_beaters' in data:
+        rules.buzzer_setting(data)
     rules.require(data['op'] in OPS, 'bad operation')
     rules.require(data['id'] == '-' or HEX32.fullmatch(data['id']), 'bad id')
     rules.require(bool(HEX32.fullmatch(data['request'])), 'bad request')

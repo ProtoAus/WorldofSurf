@@ -34,8 +34,9 @@ def fixture():
                for w, n in ((host, 'Host'), (peer, 'Partner'))]
     party = dict(id=ident, host=host, phase='lobby', revision=7, capacity=3,
                  round_seconds=300, players=players,
-                 maps=[dict(map='surf_fixture_'+str(i), status='pool', by='') for i in range(6)], turn=None)
-    launch = dict(id=ident, epoch=ident, addr='127.0.0.1:27510', map='surf_fixture_0')
+                 settings=dict(kind='surf', profile='default', tick_us=15000, tiers=7, pool=None),
+                 maps=[dict(name='surf_fixture_'+str(i), status='pool', by='') for i in range(6)], turn=None)
+    launch = dict(id=ident, epoch=ident, addr='127.0.0.1:27510', map='surf_fixture_0', ready=1)
     statements = []
 
     def check(expression, label):
@@ -44,6 +45,7 @@ def fixture():
     def snapshot(value):
         return 'TQ_Snapshot('+literal(value)+')'
 
+    statements += ['MT_Set("'+host+'",mt_me);']
     check(snapshot(party), 'valid capacity-three actual-two snapshot')
     check('mt_np==2 && mt_nm==6 && mt_capacity==3 && mt_revision==7', 'roster is not advertised capacity')
     check('MT_Player(0,1)=="Host"', 'adopted name')
@@ -52,7 +54,7 @@ def fixture():
                        ('players', {}), ('maps', {}), ('players', [])):
         p = copy.deepcopy(party); p[key] = value; bad.append((key+' '+str(value), p))
     for name in ('surf_bad;quit', '../escape', 'surf_'+'x'*102):
-        p = copy.deepcopy(party); p['maps'][0]['map'] = name; bad.append(('unsafe map', p))
+        p = copy.deepcopy(party); p['maps'][0]['name'] = name; bad.append(('unsafe map', p))
     p = copy.deepcopy(party); p['players'][0]['role'] = 'admin'; bad.append(('invalid role', p))
     p = copy.deepcopy(party); p['players'] *= 37; bad.append(('roster over 72', p))
     p = copy.deepcopy(party); p['maps'] *= 5; bad.append(('maps over 24', p))
@@ -66,18 +68,26 @@ def fixture():
     statements += ['mt_fresh=1; MT_Fail("fixture stale revision");']
     check('mt_fresh==0 && mt_req==0', 'refusal disables stale controls until resync')
 
-    statements += ['MT_Set("'+host+'",mt_me); cvar_set("lobby_hosts","127.0.0.1"); ms_consent=3;',
+    statements += ['MT_Set("'+host+'",mt_me); cvar_set("lobby_hosts","127.0.0.1"); ms_consent=FS_TERMS_ONLINE;',
                    'mt_directory=buf_create(); mt_nd=1;',
                    'bufstr_set(mt_directory,0,"'+ident+'"); bufstr_set(mt_directory,5,"7");',
                    'tq_connect=""; tq_connects=0; tq_calls=0; mt_req=mt_wire=0;', 'MT_Connect(0);']
     check('tq_calls==1 && mt_req>0 && mt_op=="join" && tq_connects==0', 'joining waiting room requests proof but never connects')
     statements += ['MT_Action("leave",mt_id,"-","-",0);']
     check('tq_calls==1', 'one in-flight wire prevents overlap')
-    statements += ['mt_req=mt_wire=0; MT_Action("ready",mt_id,"-","-",(MT_Player(0,1)!=MT_Player(1,1)));']
+    statements += ['mt_req=mt_wire=0; MT_ClearQueue(); MT_Action("ready",mt_id,"-","-",(MT_Player(0,1)!=MT_Player(1,1)));']
     check('strstrofs(mt_payload,"&value=1",0)>=0', 'native nonunit string truth encoded canonically')
+    statements += ['mt_req=mt_wire=0; MT_Action("create","-","-","-",0,0);']
+    check('cvar("cl_tourney_buzzer_default")==1 && strstrofs(mt_payload,"&buzzer_beaters=1",0)>=0',
+          'buzzer beaters initially default on')
+    statements += ['mt_req=mt_wire=0; cvar_set("cl_tourney_buzzer_default","0"); MT_Action("create","-","-","-",0,0);']
+    check('strstrofs(mt_payload,"&buzzer_beaters=0",0)>=0', 'new room uses saved preference')
+    statements += ['mt_req=mt_wire=0; mt_buzzer=1; MT_Action("configure",mt_id,"-","-",0);']
+    check('strstrofs(mt_payload,"&buzzer_beaters=1",0)>=0 && cvar("cl_tourney_buzzer_default")==0',
+          'configure uses room toggle without changing default')
     statements += ['mt_req=mt_wire=0;']
     for key, value in (('id', 'b'*32), ('epoch', 'g'*32), ('addr', 'evil.invalid:27510'),
-                       ('addr', '127.0.0.1:70000'), ('map', 'surf_bad;quit')):
+                       ('addr', '127.0.0.1:27510;'), ('map', 'surf_bad;quit')):
         p = copy.deepcopy(launch); p[key] = value
         statements += ['MT_Set("",mt_launched); tq_connects=0; TQ_Launch('+literal(p)+');']
         check('tq_connects==0', 'unsafe/unbound '+key+' cannot connect')
@@ -90,25 +100,39 @@ def fixture():
     reply = dict(ok=1, me=host, party=party, launch=launch)
     statements += ['MT_Set("",mt_launched); tq_connects=0; mt_wire=mt_req=91; mt_phase_wire=2; ms_consent=0;',
                    'MT_Reply(91,0,'+literal(reply)+');']
-    check('tq_connects==0 && mt_fresh==0', 'consent revoked before callback refuses launch')
-    statements += ['ms_consent=3; mt_wire=92; mt_req=0;', 'MT_Reply(92,0,'+literal(reply)+');']
+    check('tq_connects==0 && !mt_req', 'consent revoked before callback refuses launch')
+    statements += ['ms_consent=FS_TERMS_ONLINE; mt_wire=92; mt_req=0;', 'MT_Reply(92,0,'+literal(reply)+');']
     check('tq_connects==0 && mt_wire==0', 'late timed-out callback only drains its wire')
     # Exercise actual button conditionals with drawing sinks. This catches QC's
     # unusual ?: precedence (the renderer otherwise receives float -> red vector).
     statements += ['sui_begin(800,600);', 'MT_Button("probe-regular",\'20 20 0\',\'140 36 0\',"Native");']
     check('tq_fill==SUI_THEME_CHIP && tq_ink==SUI_THEME_TEXT', 'cold button uses theme vectors, not logical floats')
     statements += ['MT_Button("probe-selected",\'20 80 0\',\'140 36 0\',"Native",FALSE,TRUE,TRUE);']
-    check('tq_fill==SUI_THEME_SELECTED && tq_ink==SUI_THEME_ACCENT', 'selected button uses native accent vector')
+    check('vlen(tq_fill-(SUI_THEME_CHIP*0.62+SUI_THEME_ACCENT*0.38))<0.001 && tq_ink==SUI_THEME_TEXT', 'selected button uses native accent vector')
     statements += ['MT_Button("probe-primary",\'20 140 0\',\'140 36 0\',"Native",TRUE);']
-    check('tq_fill==SUI_THEME_GOOD_BG && tq_ink==SUI_THEME_GOOD', 'cold primary uses theme vectors')
+    check('vlen(tq_fill-(SUI_THEME_CHIP*0.72+SUI_THEME_GOOD*0.24))<0.001 && tq_ink==SUI_THEME_GOOD', 'cold primary uses theme vectors')
+    for status in ('picked', 'banned'):
+        statements += [f'bufstr_set(mt_maps,1,"{status}");',
+                       'bufstr_set(mt_maps,3,"0"); bufstr_set(mt_maps,4,"0");',
+                       'bufstr_set(mt_maps,5,"Tier 5"); bufstr_set(mt_maps,8,"10 stages");',
+                       'bufstr_set(mt_maps,7,"Lex"); tq_metadata=0; tq_picker=0;',
+                       'MT_MapCard(\'16 220 0\',[ceil(MT_Width("Tier 5  |  10 stages",12,0)*1.6)+20,142],0,FALSE);']
+        check('tq_metadata && tq_picker', status+' card draws both full metadata and picker at measured width')
+        statements += ['bufstr_set(mt_maps,7,"A much longer persona that must fit in the remaining space"); tq_metadata=0;',
+                       'MT_MapCard(\'16 220 0\',[ceil(MT_Width("Tier 5  |  10 stages",12,0)*1.6)+20,142],0,FALSE);']
+        check('tq_metadata', status+' card preserves complete metadata even with long picker')
     return r'''
-float tq_checks,tq_failed,tq_calls,tq_connects;
+float tq_checks,tq_failed,tq_calls,tq_connects,tq_metadata,tq_picker;
 string tq_connect;
 vector tq_fill,tq_ink;
 float(string url,float req,string mime="",string form="") TQ_URI = { tq_calls+=1; return TRUE; };
 void(string cmd) TQ_Connect = { tq_connect=cmd; tq_connects+=1; };
 void(vector pos,vector size,float radius,vector fill,vector edge,float alpha) TQ_Box = { tq_fill=fill; };
-void(vector pos,string text,float want,vector colour,float alpha) TQ_Ink = { tq_ink=colour; };
+void(vector pos,string text,float want,vector colour,float alpha) TQ_Ink = {
+    tq_ink=colour;
+    if (!strcmp(text,"Tier 5  |  10 stages")) tq_metadata=TRUE;
+    if (!strcmp(text,"Lex")) tq_picker=TRUE;
+};
 void(float good,string label) TQ_Check = {
     tq_checks+=1;
     if (!good) { tq_failed+=1; print(strcat("TQ_MENU_FAIL ",label,"\n")); }
@@ -120,7 +144,7 @@ float(string body) TQ_Snapshot = {
 };
 void(string body) TQ_Launch = {
     local int root;
-    root=json_parse(body); MT_Launch(root); json_free(root);
+    root=json_parse(strcat("{\"launch\":",body,"}")); MT_Launch(root); json_free(root);
 };
 void() TQ_MenuFixture = {
 '''+'\n'.join(statements)+r'''
@@ -174,8 +198,8 @@ def main():
                                 cwd=src,stdout=log,stderr=subprocess.STDOUT,timeout=90)
     if result.returncode or not (game/'menu.dat').is_file():
         raise RuntimeError('native menu fixture compile failed: '+str(rig/'compile.log'))
-    command = [str(a.client.resolve()),'-basedir',str(rig),'-game','ftesurf','-nohome','-nostdout',
-               '+set','renderer','headless','+set','sv_public','0','+set','cl_nofake','1','+set','utf8_enable','0']
+    command = [str(a.client.resolve()),'-basedir',str(rig),'-game','ftesurf','-nohome','-stdout',
+               '+set','vid_renderer','egl_headless','+set','sv_public','0','+set','cl_nofake','1','+set','utf8_enable','0']
     try:
         result = subprocess.run(command,cwd=rig,env={**os.environ,'XDG_DATA_HOME':str(rig/'xdg')},
                                 stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=40)

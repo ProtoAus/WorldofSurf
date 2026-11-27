@@ -25,10 +25,7 @@ class Pool(unittest.TestCase):
         self.timed = set(self.bsp)
         self.tiers = {n.lower(): 1 for n in self.names[:4]} | {'surf_high': 4}
         self.listed = self.root / 'mapdl.txt'
-        self.listed.write_text('FTESURF-MAPDL 1\n' + ''.join(
-            'dl %s %s m 0 1 2026-01-01 0 %d 2\n' %
-            (n, 'bhop' if n.startswith(('bhop_', 'kz_')) else 'surf', self.tiers.get(n.lower(), 0))
-            for n in self.names))
+        self.write_list()
         self.registry = self.root / 'qualifications.json'
         self.records = {}
         for name in self.names:
@@ -49,6 +46,21 @@ class Pool(unittest.TestCase):
         self.addCleanup(self.list_patch.stop)
         mapmanifest._listed = (None, {})
 
+    def write_list(self, mom_tier=1, css_tier=1, linked=False, omit_root=False):
+        lines = ['FTESURF-MAPDL 1']
+        for name in self.names:
+            kind = 'bhop' if name.startswith(('bhop_', 'kz_')) else 'surf'
+            src, mt, kt, link = 'm', self.tiers.get(name.lower(), 0), 0, ''
+            if name == 'surf_Exact':
+                if omit_root:
+                    continue
+                src, mt, kt = 'km', mom_tier, 2
+            elif name == 'surf_Exact_css':
+                src, mt, kt = 'k', 0, css_tier
+                link = ' surf_Exact' if linked else ''
+            lines.append(f'dl {name} {kind} {src} {mt or kt} 1 2026-01-01 0 {mt} {kt}{link}')
+        self.listed.write_text('\n'.join(lines) + '\n')
+
     def save(self):
         self.registry.write_text(json.dumps(dict(v=1, maps=self.records)))
 
@@ -67,8 +79,10 @@ class Pool(unittest.TestCase):
         self.assertEqual(list(self.pool(kind='bhop')[0]), ['bhop_test', 'kz_native'])
         self.assertEqual(list(self.pool(tiers=str(1 << 20))[0]), ['surf_unknown'])
         self.assertEqual(list(self.pool(tiers='8')[0]), ['surf_high'])
-        # Actual tier is canonical map_tiers, not MAPDL's independent raw provenance.
+        # Published sources supply their own tier, not the merged ordinary map tier.
         self.tiers['surf_exact_css'] = 5
+        self.assertEqual(list(self.pool()[0]), ['surf_Exact', 'surf_Exact_css'])
+        self.write_list(css_tier=5)
         self.assertEqual(list(self.pool()[0]), ['surf_Exact'])
 
     def test_manual_empty_exact_names_and_no_silent_fill(self):
@@ -101,7 +115,7 @@ class Pool(unittest.TestCase):
         with self.assertRaisesRegex(R.Refusal, 'difficulty catalogue unavailable'):
             self.pool()
         self.tiers = {}
-        self.assertEqual(self.pool()[0], {})
+        self.assertEqual(list(self.pool()[0]), ['surf_Exact', 'surf_Exact_css'])
         self.listed.unlink()
         with self.assertRaisesRegex(R.Refusal, 'map catalogue unavailable'):
             self.pool()
@@ -139,35 +153,39 @@ class Pool(unittest.TestCase):
         with self.assertRaisesRegex(R.Refusal, 'qualification changed'):
             P.revalidate(self.db, self.d, m)
 
-    def test_one_build_per_family_momentum_first_lex_21nov(self):
-        # surfd.variant_base's keys and values are clean_map lowercase; the disk spelling here is mixed case.
-        families = {'surf_exact': 'surf_exact', 'surf_exact_css': 'surf_exact'}
-        self.d.variant_base = families.get
+    def test_momentum_presence_precedes_tiers_and_qualification(self):
+        self.write_list(linked=True)
         rows, unqualified = self.pool()
         self.assertEqual((list(rows), unqualified), (['surf_Exact'], 0))
-        # The base outside the filter (or unqualified): its variant stands in for the family.
-        self.tiers['surf_exact'] = 5
-        self.assertEqual(list(self.pool()[0]), ['surf_Exact_css'])
+        self.write_list(mom_tier=5, linked=True)
+        self.assertEqual(self.pool(), ({}, 0))
         self.assertEqual(list(self.pool(tiers='16')[0]), ['surf_Exact'])
-        self.tiers['surf_exact'] = 1
+        self.write_list(mom_tier=0, linked=True)
+        self.assertEqual(self.pool(), ({}, 0))
+        self.assertEqual(self.pool(tiers=str(1 << 20))[0]['surf_Exact']['tier'], 0)
+        self.write_list(linked=True)
         self.records['surf_Exact']['default']['approved'] = 0
         self.save()
-        self.assertEqual(self.pool(), ({'surf_Exact_css': self.pool()[0]['surf_Exact_css']}, 1))
-        self.tiers['surf_exact'] = 1
-        self.records['surf_Exact']['default']['approved'] = 1
-        self.save()
-        # Exact names already chosen are never folded: a frozen draft holding the variant, and a host's own pool.
-        everything, _ = P.catalogue(self.db, self.d, self.settings(), fold=False)
+        self.assertEqual(self.pool(), ({}, 1))
+        with self.assertRaises(R.Refusal):
+            P.selected(self.db, self.d, self.settings(pool='surf_Exact_css'))
+
+    def test_known_momentum_even_if_unheld_but_not_a_guessed_suffix(self):
+        self.write_list(omit_root=True)
+        del self.bsp['surf_exact']
+        self.d.momentum_catalogue = lambda: {'surf_exact'}
+        self.assertEqual(list(self.pool()[0]), ['surf_Exact_css'])  # no verified relationship
+        self.d.variant_base = {'surf_exact_css': 'surf_exact'}.get
+        self.assertEqual(self.pool(), ({}, 0))
+        self.d.momentum_catalogue = frozenset
+        self.assertEqual(list(self.pool()[0]), ['surf_Exact_css'])
+
+    def test_old_frozen_css_build_keeps_its_pin(self):
+        everything, _ = self.pool()
         m = dict(settings=self.settings(), schedule=['surf_Exact_css'], reserve='surf_Exact',
                  _pins={n: c['pin'] for n, c in everything.items()})
+        self.write_list(mom_tier=5, css_tier=8, linked=True)
         P.revalidate(self.db, self.d, m)
-        self.assertEqual(list(P.selected(self.db, self.d, self.settings(pool='surf_Exact_css'))), ['surf_Exact_css'])
-        self.assertEqual(list(P.selected(self.db, self.d, self.settings())), ['surf_Exact'])
-        # No catalogue (variant_base answers None): nothing is folded.
-        self.d.variant_base = lambda name: None
-        self.records['surf_Exact']['default']['approved'] = 1
-        self.save()
-        self.assertEqual(list(self.pool()[0]), ['surf_Exact', 'surf_Exact_css'])
 
 
 if __name__ == '__main__':

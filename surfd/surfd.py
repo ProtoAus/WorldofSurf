@@ -3274,7 +3274,7 @@ def public_state(verdict, decision):
 # imported ones.  A native row stays with the build it was set on.
 VARIANTS_TTL = 120
 CATALOGUE_MAX = 8 << 20     # mapwatch's catalogue.json is 230 KB
-_variants = {"at": None, "of": {}, "ports": {}}
+_variants = {"at": None, "of": {}, "ports": {}, "momentum": frozenset()}
 
 
 def variant_base(mapname, now=None):
@@ -3288,12 +3288,17 @@ def variant_base(mapname, now=None):
         at = _variants["at"]
         if at is not None and 0 <= now - at < VARIANTS_TTL:
             return _variants["of"].get(mapname)
-    of, ports = {}, {}
+    of, ports, momentum = {}, {}, set()
     try:
         with open(os.path.join(DATA_DIR, "mapwatch", "catalogue.json"), "rb") as fh:
             doc = json.loads(fh.read(CATALOGUE_MAX).decode("utf-8"))
         for k, row in doc["maps"].items():
-            base = clean_map(row.get("of")) if isinstance(row, dict) else None
+            if not isinstance(row, dict) or clean_map(k) != k:
+                continue
+            src = row.get("src")
+            if isinstance(src, str) and ('m' in src or 'b' in src):
+                momentum.add(k)
+            base = clean_map(row.get("of"))
             if base and clean_map(k) == k and k != base:
                 of[k] = base
                 # A real KSF roster name carries its own imported records. A
@@ -3305,10 +3310,16 @@ def variant_base(mapname, now=None):
         for b in set(of.values()):
             of[b] = b
     except (OSError, ValueError, KeyError, AttributeError, TypeError, RecursionError):
-        of, ports = {}, {}
+        of, ports, momentum = {}, {}, set()
     with _maps_lock:
-        _variants["at"], _variants["of"], _variants["ports"] = now, of, ports
+        _variants.update(at=now, of=of, ports=ports, momentum=frozenset(momentum))
     return of.get(mapname)
+
+
+def momentum_catalogue():
+    """Published Momentum and beta names, including maps not currently held."""
+    variant_base('')  # refresh the same provenance snapshot used for family links
+    return _variants['momentum']
 
 
 def _board_scope(mapname, base, col):
@@ -9170,14 +9181,14 @@ tournaments.register(app, types.SimpleNamespace(
     get_db=get_db, clock=lambda: time.time(), secret=lambda: SECRET,
     setting=setting, game_json=game_json, log=log, lobby_ttl=LOBBY_TTL,
     assign_ttl=ASSIGN_TTL, map_index=map_index, zone_file_index=zone_file_index,
-    map_tiers=map_tiers, maps_root=MAPS_DIR, variant_base=variant_base,
+    map_tiers=map_tiers, maps_root=MAPS_DIR, variant_base=variant_base, momentum_catalogue=momentum_catalogue,
     rate_key=rate_key, rate_ok=rate_ok))
 
 party_lobbies.register(app, types.SimpleNamespace(
     get_db=get_db, clock=lambda: time.time(), secret=lambda: SECRET,
     setting=setting, game_json=game_json, log=log, lobby_ttl=LOBBY_TTL,
     assign_ttl=ASSIGN_TTL, map_index=map_index, zone_file_index=zone_file_index,
-    map_tiers=map_tiers, maps_root=MAPS_DIR, variant_base=variant_base,
+    map_tiers=map_tiers, maps_root=MAPS_DIR, variant_base=variant_base, momentum_catalogue=momentum_catalogue,
     rate_key=rate_key, rate_ok=rate_ok))
 
 social.register(app, types.SimpleNamespace(

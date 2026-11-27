@@ -2,6 +2,7 @@
    issues live timing events. OFF by default. No payments or 3D lobby. */
 #define TQ_QUEUE_MAX 256
 #define TQ_CLIENT_MAX 256
+#define TQ_BUZZER_SECONDS 120 // must match BUZZER_SECONDS in surfd/tournament_rules.py
 #define TQ_HTTP_WAIT 10
 #define TQ_HOLD_LIMIT 30
 // P1648: loading covers connecting, downloads and account checks for strangers; 120 s aborted real rooms.
@@ -14,6 +15,8 @@ string tq_absentset;
 
 float tq_cvreg, tq_booted, tq_pollat, tq_request, tq_sentat, tq_retry;
 float tq_revision, tq_round, tq_roundtotal, tq_seconds, tq_countat, tq_goat;
+float tq_buzzer, tq_overtime;
+.float tq_skipvote;
 float tq_live, tq_resultsat, tq_moving, tq_moveat, tq_arrived, tq_arrive_sent, tq_broken;
 string tq_ruleset, tq_kind, tq_profile;
 float tq_expected_tick;
@@ -29,7 +32,7 @@ string tq_note, tq_pending, tq_pendingop, tq_pendingtoken;
 string tq_json;
 .float tq_role, tq_seenrev, tq_stream, tq_streamat, tq_lastcmd, tq_boundrev;
 .float tq_streambuf, tq_streamcount, tq_streamrev;
-.float tq_hold, tq_runround, tq_runstart, tq_best, tq_wasspec, tq_bound, tq_holdmove;
+.float tq_hold, tq_runround, tq_runstart, tq_runwall, tq_best, tq_wasspec, tq_bound, tq_holdmove;
 .string tq_boundwho;
 void() SV_PlayerRespawn;
 void(entity e) Tour_Stream;
@@ -152,7 +155,7 @@ void(entity e) Tour_Connected =
 	if (e.tq_streambuf) buf_del(e.tq_streambuf);
 	e.tq_streambuf = e.tq_streamcount = e.tq_streamrev = 0;
 	e.tq_role = e.tq_seenrev = e.tq_stream = e.tq_hold = 0;
-	e.tq_runround = e.tq_runstart = e.tq_best = e.tq_bound = e.tq_nojournal = e.tq_speccmd = 0;
+	e.tq_runround = e.tq_runstart = e.tq_best = e.tq_bound = e.tq_nojournal = e.tq_speccmd = e.tq_skipvote = 0;
 	e.tq_streamat = e.tq_lastcmd = e.tq_boundrev = 0;
 	if (strlen(e.tq_boundwho)) strunzone(e.tq_boundwho);
 	e.tq_boundwho = "";
@@ -184,10 +187,26 @@ void(entity e) Tour_Disconnected =
 	e.tq_bound = e.tq_role = e.tq_stream = 0;
 };
 
+void(float active) Tour_SetOvertime =
+{
+	if (tq_overtime == active) return;
+	tq_overtime = active;
+	forceinfokey(world, "tournament_overtime", active ? "1" : "");
+	tq_clockat = 0;
+};
+
+float(entity e) Tour_OvertimeRunner =
+{
+	return (e.tq_role == 1 && e.tq_runround == tq_round && e.tq_runwall == e.run_t_startwall &&
+		e.run_t_state == TS_RUNNING && !e.run_pmhold &&
+		e.run_t_track == 0 && FS_LegOf(e.run_t_startseg, e.run_t_stagerun) == 0 &&
+		FS_RunClass(e.run_t_flags) == RC_CLEAN && !(e.run_t_flags & (TF_MULTISESSION | TF_SPEC | (TF_UNCERT - TF_NOJOURNAL))));
+};
+
 float() Tour_Remaining =
 {
 	if (tq_phase == "countdown") return max(0, tq_countat - time);
-	if (tq_phase == "live" && tq_live) return max(0, tq_goat + tq_seconds - time);
+	if (tq_phase == "live" && tq_live) return max(0, tq_goat + tq_seconds + (tq_overtime ? TQ_BUZZER_SECONDS : 0) - time);
 	if (tq_phase == "results") return max(0, tq_resultsat + 15 - time);
 	// P1649: what the HUD counts down to: the loading abort, the release back to public play.
 	if (tq_phase == "loading" && tq_allreadyat && !tq_autorefused && cvar("tournament_autostart") > 0)
@@ -274,6 +293,7 @@ void(entity e) Tour_RefreshRole =
 	// as its completion. Cancel only on identity changes, not score revisions.
 	if (strcmp(e.tq_boundwho, who))
 	{
+		e.tq_runround = e.tq_skipvote = 0;
 		if (e.tq_streambuf) buf_del(e.tq_streambuf);
 		e.tq_streambuf = e.tq_stream = e.tq_streamcount = e.tq_streamrev = 0;
 		e.tq_streamat = 0;
@@ -321,7 +341,7 @@ void() Tour_Roles =
 			Tour_Avatar(e);
 			if (!tq_releasing && (tq_broken || tq_phase == "countdown" || tq_phase == "results" ||
 			    tq_phase == "finished" || tq_phase == "aborted" || tq_phase == "cancelled" ||
-			    (tq_phase == "live" && (!tq_live || time > tq_goat + tq_seconds))))
+			    (tq_phase == "live" && (!tq_live || (time > tq_goat + tq_seconds && !(tq_overtime && Tour_OvertimeRunner(e)))))))
 				Tour_Hold(e);
 			else Tour_Unhold(e);
 		}
@@ -392,7 +412,8 @@ void() Tour_Clear =
 	tq_ruleset = tq_kind = tq_profile = ""; tq_expected_tick = 0;
 	if (strlen(tq_rules_breach)) strunzone(tq_rules_breach);
 	tq_rules_breach = "";
-	tq_live = tq_broken = tq_creating = tq_releasing = tq_moving = tq_race = tq_owned = 0;
+	Tour_SetOvertime(FALSE);
+	tq_buzzer = tq_live = tq_broken = tq_creating = tq_releasing = tq_moving = tq_race = tq_owned = 0;
 	tq_revision = tq_round = tq_roundtotal = tq_seconds = tq_arrived = tq_arrive_sent = tq_abortqueued = 0;
 	tq_goat = tq_countat = tq_resultsat = tq_phaseat = tq_turnat = tq_hostgone = tq_clockat = 0;
 	if (tq_wire) buf_del(tq_wire);
@@ -670,7 +691,7 @@ void(int match, string envelope) Tour_Adopt =
 		for (i = 1; i <= TQ_CLIENT_MAX; i = i + 1)
 		{
 			e = edict_num(i); if (clienttype(e) == CLIENTTYPE_NOTACLIENT) break;
-			e.tq_best = e.tq_runround = 0;
+			e.tq_best = e.tq_runround = e.tq_skipvote = 0;
 		}
 	}
 	prev = strlen(tq_json) ? strzone(tq_json) : "";   // Tour_Announce diffs against it
@@ -687,6 +708,7 @@ void(int match, string envelope) Tour_Adopt =
 	tq_ruleset = strlen(ruleset) ? strzone(ruleset) : "";
 	tq_kind = strzone(kind); tq_profile = strzone(profile); tq_expected_tick = tick;
 	tq_seconds = bound(60, json_get_float(json_find_object_child(match, "round_seconds")), 900);
+	tq_buzzer = (json_get_float(json_find_object_child(match, "buzzer_beaters")) == 1);
 	tq_roundtotal = json_get_float(json_find_object_child(match, "round_total"));
 	if (strlen(tq_host)) strunzone(tq_host);
 	tq_host = strzone(json_get_string(json_find_object_child(match, "host")));
@@ -748,6 +770,7 @@ void(int match, string envelope) Tour_Adopt =
 	}
 	if (phasechanged)
 	{
+		Tour_SetOvertime(FALSE);
 		tq_phaseat = time;
 		tq_allreadyat = tq_startsent = tq_absentwarned = tq_absentsince = tq_canstart = tq_startnow = 0;
 		tq_waitprev = tq_autofails = tq_startskind = tq_drainat = 0;
@@ -968,14 +991,17 @@ void(entity e) Tour_RunStart =
 	Tour_Observe(); if (tq_broken) return;
 	e.tq_runround = tq_round;
 	e.tq_runstart = time - tq_goat;
+	e.tq_runwall = time; // SV_TimerStart latches the same native start; a restored clock can't inherit it
 };
 
 void(entity e) Tour_Finished =
 {
 	local string data;
-	local float rate;
+	local float rate, buzzer;
 	if (!Tour_Owns() || tq_phase != "live" || !tq_live || tq_broken || e.tq_role != 1) return;
-	if (e.tq_runround != tq_round || time > tq_goat + tq_seconds || time < tq_goat) return;
+	if (e.tq_runround != tq_round || e.tq_runstart >= tq_seconds || time < tq_goat) return;
+	buzzer = (time > tq_goat + tq_seconds);
+	if (buzzer && (!tq_buzzer || e.tq_runwall != e.run_t_startwall || time > tq_goat + tq_seconds + TQ_BUZZER_SECONDS)) return;
 	Tour_Observe(); if (tq_broken || !tq_arrived) return;
 	// P1649: a newcomer must learn why a finish did not count, not just see no time appear.
 	if (e.run_t_finleg != 1) { Tour_Tell(e, "Only full runs of the main course count in the tournament, not bonuses or single stages."); return; }
@@ -1006,8 +1032,49 @@ void(entity e) Tour_Finished =
 	}
 	data = sprintf("&who=%s&ticks=%d&tickrate=%.9g&elapsed_ms=%d&start_elapsed_ms=%d",
 		e.acct_who, e.run_t_finticks, rate, floor((time - tq_goat) * 1000), floor(e.tq_runstart * 1000));
+	if (buzzer) data = strcat(data, "&buzzer=1");
 	data = strcat(data, "&clean=1&runid=", SV_RandHex(16));
 	Tour_Queue("score", data, world);
+};
+
+float(float total, float votes) Tour_SkipWins = { return total >= 2 && votes * 2 > total; };
+
+void() Tour_CloseWindow =
+{
+	local float i, pending, votes, total;
+	local entity e;
+	local string seen, voted, who;
+	if (tq_phase != "live" || !tq_live || tq_broken || time <= tq_goat + tq_seconds) return;
+	if (tq_buzzer && time <= tq_goat + tq_seconds + TQ_BUZZER_SECONDS)
+	{
+		seen = voted = " "; pending = votes = total = 0;
+		for (i = 1; i <= TQ_CLIENT_MAX; i += 1)
+		{
+			e = edict_num(i);
+			if (clienttype(e) == CLIENTTYPE_NOTACLIENT) break;
+			if (clienttype(e) != CLIENTTYPE_REAL) continue;
+			Tour_RefreshRole(e);
+			if (e.tq_role != 1) continue;
+			if (Tour_OvertimeRunner(e)) pending += 1;
+			who = strcat(" ", e.acct_who, " ");
+			if (strstrofs(seen, who, 0) < 0)
+			{
+				seen = strcat(seen, e.acct_who, " "); total += 1;
+			}
+			if (e.tq_skipvote == tq_round && strstrofs(voted, who, 0) < 0)
+			{
+				voted = strcat(voted, e.acct_who, " "); votes += 1;
+			}
+		}
+		if (pending && !Tour_SkipWins(total, votes))
+		{
+			Tour_SetOvertime(TRUE);
+			return;
+		}
+	}
+	Tour_SetOvertime(FALSE);
+	tq_live = FALSE;
+	Tour_Queue("settle", sprintf("&elapsed_ms=%d", max(tq_seconds * 1000, floor((time - tq_goat) * 1000))), world);
 };
 
 float(entity e) Tour_PreThink =
@@ -1053,6 +1120,19 @@ float(entity e, float argc) Tour_Command =
 	}
 	if (time < e.tq_lastcmd + 0.5) return TRUE;
 	e.tq_lastcmd = time;
+	if (op == "skipovertime")
+	{
+		Tour_RefreshRole(e);
+		if (!tq_live || tq_broken || !tq_overtime || e.tq_role != 1)
+			Tour_Tell(e, "Only current competitors can vote during overtime.");
+		else
+		{
+			e.tq_skipvote = tq_round;
+			Tour_Tell(e, "Vote to skip overtime recorded. A majority of connected competitors must agree.");
+			Tour_CloseWindow();
+		}
+		return TRUE;
+	}
 	if (op == "create")
 	{
 		if (!cvar("tournament_enable") || Tour_Owns() || Tour_Occupants() != 1)
@@ -1334,12 +1414,7 @@ void() Tour_Frame =
 				Tour_Queue("go", sprintf("&elapsed_ms=%d&tickrate=%.9g",
 					max(5000, floor((time - tq_countat + 5) * 1000)), 1 / run_t_tick), world);
 		}
-		if (tq_phase == "live" && tq_live && !tq_broken && time > tq_goat + tq_seconds)
-		{
-			tq_live = FALSE;
-			Tour_Queue("settle", sprintf("&elapsed_ms=%d", max(tq_seconds * 1000,
-				floor((time - tq_goat) * 1000))), world);
-		}
+		Tour_CloseWindow();
 		if (tq_phase == "results" && time >= tq_resultsat + 15 && tq_qread == tq_qwrite && !tq_request)
 			Tour_Queue("advance", "", world);
 		if ((tq_phase == "finished" || tq_phase == "aborted" || tq_phase == "cancelled") &&

@@ -355,6 +355,25 @@ class Rules(unittest.TestCase):
         with self.assertRaisesRegex(R.Refusal, 'already scored'):
             self.score(next_round, 'host', 100, runid='0000000000000001')
 
+    def test_buzzer_score_requires_explicit_enabled_window_and_pre_cutoff_start(self):
+        m = self.live()
+        self.assertEqual(m['buzzer_beaters'], 1)
+        late = dict(buzzer='1', elapsed_ms=61000, start_elapsed_ms=59000)
+        for state, fields in ((dict(m, buzzer_beaters=0), late),
+                              ({k: v for k, v in m.items() if k != 'buzzer_beaters'}, late),
+                              (m, dict(late, buzzer='0')),
+                              (m, dict(late, start_elapsed_ms=60000)),
+                              (m, dict(late, elapsed_ms=181000)),
+                              (m, dict(late, elapsed_ms=59999)),
+                              (m, dict(late, elapsed_ms=60001, start_elapsed_ms=59998))):
+            with self.assertRaises(R.Refusal, msg=fields):
+                self.score(state, 'host', 100, **fields)
+        m = self.score(m, 'host', 100, **late)
+        self.assertEqual(m['players'][0]['best_ticks'], 100)
+        m = R.transition(m, 'settle', '', '', dict(observation(m), elapsed_ms=62000))
+        with self.assertRaises(R.Refusal):
+            self.score(m, 'p1', 100, **late)
+
     def test_settle_p1650_nobody_finished_everyone_goes_through(self):
         m = self.settle(self.live())
         self.assertEqual((m['phase'], m.get('outcome')), ('results', None))
@@ -817,9 +836,19 @@ class API(unittest.TestCase):
         act('go', elapsed_ms=5000, tickrate=1000000/15000)
         expected_badges = [(str(76561198000000001 + i), 'tournament-tester', 1) for i in range(2)]
         self.assertEqual(badges(), expected_badges)
-        act('score', who=self.whos[0], ticks=60, tickrate=1000000/15000, elapsed_ms=1000,
-            start_elapsed_ms=0, runid='a'*32, **data)
-        act('settle', elapsed_ms=60000)
+        act('score', who=self.whos[0], ticks=60, tickrate=1000000/15000, elapsed_ms=60500,
+            start_elapsed_ms=59600, buzzer='1', runid='a'*32, **data)
+        self.assertTrue(T.reserved(self.db, 'n1'))
+        # A normal submission for the same finish on the reserved node still
+        # lands in the normal linked-account board, independently of score/settle.
+        with patch.object(S, 'RANKED_LINKED', True), patch.object(S, 'is_trusted', return_value=True):
+            posted = self.client.post('/api/run', data=dict(key='testkey', node='n1', map=m['current_map'],
+                track=0, leg=0, player='c0'*16, pub='1'*64, name='Fixture 0', flags=0,
+                tier='ranked', ticks=60, tickrate=1000000/15000, runid='a'*32))
+        self.assertEqual(posted.status_code, 200, posted.get_data(as_text=True))
+        self.assertEqual(tuple(self.db.execute('SELECT player,tier,millis FROM runs WHERE map=? AND runid=?',
+            (m['current_map'].lower(), 'a'*32)).fetchone()), ('76561198000000001', 'ranked', 900))
+        act('settle', elapsed_ms=61000)
         self.assertEqual([p['place'] for p in m['players'] if p['role'] != 'spectator'], [1,2])
         act('advance')
         self.assertEqual(m['phase'], 'finished')

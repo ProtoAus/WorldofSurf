@@ -29,6 +29,7 @@ float mt_nsched, mt_reserveidx, mt_sched[MT_SCHED_MAX], mt_seatof[8], mt_specof[
 // Pending edits are independent of the last authoritative snapshot.
 string mt_kind, mt_profile, mt_pool, mt_editpool, mt_actualkind, mt_actualprofile, mt_actualpool, mt_ruleset;
 float mt_tiers, mt_actualtiers, mt_actualtick, mt_settingsinit, mt_metadata;
+float mt_buzzer, mt_actualbuzzer;
 float mt_catalog, mt_catalogcount, mt_catalogtotal, mt_unqualified, mt_catalogoffset;
 var float mt_cataloglimit = 6;
 float mt_catalogfresh, mt_catalognext, mt_catalogmin, mt_cataloghosting;
@@ -122,6 +123,8 @@ void() MT_SettingsInit =
 {
 	if (mt_settingsinit) return;
 	mt_settingsinit = TRUE; mt_tiers = 7;
+	registercvar("cl_tourney_buzzer_default", "1", 32); // archived on this client
+	mt_buzzer = (cvar("cl_tourney_buzzer_default") != 0);
 	MT_Set("surf", mt_kind); MT_Set("default", mt_profile); MT_Set("-", mt_pool);
 };
 string() MT_CatalogKey =
@@ -335,12 +338,12 @@ void() MT_SyncPending =
 {
 	if (mt_actualkind == "") return;
 	MT_Set(mt_actualkind, mt_kind); MT_Set(mt_actualprofile, mt_profile); MT_Set(mt_actualpool, mt_pool);
-	mt_tiers = mt_actualtiers; mt_newseats = mt_capacity; mt_newseconds = mt_seconds;
+	mt_tiers = mt_actualtiers; mt_newseats = mt_capacity; mt_newseconds = mt_seconds; mt_buzzer = mt_actualbuzzer;
 };
 float() MT_PendingDiffers =
 {
 	return (strcmp(mt_kind, mt_actualkind) || strcmp(mt_profile, mt_actualprofile) || strcmp(mt_pool, mt_actualpool)
-		|| mt_tiers != mt_actualtiers || mt_newseats != mt_capacity || mt_newseconds != mt_seconds);
+		|| mt_tiers != mt_actualtiers || mt_newseats != mt_capacity || mt_newseconds != mt_seconds || mt_buzzer != mt_actualbuzzer);
 };
 float(string op) MT_Busy = { return (mt_req && mt_op == op) || MT_Queued(op, ""); };
 void() MT_Edit =
@@ -509,6 +512,8 @@ void(string op, string id, string target, string map, float value, float expecte
 	payload = strcat(payload, "&kind=", uri_escape(mt_kind), "&tiers=", sprintf("%.0f", mt_tiers));
 	payload = strcat(payload, "&profile=", uri_escape(mt_profile), "&pool=", uri_escape(mt_pool));
 	payload = strcat(payload, "&text=", uri_escape(text));
+	if (op == "create" || op == "configure")
+		payload = strcat(payload, "&buzzer_beaters=", ((op == "create") ? cvar("cl_tourney_buzzer_default") : mt_buzzer) ? "1" : "0");
 	if (strlen(payload) > 2048) { MT_Note("That request is too long to send."); return; }
 	hash = digest_hex("SHA256", payload);
 	if (!MT_Hex(hash, 64)) { MT_Fail("Update the game to use tournament rooms."); return; }
@@ -702,6 +707,7 @@ float(int party) MT_Snapshot =
 	}
 	MT_Set(MT_Text(json_get_string(json_find_object_child(party, "reserve")), 64), mt_reserve);
 	mt_revision = revision; mt_capacity = capacity; mt_seconds = seconds;
+	mt_actualbuzzer = (json_get_float(json_find_object_child(party, "buzzer_beaters")) == 1);
 	mt_started = (json_get_float(json_find_object_child(party, "menu_started")) == 1);
 	MT_Set(kind, mt_actualkind); MT_Set(profile, mt_actualprofile); MT_Set(selected, mt_actualpool);
 	MT_Set(ruleset, mt_ruleset); mt_actualtiers = tiers; mt_actualtick = tick;
@@ -1545,7 +1551,7 @@ void() MT_OpenPool =
 // for everyone else, then whether the pool can feed a draft, then the pool itself.
 void(vector size) MT_DrawSettings =
 {
-	local float edit, stacked, y, cx, cw, cy, ch, gap, i, k, chipw, r, idx, need, ready, x, tw, th, n, rows, shown, count;
+	local float edit, stacked, y, cx, cw, cy, ch, gap, i, k, chipw, r, idx, need, ready, x, defw, tw, th, n, rows, shown, count;
 	local string text, name, pool;
 	local vector colour;
 	edit = (mt_me == mt_host && mt_phase == "lobby" && !MT_Busy("lock"));
@@ -1557,10 +1563,11 @@ void(vector size) MT_DrawSettings =
 	}
 	else { text = "Set by the host"; colour = SUI_THEME_MUTED; }
 	MT_Place([size_x - 226, 12], '210 30 0', text, 12, colour, 2);
-	stacked = (size_x < 400);
-	cx = stacked ? 16 : 136; cw = size_x - cx - 16;
-	ch = (size_y < 380) ? 30 : 34;
-	gap = bound(4, floor((size_y - 56 - 6 * (ch + (stacked ? 18 : 0)) - 64) / 6), 10);
+	// Seven rows only stack when both labels and controls fit vertically.
+	stacked = (size_x < 400 && size_y >= 512);
+	cx = stacked ? 16 : (size_x < 400 ? 112 : 136); cw = size_x - cx - 16;
+	ch = bound(24, floor((size_y - 56 - 40) / 7) - 4 - (stacked ? 18 : 0), 34);
+	gap = bound(4, floor((size_y - 56 - 7 * (ch + (stacked ? 18 : 0)) - 40) / 7), 10);
 	y = 56;
 
 	cy = MT_RowLabel("Mode", y, stacked, cx, ch);
@@ -1613,6 +1620,24 @@ void(vector size) MT_DrawSettings =
 		if (r) { mt_newseconds = MT_SecondsStep(mt_newseconds, r); MT_Edit(); }
 	}
 	else MT_Value([cx, cy], [cw, ch], MT_Minutes(mt_seconds), SUI_THEME_TEXT);
+	y = cy + ch + gap;
+
+	cy = MT_RowLabel("Buzzer beaters", y, stacked, cx, ch);
+	if (edit)
+	{
+		defw = min(112, floor(cw * 0.67));
+		if (MT_Button("mt_buzzer", [cx, cy], [cw - defw - 6, ch], mt_buzzer ? "On" : "Off", 0, TRUE, mt_buzzer))
+		{
+			mt_buzzer = !mt_buzzer; MT_Edit();
+		}
+		sui_tooltip_for("mt_buzzer", "Clean main runs started before time runs out can finish in up to 2 minutes of overtime. Competitors can vote to skip.", 2);
+		if (MT_Button("mt_buzzer_default", [cx + cw - defw, cy], [defw, ch], "Make default"))
+		{
+			cvar_set("cl_tourney_buzzer_default", mt_buzzer ? "1" : "0");
+			MT_Note(mt_buzzer ? "Buzzer beaters on by default for your new tournaments." : "Buzzer beaters off by default for your new tournaments.");
+		}
+	}
+	else MT_Value([cx, cy], [cw, ch], mt_actualbuzzer ? "On" : "Off", SUI_THEME_TEXT);
 	y = cy + ch + gap;
 
 	cy = MT_RowLabel("Seats", y, stacked, cx, ch);
@@ -1674,7 +1699,7 @@ void(vector size) MT_DrawSettings =
 float(vector p, vector size, float i, float clickable) MT_MapCard =
 {
 	local string id, status, info, by;
-	local float hot, th, w;
+	local float hot, th, w, namew;
 	local vector edge, tp, ts;
 	id = sprintf("mt_map%g", i);
 	status = MT_Map(i, 1);
@@ -1706,8 +1731,12 @@ float(vector p, vector size, float i, float clickable) MT_MapCard =
 	by = MT_Map(i, 7); w = size_x - 20;
 	if (status != "pool" && by != "")
 	{
-		MT_Place(p + [10 + floor(w * 0.45), th + 36], [w - floor(w * 0.45), 18], by, 12, MT_SeatColour(stof(MT_Map(i, 6))), 2);
-		w = floor(w * 0.45) - 6;
+		namew = min(ceil(MT_Width(by, 12, 0)), w - ceil(MT_Width(info, 12, 0)) - 8);
+		if (namew > 0)
+		{
+			MT_Place(p + [10 + w - namew, th + 36], [namew, 18], by, 12, MT_SeatColour(stof(MT_Map(i, 6))), 2);
+			w -= namew + 8;
+		}
 	}
 	MT_Place(p + [10, th + 36], [w, 18], info, 12, SUI_THEME_DIM);
 	return (clickable && sui_is_released(id));
