@@ -67,10 +67,17 @@ class BrandTests(unittest.TestCase):
                          {"LINUX_URL", "LINUX_FILENAME", "LINUX_SIZE_HUMAN", "LINUX_SIZE_BYTES", "LINUX_SHA256", "LINUX_GLIBC",
                           "LINUX_ENGINE", "LINUX_LAUNCHER_URL", "LINUX_LAUNCHER_SHA256"})
         # P852: the launcher is the download; no wrapper-script instructions.
-        self.assertIn("https://github.com/ProtoAus/ftesurf", doc)
         for legacy in ("<code>ftesurf.bat</code>", "<code>./ftesurf.sh</code>"):
             self.assertNotIn(legacy, doc)
         self.assertIn("Built on FTEQW", doc)
+
+    def test_canonical_repo_source_links(self):
+        for rel in ("src/release/page.template.html", "src/release/site/anticheat.html",
+                    "src/release/site/get.html", "src/release/site/zoning.html"):
+            with self.subTest(rel=rel):
+                doc = text(rel)
+                self.assertIn('href="https://github.com/ProtoAus/WorldofSurf">Source</a>', doc)
+                self.assertNotIn('href="https://github.com/ProtoAus/ftesurf"', doc)
 
     def test_compatible_social_routes(self):
         # Website-path cutover is a later stage. Only the image gets a fresh key.

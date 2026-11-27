@@ -1295,7 +1295,7 @@ The game and engine are GPLv2 or later. See LICENSE for the full text.
 The separate Rust bootstrap is MIT; see notices/bootstrap.txt, which also
 contains the original license/notice texts for its locked dependencies.
 
-  game (QuakeC)   https://github.com/ProtoAus/ftesurf
+  game (QuakeC)   https://github.com/ProtoAus/WorldofSurf
   engine fork     https://github.com/ProtoAus/ftequakers   branch main
   Rust bootstrap  https://github.com/ProtoAus/Quakers-Launcher   (MIT)
 

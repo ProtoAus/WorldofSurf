@@ -36,7 +36,7 @@ PUBLIC = (
     ('tas', 'TAS uploads', 'https://play.proto.bar/tasup/'),
 )
 DOWNLOAD = ('Download', './#download')
-FOOTER_EXTRA = (('Source', 'https://github.com/ProtoAus/ftesurf'),)
+FOOTER_EXTRA = (('Source', 'https://github.com/ProtoAus/WorldofSurf'),)
 ADMIN = (
     ('fleet', 'Fleet', '/admin/'),
     ('maps', 'Maps', '/admin/maps'),

@@ -26,6 +26,7 @@ COPY_EDITS = {'README.md': [('# FTESurf\n', '# World of Surf\n'),
  'src/release/release.ps1': [('FTESurf $Ver\n', 'World of Surf $Ver\n'),
                              ('FTESurf $Ver -- install', 'World of Surf $Ver -- install'),
                              ('FTESurf $Ver -- source', 'World of Surf $Ver -- source'),
+                             ('https://github.com/ProtoAus/ftesurf', 'https://github.com/ProtoAus/WorldofSurf'),
                              ('FTESurf $Ver -- third-party software',
                               'World of Surf $Ver -- third-party software'),
                              ('FTESurf $Ver for Linux x86_64 (beta)',
@@ -103,7 +104,7 @@ class PackageBrandTests(unittest.TestCase):
         text = read_source("src/release/release.ps1", SOURCE_REF)
         for token in ("Upgrading from 0.1.9 or earlier", "This makes a folder called FTESurf",
                       "Discord, in the FTESurf channel", "Stock FTEQW", "GPLv2 or later",
-                      "https://github.com/ProtoAus/ftesurf", "FTESURF_UPDATE_SEED_FILE"):
+                      "https://github.com/ProtoAus/WorldofSurf", "FTESURF_UPDATE_SEED_FILE"):
             with self.subTest(token=token):
                 self.assertIn(token, text)
 
