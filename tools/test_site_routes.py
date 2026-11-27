@@ -291,19 +291,21 @@ http {
 
     def test_short_homepage_redirect(self):
         before = len(self.seen)
-        for path in ('/wos', '/wos/'):
-            for query in ('', '?q=a%2Fb&n=2', '?q=a&q=b'):
-                for method in ('GET', 'HEAD'):
-                    status, headers, _ = self.request(path + query, method)
-                    self.assertEqual(status, 301)
-                    self.assertEqual(headers['location'],
-                                     'https://proto.bar/worldofsurf/' + query)
-        # Only a homepage alias, not a new board/account proxy prefix.
-        for path in ('/woss', '/wos/board/', '/wos/link/return'):
-            status, headers, body = self.request(path)
-            self.assertEqual(status, 200)
-            self.assertNotIn('location', headers)
-            self.assertEqual(body, b'UNRELATED FILEBROWSER SENTINEL')
+        for base in ('/wos', '/surf'):
+            for path in (base, base + '/'):
+                for query in ('', '?q=a%2Fb&n=2', '?q=a&q=b'):
+                    for method in ('GET', 'HEAD'):
+                        with self.subTest(method=method, path=path + query):
+                            status, headers, _ = self.request(path + query, method)
+                            self.assertEqual(status, 301)
+                            self.assertEqual(headers['location'],
+                                             'https://proto.bar/worldofsurf/' + query)
+            # Only a homepage alias, not a new board/account proxy prefix.
+            for path in (base + 's', base + '/board/', base + '/link/return'):
+                status, headers, body = self.request(path)
+                self.assertEqual(status, 200)
+                self.assertNotIn('location', headers)
+                self.assertEqual(body, b'UNRELATED FILEBROWSER SENTINEL')
         self.assertEqual(len(self.seen), before)
 
     def test_site_scripts_gzip_without_stale_cache(self):

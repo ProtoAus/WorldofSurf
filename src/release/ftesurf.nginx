@@ -29,10 +29,12 @@
 #  shared with play.proto.bar's /api/board; install.sh refuses to run without it.
 # =============================================================================
 
-# A short homepage alias, not a new public prefix. Preserve queries and go
+# Short homepage aliases, not new public prefixes. Preserve queries and go
 # straight to the canonical slash URL instead of adding a second redirect.
-location = /wos  { return 301 https://proto.bar/worldofsurf/$is_args$args; }
-location = /wos/ { return 301 https://proto.bar/worldofsurf/$is_args$args; }
+location = /wos   { return 301 https://proto.bar/worldofsurf/$is_args$args; }
+location = /wos/  { return 301 https://proto.bar/worldofsurf/$is_args$args; }
+location = /surf  { return 301 https://proto.bar/worldofsurf/$is_args$args; }
+location = /surf/ { return 301 https://proto.bar/worldofsurf/$is_args$args; }
 
 # /ftesurf -> /ftesurf/  (the alias below only matches the trailing-slash form)
 location = /ftesurf {
