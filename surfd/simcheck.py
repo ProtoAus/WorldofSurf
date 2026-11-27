@@ -484,9 +484,20 @@ CREATE INDEX IF NOT EXISTS sims_b ON sims (b_id);
 _SOURCE_INFLIGHT = 1
 _SOURCE_CURSOR_RETIRE = 2        # independent metadata cleanup, not admission
 # P1858: run rows one source-selection read judges.  Live 28 Nov a whole rotation (1,700 runs, ~1.7M VM steps)
-# overran the 1M pass budget on every pass.  A complete run costs ~60 steps a peer, so 8 fit while maps hold
-# under ~2,000 runs (largest: 94); one batch must fit or the rotation cannot advance.
+# overran the 1M pass budget on every pass.  A complete run costs ~26 steps a peer (review, live indexes), so a
+# batch of 8 fits while a map holds under ~4,500 runs (largest: 94); one batch must fit or the rotation stalls.
 _SOURCE_PROBE = 8
+
+
+def _keep_progress(conn, passed):
+    """P1858: commit the rotation past runs found ineligible; contention only loses that progress."""
+    if passed is None:
+        return
+    try:
+        _advance(conn, "source", passed)
+    except Exception as exc:
+        if not _database_busy(exc):
+            raise
 _CURSOR_RETIRE_LIMIT = 64
 
 CURSOR_SQL = """
@@ -907,7 +918,10 @@ def _owned_sources(conn, limit, read_budget, budget):
     passed = None       # last run id probed and found ineligible since the cursor was committed
     for upper in (True, False):
         last = after if upper else None
-        while selected < limit and budget.available():
+        while selected < limit:
+            if not budget.available():
+                _keep_progress(conn, passed)
+                return
             bounds = " AND r.id > ?" if upper else " AND r.id <= ?"
             values = (last if upper else after,)
             if not upper and last is not None:
@@ -918,16 +932,11 @@ def _owned_sources(conn, limit, read_budget, budget):
                               + " ORDER BY r.id LIMIT ?", (*values, _SOURCE_PROBE), read_budget)
                 if not probe:
                     break
-                rows = _read(conn, sql + bounds + " AND r.id <= ? ORDER BY r.id LIMIT 1",
-                             (*args, *values, probe[-1][0]), read_budget)
-            except ReadLimit as limited:
-                if passed is not None:
-                    try:
-                        _advance(conn, "source", passed)
-                    except Exception as exc:
-                        if not _database_busy(exc):
-                            raise
-                raise limited
+                rows = _read(conn, sql + " AND r.id >= ? AND r.id <= ? ORDER BY r.id LIMIT 1",
+                             (*args, probe[0][0], probe[-1][0]), read_budget)
+            except ReadLimit:
+                _keep_progress(conn, passed)
+                raise
             if rows:
                 last = rows[0]["id"]
                 passed = None       # admission commits the cursor itself

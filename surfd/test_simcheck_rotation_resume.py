@@ -26,6 +26,7 @@ class RotationResume(unittest.TestCase):
         self.conn.row_factory = sqlite3.Row
         self.conn.execute('CREATE TABLE replays(id INTEGER PRIMARY KEY, kind TEXT, map TEXT, track INTEGER,'
                           ' leg INTEGER, leaf TEXT, tier TEXT, player TEXT)')
+        self.conn.execute('CREATE UNIQUE INDEX replays_leg ON replays(map, track, leg, leaf)')   # live's autoindex
         simcheck.ensure_schema(self.conn)
         ids = list(range(1, COMPLETE + 1))
         rows = [(i, 'run', 'full', 0, 0, str(i), '', 'p') for i in ids]
@@ -91,15 +92,66 @@ class RotationResume(unittest.TestCase):
         self.assertEqual(tuple(self.conn.iterdump()), before)
 
     def test_a_limited_pass_never_moves_the_cursor_past_an_eligible_run(self):
-        # Whatever the budget, a pass that stops short leaves the incomplete pair at or after the cursor.
-        for budget in (3000, 6000, 12000, 24000, 48000):
+        # Whatever the budget, a pass that stops short leaves the incomplete pair at or after the cursor; and the
+        # budgets that complete a batch or more do move it (the assertion is exercised, not vacuous).
+        moved = 0
+        for budget in range(8000, 200000, 4000):
+            self.tearDown()
             self.setUp()
             self.step(budget)
-            if not self.compared:
-                cur = simcheck._cursor(self.conn, 'source')
-                self.assertTrue(cur <= COMPLETE or cur == COMPLETE + 400,
-                                'budget %d left the cursor at %d, past the eligible run %d' % (budget, cur, COMPLETE + 1))
+            if self.compared:
+                continue
+            cur = simcheck._cursor(self.conn, 'source')
+            self.assertTrue(cur <= COMPLETE or cur == COMPLETE + 400,
+                            'budget %d left the cursor at %d, past the eligible run %d' % (budget, cur, COMPLETE + 1))
+            moved += cur != COMPLETE + 400
+        self.assertGreater(moved, 5, 'too few limited passes moved the cursor to test anything')
 
+    def test_a_deadline_between_reads_keeps_the_progress(self):
+        clock = [0.0]
+        reads = []
+        original = simcheck._read
+
+        def counted(conn, sql, parameters=(), read_budget=None):
+            out = original(conn, sql, parameters, read_budget)
+            if "kind = 'run'" in sql and 'EXISTS' in sql:
+                reads.append(1)
+                if len(reads) == 3:
+                    clock[0] = 100.0     # the pass's cooperative deadline passes after a read, before the next
+            return out
+
+        with mock.patch.object(simcheck, '_read', side_effect=counted), \
+                mock.patch.object(simcheck.time, 'monotonic', side_effect=lambda: clock[0]):
+            self.step(10 ** 7)
+        self.assertEqual(self.compared, [])
+        self.assertEqual(simcheck._cursor(self.conn, 'source'), 3 * simcheck._SOURCE_PROBE,
+                         'three ineligible batches judged before the deadline are kept')
+
+    def test_a_long_stretch_of_other_rows_is_scanned_once_per_read(self):
+        # Review: the eligibility read re-walked the probe's stretch of non-run rows; it starts at the first probed id.
+        self.conn.executemany('INSERT INTO replays VALUES(?,?,?,?,?,?,?,?)',
+                              [(i, 'evidence', 'x', 0, 0, str(i), '', 'p') for i in range(10 ** 6, 10 ** 6 + 60000)])
+        self.conn.executemany('INSERT INTO replays VALUES(?,?,?,?,?,?,?,?)',
+                              [(2 * 10 ** 6, 'run', 'late', 0, 0, 'a', '', 'p'), (2 * 10 ** 6 + 1, 'run', 'late', 0, 0, 'b', '', 'p')])
+        self.conn.execute("INSERT INTO sims(a_id,b_id,map,track,leg,verdict,at) VALUES(?,?,'gap',0,0,'skip',0)",
+                          (COMPLETE + 1, COMPLETE + 2))
+        self.conn.commit()
+        steps = [0]
+        original = simcheck._read
+
+        def counted(conn, sql, parameters=(), read_budget=None):
+            if sql.startswith('SELECT r.*') and 'EXISTS' in sql:
+                self.conn.set_progress_handler(lambda: steps.__setitem__(0, steps[0] + 1) or 0, 100)
+                try:
+                    return original(conn, sql, parameters, None)
+                finally:
+                    self.conn.set_progress_handler(None, 0)
+            return original(conn, sql, parameters, read_budget)
+
+        with mock.patch.object(simcheck, '_read', side_effect=counted):
+            self.step(10 ** 7)
+        self.assertEqual(self.compared, [(2 * 10 ** 6, 2 * 10 ** 6 + 1)])
+        self.assertLess(steps[0] * 100, 60000, 'the eligibility reads did not re-walk 60,000 evidence rows')
 
 if __name__ == '__main__':
     unittest.main()
