@@ -483,6 +483,10 @@ CREATE INDEX IF NOT EXISTS sims_b ON sims (b_id);
 # schema/history migration. Older collectors ignore slot1 on rollback.
 _SOURCE_INFLIGHT = 1
 _SOURCE_CURSOR_RETIRE = 2        # independent metadata cleanup, not admission
+# P1858: run rows one source-selection read judges.  Live 28 Nov a whole rotation (1,700 runs, ~1.7M VM steps)
+# overran the 1M pass budget on every pass.  A complete run costs ~60 steps a peer, so 8 fit while maps hold
+# under ~2,000 runs (largest: 94); one batch must fit or the rotation cannot advance.
+_SOURCE_PROBE = 8
 _CURSOR_RETIRE_LIMIT = 64
 
 CURSOR_SQL = """
@@ -870,6 +874,9 @@ def _owned_sources(conn, limit, read_budget, budget):
 
     Eligibility is current at each read, not a snapshot of the initial window.
     No cursor/result is held across comparison or checkpoint writes.
+    P1858: each read judges at most _SOURCE_PROBE run rows; a pass whose read
+    budget runs out commits the cursor past the rows it found ineligible, so
+    the next pass resumes there instead of re-scanning the same prefix forever.
     """
     after, inflight = 0, None
     if not budget.available():
@@ -897,21 +904,37 @@ def _owned_sources(conn, limit, read_budget, budget):
             _source_done(conn, inflight)
         sql += " AND r.id!=?"
         args = (inflight,)
+    passed = None       # last run id probed and found ineligible since the cursor was committed
     for upper in (True, False):
         last = after if upper else None
         while selected < limit and budget.available():
             bounds = " AND r.id > ?" if upper else " AND r.id <= ?"
-            values = (*args, last if upper else after)
+            values = (last if upper else after,)
             if not upper and last is not None:
                 bounds += " AND r.id > ?"
                 values += (last,)
-            rows = _read(conn, sql + bounds + " ORDER BY r.id LIMIT 1",
-                         values, read_budget)
-            if not rows:
-                break
-            last = rows[0]["id"]
-            selected += 1
-            yield rows[0]
+            try:
+                probe = _read(conn, "SELECT r.id FROM replays r WHERE r.kind = 'run'" + bounds
+                              + " ORDER BY r.id LIMIT ?", (*values, _SOURCE_PROBE), read_budget)
+                if not probe:
+                    break
+                rows = _read(conn, sql + bounds + " AND r.id <= ? ORDER BY r.id LIMIT 1",
+                             (*args, *values, probe[-1][0]), read_budget)
+            except ReadLimit as limited:
+                if passed is not None:
+                    try:
+                        _advance(conn, "source", passed)
+                    except Exception as exc:
+                        if not _database_busy(exc):
+                            raise
+                raise limited
+            if rows:
+                last = rows[0]["id"]
+                passed = None       # admission commits the cursor itself
+                selected += 1
+                yield rows[0]
+            else:
+                last = passed = probe[-1][0]
 
 
 def pending(conn, limit=50, read_budget=None):
