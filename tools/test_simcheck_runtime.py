@@ -4,7 +4,9 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
+from types import ModuleType
 import unittest
 from unittest import mock
 
@@ -13,6 +15,11 @@ import simcheck_runtime as runtime
 HERE=Path(__file__).resolve().parent
 SOURCE=(HERE/'census'/'recsim.py').read_bytes()
 INSTALLER=Path(runtime.__file__).read_bytes()
+HELD=(HERE/'heldmeta.py').read_bytes()
+
+
+def paired(name):
+    return HELD if name == 'heldmeta.py' else ('synthetic paired '+name).encode()
 
 
 def rec(path,n):
@@ -28,10 +35,10 @@ class Runtime(unittest.TestCase):
         self.tools=self.root/'tools';self.tools.mkdir()
         (self.pkg/'recsim.py').write_bytes(SOURCE)
         (self.pkg/'simcheck_runtime.py').write_bytes(INSTALLER)
-        self.m={'version':1,'commit':'1'*40,'recsim_sha256':runtime.digest(SOURCE),
+        self.m={'version':runtime.MANIFEST_VERSION,'commit':'1'*40,'recsim_sha256':runtime.digest(SOURCE),
                 'installer_sha256':runtime.digest(INSTALLER),'paired_sha256':{}}
         for name in runtime.PAIRED:
-            data=('synthetic paired '+name).encode();(self.tools/name).write_bytes(data)
+            data=paired(name);(self.tools/name).write_bytes(data)
             self.m['paired_sha256'][name]=runtime.digest(data)
         self.manifest()
 
@@ -68,6 +75,23 @@ class Runtime(unittest.TestCase):
         self.assertEqual(Path(result['backup']).read_bytes(),b'old frozen source')
         if os.name=='posix':self.assertEqual(Path(result['backup']).stat().st_mode & 0o777,0o600)
         self.assertEqual(target.read_bytes(),SOURCE)
+
+    def test_probes_pin_heldmeta_instead_of_using_an_imported_copy(self):
+        self.assertIn('heldmeta.py', self.m['paired_sha256'])
+        unrelated = ModuleType('heldmeta')  # deliberately has no runtime capability
+        with mock.patch.dict(sys.modules, {'heldmeta': unrelated}):
+            self.assertEqual(self.call(apply=True)['state'], 'installed')
+            self.assertIs(sys.modules['heldmeta'], unrelated)
+        self.assertEqual((self.tools/'census'/'recsim.py').read_bytes(), SOURCE)
+
+    def test_heldmeta_drift_blocks_before_destination_mutation(self):
+        self.assertIn('heldmeta.py', self.m['paired_sha256'])
+        target = self.tools/'heldmeta.py'
+        target.write_bytes(b'changed dependency')
+        with self.assertRaisesRegex(ValueError, 'paired runtime reader differs: heldmeta.py'):
+            self.call(apply=True)
+        self.assertFalse((self.tools/'census').exists())
+        self.assertEqual(target.read_bytes(), b'changed dependency')
 
     def test_paired_reader_drift_blocks_without_mutation(self):
         (self.tools/'hidcheck.py').write_bytes(b'non-owned edit')
@@ -135,9 +159,9 @@ def compare_paths(a, b, **kw):
         self.assertFalse((self.tools/'census').exists())
 
     def test_reject_unknown_manifest_and_relative_destination(self):
-        self.m['version']=2;self.manifest()
-        with self.assertRaisesRegex(ValueError,'manifest'):self.call()
         self.m['version']=1;self.manifest()
+        with self.assertRaisesRegex(ValueError,'manifest'):self.call()
+        self.m['version']=runtime.MANIFEST_VERSION;self.manifest()
         with self.assertRaisesRegex(ValueError,'absolute'):runtime.install(self.pkg,'tools','absent')
 
     def test_racing_predecessor_never_overwritten(self):
@@ -162,7 +186,7 @@ def compare_paths(a, b, **kw):
         def git(*a):return subprocess.check_output(['git','-C',str(repo),*a],stderr=subprocess.DEVNULL)
         git('init','-q');git('config','user.name','Synthetic test');git('config','user.email','synthetic@example.invalid')
         paths={'tools/census/recsim.py':SOURCE,'tools/simcheck_runtime.py':INSTALLER}
-        paths.update({'tools/'+p:('synthetic paired '+p).encode() for p in runtime.PAIRED})
+        paths.update({'tools/'+p:paired(p) for p in runtime.PAIRED})
         for p,data in paths.items():
             dest=repo/p;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(data)
         git('add','--',*paths);git('commit','-qm','synthetic pinned package')

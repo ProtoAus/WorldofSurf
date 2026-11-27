@@ -286,9 +286,8 @@ function renderVerdictSummary(verdicts, history) {
   }
 }
 // The current verdict in plain words, above the details (P1820).
-function renderExplain(verdicts) {
+function renderExplain(cur) {
   const box = document.getElementById("explain");
-  const cur = verdicts.find(v => v.current && v.verdict !== "ERROR") || verdicts.find(v => v.current);
   box.replaceChildren();
   box.className = "explain";
   if (!cur || !cur.why) {
@@ -309,7 +308,7 @@ function renderRun(j) {
   const pub = pill(j.public, PUBLIC_CLS[j.public]);
   pub.dataset.tip = PUBLIC_TIP[j.public] || "";
   document.getElementById("public").replaceChildren(pub);
-  renderExplain(j.verdicts);
+  renderExplain(j.verdict_explanation);
   const st = j.standing, stages = [];
   if (st.stages) stages.push(st.stages + " stage time" + (st.stages === 1 ? "" : "s") + " on the boards");
   if (st.stages_hidden) stages.push(st.stages_hidden + " hidden by the reject");
@@ -551,6 +550,9 @@ function renderSimilarity(value) {
       const dl = el("dl");
       for (const [key, label] of Object.entries(labels))
         dl.append(el("dt", "", label), el("dd", "mono", String(pair.metrics[key])));
+      dl.append(el("dt", "", "Aligned turn-step agreement"), el("dd", "mono", pair.yaw
+        ? pair.yaw.agree + " / " + pair.yaw.turning + " turning steps"
+        : "Unavailable"));
       panel.append(dl);
     } else {
       panel.append(el("p", "muted", "comparison measurement unavailable (skip or unmeasured opportunities)"));

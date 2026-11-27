@@ -120,6 +120,16 @@ class ProcessTests(unittest.TestCase):
             self.assertEqual(self.step(max_pairs=0), (0, 0, ""))
             self.assertEqual(self.step(max_seconds=0), (0, 0, ""))
 
+    def test_missing_collector_reports_unmeasured_and_does_not_spawn(self):
+        before = tuple(self.conn.iterdump())
+        with mock.patch.object(self.sweep, '_simcheck', return_value=None), \
+                mock.patch.object(subprocess, 'Popen', side_effect=AssertionError('spawned')):
+            for hard in (False, True):
+                stored, notable, note = self.sweep.similarity_step(self.conn, hard_process=hard)
+                self.assertEqual((stored, notable), (0, 0))
+                self.assertIn('coverage not measured', note)
+        self.assertEqual(tuple(self.conn.iterdump()), before)
+
     def test_unsupported_abstains_without_fallback(self):
         with mock.patch.object(self.simcheck.sys, "platform", "unsupported"), \
                 mock.patch.object(self.simcheck.subprocess, "Popen", side_effect=AssertionError("spawned")):

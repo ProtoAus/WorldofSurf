@@ -8,7 +8,6 @@ No host defaults, credentials, network, player files or collector calls here.
 """
 import argparse
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -16,8 +15,10 @@ import re
 import subprocess
 import sys
 import tempfile
+from types import ModuleType
 
-PAIRED = ('rcptcheck.py', 'hidcheck.py', 'reccheck.py', 'ed25519.py')
+PAIRED = ('rcptcheck.py', 'hidcheck.py', 'reccheck.py', 'ed25519.py', 'heldmeta.py')
+MANIFEST_VERSION = 2
 MAX_BYTES = 1 << 20
 HEX40 = re.compile(r'[0-9a-f]{40}')
 HEX64 = re.compile(r'[0-9a-f]{64}')
@@ -47,7 +48,7 @@ def prepare(repo, ref, output):
     installer = git('show', ref+':tools/simcheck_runtime.py')
     if max(len(recsim), len(installer)) > MAX_BYTES:
         raise ValueError('support file exceeds package budget')
-    manifest = {'version': 1, 'commit': ref, 'recsim_sha256': digest(recsim),
+    manifest = {'version': MANIFEST_VERSION, 'commit': ref, 'recsim_sha256': digest(recsim),
                 'installer_sha256': digest(installer),
                 'paired_sha256': {p: digest(git('show', ref+':tools/'+p)) for p in PAIRED}}
     out = Path(output)
@@ -58,16 +59,32 @@ def prepare(repo, ref, output):
     return manifest
 
 
-def probe(path):
-    """Import only the explicit verified path, with no neighborhood fallback."""
+def probe(path, *, source=None, dependency=None):
+    """Run the explicit source and the paired heldmeta, never a cached local import."""
+    path = Path(path)
+    if source is None:
+        source = bounded(path)
+    if dependency is None:
+        dep_path = path.parent.parent/'heldmeta.py'
+        dependency = (dep_path, bounded(dep_path))
+    dep_path, dep_bytes = dependency
+    held, mod = ModuleType('heldmeta'), ModuleType('_simcheck_runtime_probe')
+    held.__file__, mod.__file__ = str(dep_path), str(path)
+    old_held = sys.modules.get('heldmeta')
+    old_path = sys.path[:]
     old = sys.dont_write_bytecode
     try:
         sys.dont_write_bytecode = True
-        spec = importlib.util.spec_from_file_location('_simcheck_runtime_probe', str(path))
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        sys.modules['heldmeta'] = held
+        exec(compile(dep_bytes, held.__file__, 'exec'), vars(held))
+        exec(compile(source, mod.__file__, 'exec'), vars(mod))
     finally:
         sys.dont_write_bytecode = old
+        sys.path[:] = old_path
+        if old_held is None:
+            sys.modules.pop('heldmeta', None)
+        else:
+            sys.modules['heldmeta'] = old_held
     if Path(mod.__file__).resolve() != Path(path).resolve() or not callable(getattr(mod, 'compare_paths', None)):
         raise ValueError('runtime comparison capability/path unavailable')
     for marker in ('BOUNDED_INPUT_VERSION', 'SOURCE_CAPTURE_VERSION'):
@@ -106,7 +123,7 @@ def install(package, tools_dir, expected_previous, apply=False):
         raise ValueError('manifest exceeds budget')
     m = json.loads(raw)
     if (not isinstance(m, dict) or set(m) != {'version','commit','recsim_sha256','installer_sha256','paired_sha256'}
-            or type(m['version']) is not int or m['version'] != 1
+            or type(m['version']) is not int or m['version'] != MANIFEST_VERSION
             or not isinstance(m['commit'], str) or not HEX40.fullmatch(m['commit'])
             or not isinstance(m['paired_sha256'], dict) or set(m['paired_sha256']) != set(PAIRED)):
         raise ValueError('unsupported package manifest')
@@ -122,9 +139,12 @@ def install(package, tools_dir, expected_previous, apply=False):
     if not Path(tools_dir).is_absolute():
         raise ValueError('tools directory must be explicitly absolute')
     tools = Path(tools_dir).resolve(strict=True)
-    for p,h in m['paired_sha256'].items():
-        if digest(bounded(tools/p)) != h:
+    for p in PAIRED:
+        paired = bounded(tools/p)
+        if digest(paired) != m['paired_sha256'][p]:
             raise ValueError('paired runtime reader differs: '+p)
+        if p == 'heldmeta.py':
+            dependency = (tools/p, paired)
     parent, target = tools/'census', tools/'census'/'recsim.py'
     if parent.is_symlink() or target.is_symlink():
         raise ValueError('runtime census path must not be a symlink')
@@ -132,7 +152,7 @@ def install(package, tools_dir, expected_previous, apply=False):
     have = digest(previous) if previous is not None else 'absent'
     if expected_previous != have:
         raise ValueError('runtime predecessor/absence changed')
-    probe(package/'recsim.py')  # capability must act before destination mutation
+    probe(package/'recsim.py', source=data, dependency=dependency)  # preflight the bytes we will write
     result = {'version':1, 'commit':m['commit'], 'target':str(target), 'sha256':m['recsim_sha256'],
               'previous':have, 'state':'unchanged' if previous == data else 'planned'}
     if not apply or previous == data:
@@ -156,9 +176,10 @@ def install(package, tools_dir, expected_previous, apply=False):
             raise ValueError('runtime predecessor raced')
         temporary.replace(target)
         temporary = None
-        if digest(bounded(target)) != m['recsim_sha256']:
+        installed = bounded(target)
+        if digest(installed) != m['recsim_sha256']:
             raise ValueError('installed hash differs')
-        probe(target)
+        probe(target, source=installed, dependency=dependency)
         for p,h in m['paired_sha256'].items():
             if digest(bounded(tools/p)) != h:
                 raise ValueError('paired runtime reader raced: '+p)

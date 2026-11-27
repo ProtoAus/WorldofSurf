@@ -77,6 +77,33 @@ class Similarity(unittest.TestCase):
         self.assertEqual({t:[tuple(r) for r in self.c.execute('SELECT * FROM '+t)] for t in tables},before)
         self.assertNotIn('sims',self.m.VER_SQL)
 
+    def test_turn_counts_stay_in_authenticated_historical_review(self):
+        import simcheck
+
+        snap = {'version': 1, 'a': {'bytes': 100, 'sha256': 'a' * 64},
+                'b': {'bytes': 101, 'sha256': 'b' * 64}}
+        simcheck.ensure_schema(self.c)
+        self.pair(100)
+        self.pair(101)
+        self.c.execute('UPDATE sims SET tick_b=tick_a, yaw_agree=0, yaw_turning=6, source_capture=? '
+                       'WHERE b_id=100', (json.dumps(snap),))
+        self.c.commit()
+        before = self.similarity_history()
+        pairs = self.detail()['similarity']['pairs']
+        by_peer = {pair['b_id']: pair for pair in pairs}
+        self.assertEqual(by_peer[100]['yaw'], {'agree': 0, 'turning': 6})
+        self.assertIsNone(by_peer[101]['yaw'])
+        anon = self.m.app.test_client()
+        self.assertEqual(anon.get(self.route).status_code, 401)
+        board = anon.get('/api/board?map=bhop_eazy')
+        self.assertEqual(board.status_code, 200)
+        self.assertNotIn('yaw', json.dumps(board.get_json()))
+        self.assertEqual(self.similarity_history(), before)
+        if shutil.which('node'):
+            rendered = self.render_dom(self.detail()['similarity'])
+            self.assertIn('Aligned turn-step agreement0 / 6 turning steps', rendered['text'])
+            self.assertIn('Aligned turn-step agreementUnavailable', rendered['text'])
+
     def test_bounded_order(self):
         for i in range(30):self.pair(100+i,at_time=i//2)
         rows=self.detail()['similarity']

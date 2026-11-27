@@ -229,17 +229,17 @@ def _parse_rec(path, max_bytes=None, max_moves=None):
         fh = open(path, "r", errors="replace", newline="")
     else:
         # Bound the actual capture, not stat size: files can grow during a read.
-        # StringIO preserves the text reader's universal newline/locale behavior.
+        # Decode the captured bytes incrementally, with the text reader's newline behavior.
         with open(path, "rb") as raw:
             data = raw.read(max_bytes + 1)
         if len(data) > max_bytes:
             raise SourceLimit("source byte limit reached")
         r.source = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
-        fh = io.StringIO(data.decode(locale.getpreferredencoding(False), errors="replace"),
-                         newline=None)
+        fh = io.TextIOWrapper(io.BytesIO(data), encoding=locale.getpreferredencoding(False),
+                              errors="replace", newline=None)
     with fh:
         for lineno, line in enumerate(fh, 1):
-            if r.ver in heldmeta.NATIVE_VERSIONS:
+            if data is None and r.ver in heldmeta.NATIVE_VERSIONS:
                 rec_native.append(line)
             if not body:
                 if line.startswith("FTESURF-REC"):
@@ -256,7 +256,8 @@ def _parse_rec(path, max_bytes=None, max_moves=None):
                     if r.ver in heldmeta.NATIVE_VERSIONS:
                         if lineno != 1:
                             raise MalformedRec("native held recording must start at the first byte")
-                        rec_native.append(line)
+                        if data is None:
+                            rec_native.append(line)
                 elif line.split(None, 1)[:1] == ["runid"]:
                     f = line.split()
                     if len(f) > 1:
@@ -270,7 +271,7 @@ def _parse_rec(path, max_bytes=None, max_moves=None):
                     f = line.split()
                     if len(f) > 1:
                         r.leg = f[1].strip()
-                elif line.startswith("tickrate"):
+                elif line.split(None, 1)[:1] == ["tickrate"]:
                     try:
                         r.tickrate = float(line.split()[1])
                     except (IndexError, ValueError):
@@ -303,13 +304,13 @@ def _parse_rec(path, max_bytes=None, max_moves=None):
                     raise MalformedRec("malformed input row") from exc
                 # P1689: the yaw never decides whether a row is readable (the move stream's verdicts stay as before).
                 try:
-                    yaw = float(f[8]) if f[8].isascii() and "_" not in f[8] else 0.0
+                    yaw = float(f[8]) if f[8].isascii() and "_" not in f[8] else math.nan
                 except (ValueError, OverflowError):
-                    yaw = 0.0
+                    yaw = math.nan
                 r.mt.append(mt)
                 r.moves.append(move)
                 r.btns.append(btn)
-                r.yaw.append(yaw if math.isfinite(yaw) else 0.0)
+                r.yaw.append(yaw % 360.0 if math.isfinite(yaw) else None)
             elif tag == ["takeover"]:
                 # P1569: a shared save's run passed to another player here (P1567); only the rows
                 # after the last takeover are this file's own, the prefix is another player's.
@@ -437,8 +438,8 @@ def best_offset(a, b, max_shift=None, min_len=0):
                     matched += 1
             i += 1
             j += 1
-        pl = prefix_len(a, b, d)
         if matched > best[1] or (best[2] == 0 and compared > 0):
+            pl = _prefix_len(sa, sb, d)
             best = (d, matched, compared, pl, pl / float(longer))
     return best
 
@@ -451,14 +452,17 @@ YAW_TURN = 0.001
 
 def yaw_agreement(a, b, d=0, tol=YAW_TOL, eps=YAW_TURN):
     """Over the aligned rows (best_offset's row shift d) where either run turns, how many turn-steps agree within
-    tol degrees.  -> (agree, turning).  Rows where neither turns are not evidence either way (standing, a held
-    line), which is what makes this separate where the move columns, a small alphabet, cannot."""
+    tol degrees.  -> (agree, turning).  Rows where neither turns are not opportunities. If the aligned
+    rows contain unreadable yaw, return (0, 0) rather than inferring turn steps across a gap."""
     ya, yb = getattr(a, "yaw", ()), getattr(b, "yaw", ())
     i, j = max(0, -d) + 1, max(0, d) + 1
     agree = turning = 0
     while i < len(ya) and j < len(yb):
-        da = (ya[i] - ya[i - 1] + 180.0) % 360.0 - 180.0
-        db = (yb[j] - yb[j - 1] + 180.0) % 360.0 - 180.0
+        a0, a1, b0, b1 = ya[i - 1], ya[i], yb[j - 1], yb[j]
+        if a0 is None or a1 is None or b0 is None or b1 is None:
+            return 0, 0
+        da = (a1 - a0 + 180.0) % 360.0 - 180.0
+        db = (b1 - b0 + 180.0) % 360.0 - 180.0
         if abs(da) > eps or abs(db) > eps:
             turning += 1
             if abs(da - db) <= tol:
@@ -472,7 +476,10 @@ def prefix_len(a, b, d=0):
     """Length of the exact common run from the aligned start.  This is the
     statistic that separates a playback from a coincidence: a playback is one
     long contiguous run, chance agreement is short and scattered."""
-    sa, sb = stream(a), stream(b)
+    return _prefix_len(stream(a), stream(b), d)
+
+
+def _prefix_len(sa, sb, d):
     n = 0
     # Like best_offset, skip the leading rows outside the aligned overlap.
     i, j = max(0, -d), max(0, d)
@@ -537,6 +544,7 @@ def compare_paths(path_a, path_b, min_len=MIN_LEN, max_bytes=None, max_moves=Non
       tickrate_a, tickrate_b  each header's tickrate
       who_a, who_b      the 8-hex FS_GuidId in each filename, or ""
       same_who  True when both carry an identity and it is the same one
+      yaw      optional agree/turning counts over the same alignment at equal tickrates
 
     TICKRATE IS RETURNED AND DELIBERATELY NOT GATED ON.  Two runs at 66.67 and
     125 tick cannot be a playback of one another, so a tickrate mismatch is a
@@ -585,6 +593,10 @@ def compare_paths(path_a, path_b, min_len=MIN_LEN, max_bytes=None, max_moves=Non
         "who_b": wb,
         "same_who": bool(wa) and wa == wb,
     }
+    if a.tickrate == b.tickrate and 0 < a.tickrate <= 10000:
+        agree, turning = yaw_agreement(a, b, off)
+        if turning:
+            detail["yaw"] = {"agree": agree, "turning": turning}
     if a.source is not None and b.source is not None:
         detail["sources"] = {"version": SOURCE_CAPTURE_VERSION,
                              "a": a.source, "b": b.source}
@@ -952,8 +964,8 @@ def cmd_pairs(args):
     rng = __import__("random").Random(1676)
     for p in sample:
         a = recs[p]
-        if len(getattr(a, "yaw", ())) < args.min_len:
-            continue
+        if len(a.yaw) < args.min_len or None in a.yaw:
+            continue  # Keep the move-only control above when the turn steps are unreadable.
         b = copy.copy(a)
         e1 = yaw_agreement(a, b, 0)
         b.yaw = [y + rng.gauss(0.0, 0.01) for y in a.yaw]   # a playback rendered and re-quantised

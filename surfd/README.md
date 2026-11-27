@@ -781,8 +781,10 @@ python NEW_PACKAGE/simcheck_runtime.py install --package NEW_PACKAGE --tools-dir
 
 The second command is a dry run. Inspect its plan, serialize deployment with the
 sweep lock, then repeat with `--apply`. For an existing file, supply its inspected
-SHA-256 instead of `absent`. The package pins the exact source commit/bytes and
-installer; all four paired reader hashes must already match. Only
+SHA-256 instead of `absent`. Package manifest v2 pins the exact source
+commit/bytes and installer; all five paired hashes must already match,
+including the exact `heldmeta.py` used by both preflight checks. Regenerate an
+older package instead of reusing its v1 manifest. Only
 `census/recsim.py` changes, with predecessor rechecks, atomic replacement and an
 exclusive rollback copy for an existing version. No loose source, whole census
 folder, credentials, host defaults or player files are shipped/read by this tool.
@@ -794,6 +796,13 @@ module path, hashes, an acted synthetic long comparison and short/unjudgeable
 control, and unchanged badge/verdict tables after shipping. Collection stays
 store-only; `--sims 0` still disables it without importing the tool. Activating
 collection is not calibration or a guarantee of complete pair coverage.
+
+New compared pairs can also store counts of agreeing and eligible turn steps
+from the same captured buffers and row alignment. This optional observation is
+only shown in authenticated historical review. Missing counts (including older
+readers, unreadable yaw, different tick rates, and no turns) are not zero
+agreement. This does not rescan old observations or change any verdict, rank,
+badge, public result, or collector selection.
 
 Collector budgets are independent: `--sims` caps selected source rows,
 `--sims-pairs` caps newly admitted pairs (default 200), and `--sims-seconds` caps

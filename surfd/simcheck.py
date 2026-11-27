@@ -131,6 +131,16 @@ def source_capture(value):
     return value
 
 
+def yaw_counts(agree, turning, compared, tick_a, tick_b):
+    """Optional historical counts; missing is not zero agreement."""
+    if (type(agree) is int and type(turning) is int and type(compared) is int
+            and 0 <= agree <= turning < compared and turning > 0
+            and type(tick_a) in (int, float) and type(tick_b) in (int, float)
+            and tick_a == tick_b and 0 < tick_a <= 10000):
+        return {'agree': agree, 'turning': turning}
+    return None
+
+
 def source_snapshot(raw):
     """Bounded versioned storage projection; malformed/legacy input is unbound."""
     if isinstance(raw, bytes):
@@ -457,6 +467,8 @@ CREATE TABLE IF NOT EXISTS sims (
     moves_b    INTEGER NOT NULL DEFAULT 0,
     tick_a     REAL    NOT NULL DEFAULT 0,
     tick_b     REAL    NOT NULL DEFAULT 0,
+    yaw_agree  INTEGER,
+    yaw_turning INTEGER,
     at         INTEGER NOT NULL,
     UNIQUE (a_id, b_id)
 );
@@ -576,10 +588,12 @@ def ensure_schema(conn):
     """Collector's additive tables; idle connection required for script ownership."""
     _idle(conn)
     conn.executescript(SIMS_SQL + CURSOR_SQL)
-    for column in ("skip_code", "source_capture"):
+    for column, definition in (("skip_code", "TEXT NOT NULL DEFAULT ''"),
+                               ("source_capture", "TEXT NOT NULL DEFAULT ''"),
+                               ("yaw_agree", "INTEGER"), ("yaw_turning", "INTEGER")):
         if column not in {r[1] for r in conn.execute("PRAGMA table_info(sims)")}:
             try:
-                conn.execute("ALTER TABLE sims ADD COLUMN %s TEXT NOT NULL DEFAULT ''" % column)
+                conn.execute("ALTER TABLE sims ADD COLUMN %s %s" % (column, definition))
             except sqlite3.OperationalError:
                 # Another schema initializer may have added it after our read.
                 if column not in {r[1] for r in conn.execute("PRAGMA table_info(sims)")}:
@@ -631,6 +645,7 @@ def _pair_result(rs, surfd, row, peer, pa, now):
     who_a = who_b = ""
     same = 0
     captured = ""
+    yaw_agree = yaw_turning = None
     if d:
         match, cover = d["match"], d["cover"]
         prefix, offset, compared = d["prefix"], d["offset"], d["compared"]
@@ -644,10 +659,15 @@ def _pair_result(rs, surfd, row, peer, pa, now):
         snapshot = source_capture(d.get("sources"))
         if snapshot is not None:
             captured = json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
+            yaw = d.get("yaw")
+            if isinstance(yaw, dict) and set(yaw) == {"agree", "turning"}:
+                counts = yaw_counts(yaw["agree"], yaw["turning"], compared, ta, tb)
+                if counts is not None:
+                    yaw_agree, yaw_turning = counts["agree"], counts["turning"]
     return ((row["id"], peer["id"], row["map"], row["track"], row["leg"],
              row["tier"], row["player"], peer["player"], who_a, who_b, same,
              verdict, reason if not d else "", skip_code, match, cover, prefix, offset,
-             compared, ma, mb, ta, tb, now, captured), d is not None, match)
+             compared, ma, mb, ta, tb, now, captured, yaw_agree, yaw_turning), d is not None, match)
 
 
 def compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
@@ -664,7 +684,7 @@ def compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
                     diagnostics["collector_busy"] = diagnostics.get("collector_busy", 0) + 1
                 return 0, 0, 0
             return _compare_run(surfd, conn, row, now, limit_peers, tools_dir,
-                                diagnostics, budget, read_budget, reader)
+                                diagnostics, budget, read_budget, reader, check_yaw_schema=True)
     except CollectorLockUnavailable:
         if diagnostics is not None:
             diagnostics["collector_unavailable"] = diagnostics.get("collector_unavailable", 0) + 1
@@ -672,7 +692,7 @@ def compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
 
 
 def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
-                 diagnostics=None, budget=None, read_budget=None, reader=None):
+                 diagnostics=None, budget=None, read_budget=None, reader=None, *, check_yaw_schema=False):
     """Caller owns collector scheduling; compare one replays row against the other run-kind rows on its map/leg.
 
     -> (stored, skipped, notable).  Stores one `sims` row per pair examined, so a
@@ -770,18 +790,25 @@ def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
         # Checkpoint acquires the write lock before the final two-orientation
         # recheck. File comparisons never hold it; historical rows stay untouched.
         _checkpoint(conn, "peer", last_attempt, a_id)
-        sql = (
-            "INSERT OR IGNORE INTO sims (a_id, b_id, map, track, leg, tier,"
-            " player_a, player_b, who_a, who_b, same_who, verdict, reason, skip_code,"
-            " match, cover, prefix, offset, compared, moves_a, moves_b,"
-            " tick_a, tick_b, at, source_capture) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        columns = (
+            "a_id, b_id, map, track, leg, tier, player_a, player_b, who_a, who_b,"
+            " same_who, verdict, reason, skip_code, match, cover, prefix, offset,"
+            " compared, moves_a, moves_b, tick_a, tick_b, at, source_capture")
+        # Cron owns ensure_schema; the direct API also accepts a pre-yaw schema.
+        store_yaw = not check_yaw_schema or {'yaw_agree', 'yaw_turning'} <= {
+            r[1] for r in conn.execute('PRAGMA table_info(sims)')}
+        if store_yaw:
+            columns += ", yaw_agree, yaw_turning"
+        sql = "INSERT OR IGNORE INTO sims (%s) VALUES (%s)" % (
+            columns, ",".join("?" for _ in columns.split(",")))
         # Count only this flush's additions, not overlap or trigger writes.
         for f in found:
             a, b = f[0][:2]
             if conn.execute("SELECT 1 FROM sims WHERE (a_id=? AND b_id=?)"
                             " OR (a_id=? AND b_id=?) LIMIT 1", (a, b, b, a)).fetchone():
                 continue
-            if conn.execute(sql, f[0]).rowcount == 1:
+            values = f[0] if store_yaw else f[0][:-2]
+            if conn.execute(sql, values).rowcount == 1:
                 inserted.append(f)
         conn.execute("COMMIT")
     except BaseException:

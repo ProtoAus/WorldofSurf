@@ -830,7 +830,7 @@
   function loadRunview() {
     if (window.FSRun) { return Promise.resolve(); }
     if (runviewLoad) { return runviewLoad; }
-    runviewLoad = new Promise(function (resolve, reject) {
+    runviewLoad = new Promise(function (resolve, failLoad) {
       var script = el('script');
       script.src = 'runview.js';
       script.onload = function () {
@@ -840,7 +840,7 @@
       function failed() {
         script.remove();
         runviewLoad = null;
-        reject(new Error('The run viewer could not load. Please retry.'));
+        failLoad(new Error('The run viewer could not load. Please retry.'));
       }
       script.onerror = failed;
       document.head.appendChild(script);

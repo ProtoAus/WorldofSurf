@@ -587,7 +587,7 @@ def similarity_for(conn, rid, *, own_read_budget=False, max_sql_steps=None):
     """Historical observations; callback authority is explicit for borrowed handles."""
     out = {'available': False, 'state': 'missing',
            'pairs': [], 'limit': SIM_PAIRS_SHOWN, 'more': False, 'source_binding': False}
-    from simcheck import source_snapshot, SOURCE_SNAPSHOT_MAX, ReadBudget, ReadLimit, _read
+    from simcheck import source_snapshot, yaw_counts, SOURCE_SNAPSHOT_MAX, ReadBudget, ReadLimit, _read
     budget = (ReadBudget(conn, SIM_SQL_STEPS if max_sql_steps is None else max_sql_steps)
               if own_read_budget else None)
     try:
@@ -600,9 +600,12 @@ def similarity_for(conn, rid, *, own_read_budget=False, max_sql_steps=None):
         # TEXT substr stops at embedded NUL; retain the entire bounded raw prefix.
         capture = "coalesce(substr(CAST(source_capture AS BLOB),1,%d),X'')" % (SOURCE_SNAPSHOT_MAX+1) if 'source_capture' in columns else "''"
         code = "substr(skip_code,1,40)" if 'skip_code' in columns else "''"
+        # Do not pull an unbounded string/blob from a corrupt numeric column.
+        yaw = [f"CASE WHEN typeof({name})='integer' THEN {name} END AS {name}"
+               if name in columns else f"NULL AS {name}" for name in ('yaw_agree', 'yaw_turning')]
         rows = _read(conn,
             "SELECT id, a_id, b_id, verdict, substr(reason,1,300) AS reason, at,"
-            + code + " AS skip_code," + capture + " AS source_capture,"
+            + code + " AS skip_code," + capture + " AS source_capture," + ",".join(yaw) + ","
             " match, cover, prefix, offset, compared, moves_a, moves_b, tick_a, tick_b,"
             " CASE WHEN who_a != '' AND who_b != '' THEN"
             "   CASE same_who WHEN 1 THEN 'same' WHEN 0 THEN 'cross' ELSE 'unknown' END"
@@ -630,6 +633,8 @@ def similarity_for(conn, rid, *, own_read_budget=False, max_sql_steps=None):
                  and metrics['compared'] > 0)
         item['metrics'] = metrics if valid else None
         item['sources'] = source_snapshot(r['source_capture']) if valid else None
+        item['yaw'] = (yaw_counts(r['yaw_agree'], r['yaw_turning'], r['compared'], r['tick_a'], r['tick_b'])
+                       if item['sources'] is not None else None)
         item['source_state'] = ('captured' if item['sources'] is not None else
                                 'legacy_unbound' if r['source_capture'] in ('', b'') else 'unavailable')
         out['pairs'].append(item)
@@ -664,7 +669,9 @@ def _current_source(path, expected, deadline):
         after = os.fstat(fd)
         identity = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns,
                               s.st_ctime_ns, s.st_nlink)
-        if identity(before) != identity(after):
+        named = os.stat(path, follow_symlinks=False)
+        if (not stat.S_ISREG(named.st_mode) or identity(before) != identity(after)
+                or identity(after) != identity(named) or time.monotonic() >= deadline):
             return 'unavailable'
         return ('matches' if eof and length == expected['bytes']
                 and digest.hexdigest() == expected['sha256'] else 'differs')
@@ -2066,9 +2073,20 @@ def build_blueprint(app, log, db_connect, lobby_ttl, client_identity=None,
                                    "more": len(verdicts) > VERDICTS_SHOWN}
                 verdicts = verdicts[:VERDICTS_SHOWN]
                 latest = conn.execute(
-                    "SELECT verdict FROM verdicts WHERE replay_id = ? AND at >= ?"
+                    "SELECT verdict, reason FROM verdicts WHERE replay_id = ? AND at >= ?"
                     " AND verdict <> 'ERROR' ORDER BY id DESC LIMIT 1",
                     (rid, sub)).fetchone()
+                # The current attempt can be older than the display window by ID.
+                explain = latest
+                if explain is None:
+                    explain = next((v for v in verdicts if v['current']), None)
+                    if explain is None and verdict_history['more']:
+                        explain = conn.execute(
+                            "SELECT verdict, reason FROM verdicts WHERE replay_id = ? AND at >= ?"
+                            " ORDER BY id DESC LIMIT 1", (rid, sub)).fetchone()
+                verdict_explanation = (None if explain is None else
+                    dict(verdict=explain['verdict'], reason=explain['reason'],
+                         why=explain_verdict(explain['verdict'], explain['reason'])))
                 errs = conn.execute("SELECT " + _ERRORS_SQL + " FROM replays p"
                                     " WHERE p.id = ?", (rid,)).fetchone()[0]
                 rv = conn.execute("SELECT decision, note, at FROM reviews"
@@ -2106,6 +2124,7 @@ def build_blueprint(app, log, db_connect, lobby_ttl, client_identity=None,
                              "stages_aside": stages[2] if stages else 0,
                              "stages_linked": stages is not None},
                 "review": review, "verdicts": verdicts, "verdict_history": verdict_history,
+                "verdict_explanation": verdict_explanation,
                 "receipt": rcpt, "key": key,
                 "similarity": similarity,
                 # The panel's own route: the public one answers 404 for a

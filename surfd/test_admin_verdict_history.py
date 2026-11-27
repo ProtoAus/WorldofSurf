@@ -63,6 +63,61 @@ class VerdictHistory(ObservationFixture):
                 self.assertEqual(self.board(), board)
         self.assertEqual(self.m.app.test_client().get(self.route).status_code, 401)
 
+    def test_current_attempt_outside_history_keeps_its_explanation(self):
+        self.populate(400)
+        value = self.detail()
+        self.assertFalse(any(row['current'] for row in value['verdicts']))
+        self.assertEqual(value['public'], 'verified')
+        self.assertEqual(value.get('verdict_explanation', {}).get('verdict'), 'PASS')
+        self.assertEqual(value['verdict_explanation']['reason'], 'synthetic history')
+        self.assertIn('synthetic history', self.explanation_dom(value))
+
+    def test_current_non_error_takes_precedence_and_error_only_still_explains(self):
+        self.populate(201)
+        self.c.execute("UPDATE verdicts SET at=200, verdict='ERROR', reason='synthetic IO failure' "
+                       "WHERE id=(SELECT max(id) FROM verdicts)")
+        self.c.commit()
+        value = self.detail()
+        self.assertEqual(value['verdicts'][0]['verdict'], 'ERROR')
+        self.assertEqual(value.get('verdict_explanation', {}).get('verdict'), 'PASS')
+        self.c.execute("DELETE FROM verdicts WHERE at=2000000000")
+        self.c.commit()
+        value = self.detail()
+        self.assertEqual(value['verdict_explanation']['verdict'], 'ERROR')
+        self.assertIn('synthetic IO failure', self.explanation_dom(value))
+        self.c.execute("UPDATE verdicts SET at=1")
+        self.c.commit()
+        value = self.detail()
+        self.assertIsNone(value['verdict_explanation'])
+        self.assertIn('Not checked yet', self.explanation_dom(value))
+
+    def explanation_dom(self, value):
+        if not shutil.which('node'):
+            self.skipTest('Node absent')
+        text = Path(self.a.__file__).with_name('templates').joinpath('admin_run.html').read_text(encoding='utf-8')
+        start = text.index('function renderExplain(')
+        fragment = text[start:text.index('  const st = j.standing', start)] + '}\n'
+        js = r'''
+class E {
+  constructor(text){this.text=String(text??'');this.children=[];this.dataset={};this.classList={add(){}};}
+  replaceChildren(...children){this.children=children;}
+  append(...children){this.children.push(...children);}
+  set innerHTML(value){throw Error('HTML sink');}
+  flatten(){return this.text+this.children.map(p=>p instanceof E?p.flatten():String(p)).join('');}
+}
+const box=new E(), el=(t,c,s)=>new E(s), pill=(s,c)=>new E(s), VERDICT_CLS={},PUBLIC_CLS={},PUBLIC_TIP={};
+const document={getElementById:(id)=>id==='explain'?box:new E()};
+''' + fragment + r'''
+renderRun(JSON.parse(process.argv[2]));
+console.log(box.flatten());
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'explain.js'
+            path.write_text(js, encoding='utf-8')
+            result = subprocess.run(['node', str(path), json.dumps(value)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout
+
     def dom(self, verdicts, history):
         if not shutil.which('node'):
             self.skipTest('Node absent; actual DOM tested on Windows')

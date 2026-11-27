@@ -1271,7 +1271,7 @@ def similarity_step(conn, limit=50, max_pairs=200, max_seconds=10.0,
         return 0, 0, "sims unavailable: active caller transaction (coverage not measured)"
     mod = _simcheck()
     if mod is None:
-        return 0, 0, ""
+        return 0, 0, "sims unavailable: collector support could not load (coverage not measured)"
     try:
         if hard_process:
             return mod.process_step(conn, surfd, os.path.abspath(__file__),

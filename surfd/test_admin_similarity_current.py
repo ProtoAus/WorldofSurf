@@ -124,6 +124,34 @@ class Current(baseline.Similarity):
         self.assertTrue(changed)
         self.assertEqual((result['state'], result['a'], result['b']), ('unavailable', 'unavailable', 'matches'))
 
+    def test_post_read_deadline_is_not_a_current_match(self):
+        captured = self.install_pair()['a']
+        states = iter((1.0, 1.0, 1.0, 3.0))  # passes pre-read checks, expires after EOF
+        with mock.patch.object(self.a.time, 'monotonic', side_effect=states):
+            self.assertEqual(self.a._current_source(self.paths[0], captured, 2.0), 'unavailable')
+
+    def test_path_replaced_after_read_is_unavailable(self):
+        captured = self.install_pair()['a']
+        path = self.paths[0]
+        replacement = path.with_name('replacement.rec')
+        replacement.write_bytes(b'new source')
+        fstat = os.fstat
+        stats = []
+
+        def replace_after_final_sample(fd):
+            sample = fstat(fd)
+            stats.append(sample)
+            if len(stats) == 2:
+                # The handle sampled stable; the queried name changed before return.
+                os.replace(path, path.with_name('retired.rec'))
+                os.replace(replacement, path)
+            return sample
+
+        with mock.patch.object(self.a.os, 'fstat', side_effect=replace_after_final_sample):
+            self.assertEqual(self.a._current_source(path, captured, time.monotonic() + 1), 'unavailable')
+        self.assertEqual(len(stats), 2)
+        self.assertEqual(path.read_bytes(), b'new source')
+
     def test_missing_over_cap_and_expired_work_are_explicit(self):
         self.install_pair()
         self.paths[0].unlink()

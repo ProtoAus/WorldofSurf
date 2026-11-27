@@ -1,5 +1,12 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026: P1855 waits for the next generation (worldofsurf-62; not live)
+surfd/admin.py, surfd/simcheck.py, surfd/sweep.py, surfd/templates/admin_run.html, surfd/web/board.js and the reader
+tools/census/recsim.py (+ tools/simcheck_runtime.py package v2, which now pins heldmeta.py with the paired readers).
+Schema: simcheck.ensure_schema ADDs two nullable sims columns (yaw_agree, yaw_turning) on its first cron pass; older
+readers/writers keep working (store_yaw checks the columns). No backfill. The P1613 reccheck and P1671/P1689 recsim
+pins are still the pending reader pins from 21 Nov; this generation should carry them together with P1855.
+
 ## 25 Nov 2026: generation 1837 LIVE — current base for the next generation (QuickPhoenix; public web performance)
 Primary d1ba8efa (members-v1/93), manifest6211197c, public application REF5cbebf3c: generation 1820 plus ONLY
 surfd.py, web/board.html and web/board.js. Fallback5b9ac3d9 is the exact generation 1820 runtime, CLOSED/qualified;
