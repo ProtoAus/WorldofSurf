@@ -1,5 +1,11 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026: P1857 admin card waits for the next generation (worldofsurf-62)
+surfd/admin.py (`/admin/api/seasonflag`, SEASONFLAG_BYTES) and templates/admin_top10.html (a "Season strafe flag" card).
+It reads /srv/nvme/surfd/data/seasonflag.json (override SURFD_SEASONFLAG), written daily by the proto user timer
+ftesurf-seasonflag (tools/ftesurf-seasonflag.{service,timer}; release /srv/nvme/ftesurf-ops/seasonflag/<commit>/, cache and
+log beside it). The timer is outside the generation (not crontab) and can run before the card is live.
+
 ## 27-28 Nov 2026 UTC: generation 1855 STAGED, waiting for Lex's Root install (worldofsurf-62; not live)
 Kit FTESurf-private/worktrees/gen1855-20261128-62 (RUNBOOK.md), advanced from gen1837 with genkit; Pi root
 /srv/nvme/agent-work/gen1855-20261128-62 (inert, both roles INITIALIZED CLOSED 19:40Z). Ships main 9ee36b2b's 13 changed

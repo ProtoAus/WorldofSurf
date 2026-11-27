@@ -1,0 +1,17 @@
+# P1857: the review-only season strafe flag (tools/seasonflag.py) for the admin's Top 10 page.
+# A proto user unit (systemctl --user), not crontab: the generation kits compare the crontab by hash.
+# @COMMIT@ is the release dir: /srv/nvme/ftesurf-ops/seasonflag/<commit>/{seasonflag,strafestats}.py (git archive).
+[Unit]
+Description=World of Surf: season strafe flag for admin review (P1857)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3.11 -I -B /srv/nvme/ftesurf-ops/seasonflag/@COMMIT@/seasonflag.py \
+    --runs /srv/nvme/ftesurf-server/game/ftesurf/data/runs --db /srv/nvme/surfd/data/surfd.db \
+    --cache /srv/nvme/ftesurf-ops/seasonflag/cache.json --out /srv/nvme/surfd/data/seasonflag.json
+StandardOutput=append:/srv/nvme/ftesurf-ops/seasonflag/seasonflag.log
+StandardError=append:/srv/nvme/ftesurf-ops/seasonflag/seasonflag.log
+Nice=19
+IOSchedulingClass=idle
+MemoryMax=512M
+TimeoutStartSec=60min

@@ -38,6 +38,16 @@
     </div>
     <div class="row"><button id="more" hidden>Show more</button></div>
   </div>
+  <div class="card" style="margin-top:1rem">
+    <h2>Season strafe flag <span class="muted" style="font-weight:400" id="ssum"></span></h2>
+    <p class="note">Review only; it changes nothing. Each player's average strafe quality over the season, against the
+      other players with enough runs. An optimiser used on every run stands out after about 20 runs; part-time use does
+      not. One player with several keys shows as several rows. "If always on" is where that player would sit with a
+      full-power optimiser on every run: the margin the flag has.</p>
+    <div class="scroll"><table id="season"><thead><tr>
+      <th>name</th><th class="num">runs</th><th class="num">season z</th><th class="num">if always on</th><th>flag</th>
+    </tr></thead><tbody></tbody></table></div>
+  </div>
 </main>
 <div class="toast" id="toast"></div>
 
@@ -136,6 +146,29 @@ document.getElementById("days").addEventListener("change", ev => {
 });
 document.getElementById("more").addEventListener("click", () => load(true));
 load(false);
+
+async function loadSeason() {
+  let j;
+  try {
+    const r = await fetch("/admin/api/seasonflag", {credentials: "same-origin"});
+    if (r.status === 401) return;
+    j = await r.json();
+  } catch (e) { document.getElementById("ssum").textContent = "could not load"; return; }
+  const tb = document.querySelector("#season tbody");
+  tb.replaceChildren();
+  if (!j.available) { document.getElementById("ssum").textContent = j.why || "unavailable"; return; }
+  document.getElementById("ssum").textContent = j.flagged + " flagged of " + j.players.length + " players with " +
+    j.min_runs + "+ runs (" + j.measured_runs + " runs measured; honest max " + j.honest_max_abs_z +
+    ", always-on min " + j.always_on_min_z + "; flag at " + j.z_flag + "; " + j.generated_utc + ")";
+  for (const p of j.players) {
+    const tr = el("tr");
+    tr.append(el("td", "", p.name), el("td", "num mono", p.runs), el("td", "num mono", p.z.toFixed(2)),
+              el("td", "num mono", p.z_if_always_on.toFixed(2)),
+              el("td", "", "").appendChild(pill(p.flag ? "review" : "", p.flag ? "warn" : "")).parentNode);
+    tb.appendChild(tr);
+  }
+}
+loadSeason();
 </script>
 </body>
 </html>

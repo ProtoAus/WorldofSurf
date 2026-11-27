@@ -363,6 +363,35 @@ RUN_STATES = {
 # first, with what a review needs. Store-only: nothing here gates the board. A stage row with no recording of its own
 # shows its run's replay as the board finds it (surfd._PARENT_SQL, rejected ones included here). TAS boards have their
 # own review. The receipt columns are NULL until sweep.py made the tables.
+SEASONFLAG_BYTES = 256 * 1024    # P1857: tools/seasonflag.py's report is ~1.5 KB at 8 players
+
+
+def seasonflag_report(path):
+    """P1857: the review-only season strafe flag written by tools/seasonflag.py (a proto timer), bounded and
+    validated; anything missing, oversized or malformed is 'unavailable', never an empty clean list."""
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read(SEASONFLAG_BYTES + 1)
+    except OSError:
+        return {"available": False, "why": "no report yet"}
+    if len(raw) > SEASONFLAG_BYTES:
+        return {"available": False, "why": "report too large"}
+    try:
+        d = json.loads(raw.decode("utf-8"))
+        players = [dict(name=str(p["name"])[:64], runs=int(p["runs"]), z=float(p["z"]),
+                        z_if_always_on=float(p["z_if_always_on"]), flag=bool(p["flag"]))
+                   for p in d["players"]][:200]
+        out = dict(available=True, generated_utc=str(d["generated_utc"])[:32], min_runs=int(d["min_runs"]),
+                   z_flag=float(d["z_flag"]), measured_runs=int(d["measured_runs"]),
+                   measured_players=int(d["measured_players"]), players=players,
+                   honest_max_abs_z=None if d["honest_max_abs_z"] is None else float(d["honest_max_abs_z"]),
+                   always_on_min_z=None if d["always_on_min_z"] is None else float(d["always_on_min_z"]))
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return {"available": False, "why": "report unreadable"}
+    out["flagged"] = sum(1 for p in players if p["flag"])
+    return out
+
+
 def list_top10(conn, since, offset):
     rcols = {r[1] for r in conn.execute("PRAGMA table_info(receipts)")}
     rc = ("rc.verdict AS rverdict, rc.angles, rc.reason AS rreason, rc.sig, "
@@ -1974,6 +2003,14 @@ def build_blueprint(app, log, db_connect, lobby_ttl, client_identity=None,
                 return redirect(url_for("admin.login_form"))
             return render_template("admin_top10.html", csrf=csrf_token(), days=TOP10_DAYS,
                                    flag=STARTLAG_FLAG)
+
+        @bp.get("/api/seasonflag")
+        def seasonflag():
+            if not logged_in():
+                return jsonify({"ok": False, "error": "not logged in"}), 401
+            path = setting("SURFD_SEASONFLAG", os.path.join(setting("SURFD_HOME", "/srv/nvme/surfd"),
+                                                            "data", "seasonflag.json"))
+            return jsonify(dict(seasonflag_report(path), ok=True))
 
         @bp.get("/api/top10")
         def top10_list():
