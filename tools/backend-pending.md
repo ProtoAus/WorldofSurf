@@ -1,5 +1,12 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026 11:28Z: P1870 tasindex LIVE (worldofsurf-33) -- uploaded TAS runs are watchable from the TAS board
+proto user unit ftesurf-tasindex.service repointed d8c49533 -> 39294036 (/srv/nvme/ftesurf-ops/tasindex/39294036.../tasindex.py,
+sha256 77a6d500; unit backup ftesurf-tasindex.service.pre1870-20261128T112837Z). First pass by hand: updated=2 reps=2 (Rounin
+surf_sandtrap2 main rep 87439, Proto bonus 4 rep 87440; copies in /srv/nvme/surfd/data/tasup/); /api/replay/87439 + 87440 200,
+bytes = the store's sha256; /api/board rows carry the reps. ROLLBACK ORDER: 39294036's tasindex --withdraw FIRST, then repoint
+the unit at d8c49533 (an older tasindex ignores rows with a rep; gen1857 surfd cannot serve 'tasup').
+
 ## 28 Nov 2026 UTC: generation 1858 LIVE since 11:27:19Z -- P1864 + P1870's surfd half (worldofsurf-62)
 Lex Root 10:59:44Z (backup .owner-backup-p1864-_kdexbfm; proposal conf ca1aaed8, observe 159c5ad9, policy a6da89e7, probe
 50a8a3b7 unchanged). PIN a501e834, REF 2cb308fd, independent token CLEAR (REV 02475b24). run_window launched 11:24:15Z,
