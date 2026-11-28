@@ -1124,11 +1124,13 @@ def check_hid(path, verbose=False, *, data=None, angle_authority=None):
                             "comparisons unavailable, not an angle accusation"
                             % (lineno + 1))
                 elif abs(view[4]) > V_PITCH_MAX or abs(view[5]) > V_YAW_MAX:
-                    # P1869 review 1: the yaw tolerance grows with |yaw| (a 1e8 yaw let 20 deg no-count turns pass)
-                    # and a pitch past the clamp gate turns accusations into unresolved frames.
+                    # P1869: the yaw tolerance grows with |yaw| (at ~1e8, 20 deg no-count turns read clean) and a
+                    # pitch past the clamp gate turns accusations into unresolved frames. Unusable, not a fault
+                    # (review 2: a local server's maxpitch may pass 90, and the journal does not record it).
+                    if "v" not in bad_observers:
+                        r.note("line %d: view angle out of range (pitch %g, yaw %g); angle/counts comparisons "
+                               "unavailable" % (lineno + 1, view[4], view[5]))
                     bad_observers.add("v")
-                    r.fault("line %d: view angle out of range (pitch %g, yaw %g); angle/counts comparisons "
-                            "unavailable, not an angle accusation" % (lineno + 1, view[4], view[5]))
                 # Patch 312: close the window this 'v' ends. The expected raw is
                 # the 'd' record if the frame had one and the v's own delta if it
                 # did not -- a missing 'd' IS the claim that they are equal.
@@ -2787,8 +2789,9 @@ def angle_server_row(words):
     return row
 
 
-# P1869: 271 stored journals, 8.5M 'v' rows (28 Nov): |yaw| <= 360 (normalised), |pitch| <= 89.
-V_YAW_MAX = 3600.0
+# P1869: 271 stored journals, 8.5M 'v' rows (28 Nov): |yaw| <= 360 (CL_ClampPitch normalises it), |pitch| <= 89.
+# 720 keeps the |yaw| x 2^-22 tolerance under 2e-4 deg a frame (review 2: 3600 allowed ~0.8 deg/s of free drift).
+V_YAW_MAX = 720.0
 V_PITCH_MAX = 90.0
 
 

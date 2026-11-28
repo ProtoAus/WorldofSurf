@@ -392,16 +392,19 @@ class OutOfRangeTests(unittest.TestCase):
     """P1869 review 1: a huge finite yaw widened the identity tolerance (|yaw| x 2^-22) until no-count turns passed;
     a pitch past the clamp gate turned accusations into unresolved frames; a huge angle overflowed _short_span."""
 
-    def test_out_of_range_view_faults_honest_range_does_not(self):
+    def test_out_of_range_view_is_unusable_not_clean_and_not_a_fault(self):
         text, scope = fixture()
         lines = text.splitlines()
         idx = max(i for i, line in enumerate(lines) if line.startswith("v "))
-        for field, value, bad in ((6, "4000.000000", True), (6, "-1e8", True), (5, "95.000000", True),
+        for field, value, bad in ((6, "720.500000", True), (6, "-1e8", True), (5, "95.000000", True),
                                   (5, "-90.500000", True), (6, "359.999786", False), (5, "89.000000", False)):
             tok = lines[idx].split(" ")
             tok[field] = value
             report = read("\n".join(lines[:idx] + [" ".join(tok)] + lines[idx + 1:]) + "\n", scope)
-            self.assertEqual(any("view angle out of range" in f for f in report.faults), bad, (value, report.faults))
+            self.assertEqual(any("view angle out of range" in n for n in report.notes), bad, (value, report.notes))
+            self.assertFalse(any("out of range" in f for f in report.faults), report.faults)
+            if bad:
+                self.assertEqual(report.info.get("identity_blind"), "unusable view observation", report.info)
 
     def test_short_span_never_raises(self):
         self.assertFalse(hidcheck._short_span([1e305, 2e305], 0))
