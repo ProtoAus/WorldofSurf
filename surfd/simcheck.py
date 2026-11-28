@@ -116,12 +116,18 @@ def reader_revision(rs):
     return value if type(value) is int and value >= 1 else 1
 
 
-def _settles(alias, revision):
-    """SQL: the `alias` sims row settles its pair for a reader of `revision` (an int, never caller text)."""
+def _stale(alias, revision):
+    """SQL: the `alias` sims row is a skip a reader of `revision` (an int, never caller text) should retry, or None."""
     if type(revision) is not int or revision <= 1:
-        return ""
-    return (" AND NOT (%s.verdict = 'skip' AND %s.skip_code IN (%s) AND %s.reader < %d)"
+        return None
+    return ("(%s.verdict = 'skip' AND %s.skip_code IN (%s) AND %s.reader < %d)"
             % (alias, alias, ",".join("'%s'" % c for c in REMEASURE_CODES), alias, revision))
+
+
+def _settles(alias, revision):
+    """SQL suffix: the `alias` sims row settles its pair for a reader of `revision`."""
+    stale = _stale(alias, revision)
+    return " AND NOT " + stale if stale else ""
 
 
 def _has_reader_column(conn):
@@ -791,8 +797,17 @@ def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
     if pa is None:
         if diagnostics is not None:
             diagnostics["source_unavailable"] += 1
+        stale = _stale("sims", revision)
+        if stale:
+            # Review: without this a stale pair whose source is gone was retried on every pass.  This revision has
+            # tried; the old verdict and reason stay.
+            _idle(conn)
+            with conn:
+                conn.execute("UPDATE OR IGNORE sims SET reader = ? WHERE (a_id = ? OR b_id = ?) AND " + stale,
+                             (revision, a_id, a_id))
         return 0, 0, 0
     found = []
+    unread = []         # P1859: peers whose comparison raised; a stale row for them is marked tried
     last_attempt = None
     for pr in peers:
         # Late recheck remains before admission and cursor advancement.
@@ -821,6 +836,7 @@ def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
                 diagnostics["pair_failed"] = diagnostics.get("pair_failed", 0) + 1
             print("simcheck: pair %s/%s failed: %r" % (a_id, pr["id"], exc),
                   file=sys.stderr)
+            unread.append(pr["id"])
     if last_attempt is None:
         return 0, 0, 0
     # Own only this short flush, even on an autocommit connection. A reader may
@@ -846,10 +862,19 @@ def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
             columns += ", reader"
         names = [c.strip() for c in columns.split(",")]
         sql = "INSERT OR IGNORE INTO sims (%s) VALUES (%s)" % (columns, ",".join("?" for _ in names))
-        # P1859: a stale skip (see REMEASURE_CODES) is replaced in place, keeping its id, never duplicated.
-        update = "UPDATE sims SET %s WHERE id = ?%s" % (
-            ", ".join("%s = ?" % c for c in names), _settles("sims", revision).replace(" AND NOT ", " AND ", 1))
-        # Count only this flush's additions and replacements, not overlap or trigger writes.
+        # P1859: a stale skip (see REMEASURE_CODES) is replaced in place by what the reader made of the pair, keeping
+        # its id.  When the reader never ran on it (a peer file missing, a comparison that raised) only `reader` moves:
+        # this revision has tried, and the old verdict and reason stay (review: no loop, no false provenance).
+        stale = _stale("sims", revision)
+        update = ("UPDATE OR IGNORE sims SET %s WHERE id = ? AND %s"
+                  % (", ".join("%s = ?" % c for c in names), stale)) if stale else None
+        tried = "UPDATE OR IGNORE sims SET reader = ? WHERE id = ? AND %s" % stale if stale else None
+        replaced = []
+        if stale:
+            for b in unread:
+                conn.execute("UPDATE OR IGNORE sims SET reader = ? WHERE ((a_id = ? AND b_id = ?) OR (a_id = ? AND b_id = ?))"
+                             " AND " + stale, (revision, a_id, b, b, a_id))
+        # Count only this flush's additions (replacements apart), not overlap or trigger writes.
         for f in found:
             a, b = f[0][:2]
             values = (f[0] if store_yaw else f[0][:-2]) + ((revision,) if store_reader else ())
@@ -858,12 +883,14 @@ def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
             if rows:
                 continue
             # Same orientation first: rewriting a (b, a) row while an (a, b) row exists would break UNIQUE.
-            stale = conn.execute("SELECT id FROM sims WHERE (a_id=? AND b_id=?) OR (a_id=? AND b_id=?)"
+            old = conn.execute("SELECT id FROM sims WHERE (a_id=? AND b_id=?) OR (a_id=? AND b_id=?)"
                                  " ORDER BY (a_id = ? AND b_id = ?) DESC, id LIMIT 1",
                                  (a, b, b, a, a, b)).fetchone()
-            if stale is not None:
-                if conn.execute(update, values + (stale[0],)).rowcount == 1:
-                    inserted.append(f)
+            if old is not None:
+                if f[0][13] == "peer_unresolved":
+                    conn.execute(tried, (revision, old[0]))
+                elif conn.execute(update, values + (old[0],)).rowcount == 1:
+                    replaced.append(f)
             elif conn.execute(sql, values).rowcount == 1:
                 inserted.append(f)
         conn.execute("COMMIT")
@@ -871,8 +898,10 @@ def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
         if conn.in_transaction:
             conn.execute("ROLLBACK")
         raise
+    if replaced and diagnostics is not None:
+        diagnostics["remeasured"] = diagnostics.get("remeasured", 0) + len(replaced)
     skipped = sum(1 for f in inserted if not f[1])
-    notable = sum(1 for f in inserted if f[1] and f[2] >= NOTABLE)
+    notable = sum(1 for f in inserted + replaced if f[1] and f[2] >= NOTABLE)
     return len(inserted), skipped, notable
 
 
@@ -1289,6 +1318,8 @@ def _similarity_step(conn, surfd, limit=50, now=None, tools_dir=None,
         note = "sims +%d" % stored
         if skipped:
             note += " (%d unjudgeable)" % skipped
+    if diagnostics.get("remeasured"):
+        note = (note + " " if note else "") + "sims re-measured %d" % diagnostics["remeasured"]
     if retired:
         note = (note + " " if note else "") + "sims retired %d orphan peer cursors" % retired
     unavailable = []

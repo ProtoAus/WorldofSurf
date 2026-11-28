@@ -76,7 +76,6 @@ class Remeasure(unittest.TestCase):
         after = self.rows()
         self.assertEqual(after[0], (before[0][0], 1, 2, 'compared', '', 2), 'replaced in place, same id')
         self.assertEqual(after[1:], before[1:], 'the helped skip and the measured pair are untouched')
-        self.assertEqual(out[0], 1)
         self.assertEqual(self.step(2), (0, 0, ''))
         self.assertEqual((self.compared, self.rows()), ([(1, 2)], after), 'a settled sample stays idle')
 
@@ -111,6 +110,44 @@ class Remeasure(unittest.TestCase):
         verdicts = sorted((r[1], r[2], r[3], r[5]) for r in self.rows() if {r[1], r[2]} == {1, 2})
         self.assertEqual(verdicts, [(1, 2, 'compared', 2), (2, 1, 'skip', 1)])
         self.assertEqual(self.step(2), (0, 0, ''), 'one settling row settles the pair')
+
+    def test_a_missing_peer_file_marks_the_stale_row_tried_and_keeps_its_verdict(self):
+        self.legacy()
+        self.surfd.replay_file = lambda row: (None, 'missing') if row['id'] == 2 else (row['id'], '')
+        self.step(2)
+        self.assertEqual(self.compared, [])
+        self.assertEqual(self.rows()[0][3:], ('skip', 'unmodelled', 2), 'old verdict kept, this revision has tried')
+        before = self.rows()
+        self.assertEqual((self.step(2)[0], self.compared, self.rows()), (0, [], before), 'and it is not retried')
+
+    def test_a_missing_source_file_marks_its_stale_rows_tried(self):
+        self.legacy()
+        self.surfd.replay_file = lambda row: (None, 'missing') if row['id'] in (1, 2) else (row['id'], '')
+        self.step(2)
+        self.assertEqual(self.rows()[0][3:], ('skip', 'unmodelled', 2))
+        out = self.step(2)
+        self.assertNotIn('source unavailable', out[2], 'a settled pair is not retried every pass (%r)' % (out,))
+
+    def test_a_pair_the_reader_raises_on_is_tried_once(self):
+        self.legacy()
+
+        def boom(a, b, **limits):
+            self.compared.append((a, b))
+            raise IndexError('synthetic reader fault')
+        mod = self.reader(2)
+        mod.compare_paths = boom
+        with mock.patch.object(simcheck, '_recsim', return_value=(mod, 'fake')):
+            simcheck.similarity_step(self.conn, self.surfd, limit=5, max_pairs=10, max_seconds=5)
+            simcheck.similarity_step(self.conn, self.surfd, limit=5, max_pairs=10, max_seconds=5)
+        self.assertEqual(self.compared, [(1, 2)], 'one attempt, not one per pass')
+        self.assertEqual(self.rows()[0][3:], ('skip', 'unmodelled', 2))
+
+    def test_the_note_counts_replacements_apart_from_additions(self):
+        self.legacy()
+        out = self.step(2)
+        self.assertEqual(out[0], 0, out)
+        self.assertIn('sims re-measured 1', out[2])
+        self.assertNotIn('sims +', out[2])
 
     def test_a_historical_table_gains_the_column_with_revision_1(self):
         old = sqlite3.connect(':memory:')
