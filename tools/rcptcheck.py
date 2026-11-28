@@ -272,6 +272,34 @@ def file_bytes(r, path):
     return data
 
 
+def _end_ticks(data):
+    """The last `end` row's counted finish, or None (the grammar parse stays the authority)."""
+    import reccheck
+    for raw in reversed(data.splitlines()):
+        if raw.startswith(b"end "):
+            f = raw.split()
+            return reccheck.exact_finish_ticks(f[1].decode("ascii", "replace")) if len(f) > 1 else None
+    return None
+
+
+def _signed_finish(r, cands):
+    """P1867: a save-load after a finish keeps the runid (Patch 426), so one runid can have several kept
+    finishes; join the one whose finish this receipt signs.  Live 28 Nov: 6 receipts FAULTed against
+    another finish of their runid, each with its own finish on disk.  No unique match: the first, as before."""
+    if len(cands) == 1:
+        return cands[0]
+    value = signed_get(r, "ticks")
+    ticks = int(value) if value and len(value) <= 11 and value.isascii() and value.isdigit() else None
+    same = [c for c in cands if ticks and _end_ticks(c[2]) == ticks]
+    if len(same) == 1:
+        r.note("%d recordings carry this runid (a save-load after a finish keeps it); joined the one "
+               "finishing at the %d ticks this receipt signs" % (len(cands), ticks))
+        return same[0]
+    r.note("%d recordings carry this runid and %s finishes at the signed ticks; joined the first"
+           % (len(cands), "none" if not same else "more than one"))
+    return cands[0]
+
+
 def join_rec(r):
     """Join the receipt to the .rec it names, when that file is on this disk."""
     runid = r.head.get("runid", "")
@@ -285,6 +313,7 @@ def join_rec(r):
     hits = glob.glob(os.path.join(GAME, "data", "evidence", mapname, "*.rec"))
     for leg in ("main", "stage_*", "bonus_*"):
         hits += glob.glob(os.path.join(GAME, "data", "runs", mapname, leg, "*.rec"))
+    cands = []
     for path in hits:
         selected = False
         try:
@@ -317,6 +346,9 @@ def join_rec(r):
                 r.note("the selected .rec read is deferred (%r)" % exc)
                 return
             continue
+        cands.append((path, head, data))
+    if cands:
+        path, head, data = _signed_finish(r, cands)
         # No digest covers the .rec. Nonce/ticks/angles share ONE observation;
         # REC12 lexical checks must see its original suffix bytes, not CRLF
         # converted to LF by a text read and then re-encoded.

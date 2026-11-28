@@ -241,5 +241,66 @@ class FinishTicks(unittest.TestCase):
         self.assertNotIn('SIGNATURE DOES NOT VERIFY', output.getvalue())
 
 
+    def kept(self, recording, ticks, name):
+        """A kept finish of the same runid in the archive tree, beside the evidence-tree one."""
+        d = os.path.join(rcptcheck.GAME, 'data', 'runs', 'bhop_eazy', 'main')
+        os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, '%07d_%s.rec' % (ticks, name))
+        with open(p, 'w', encoding='utf-8') as fh:
+            fh.write(recording)
+        return p
+
+    def test_p1867_joins_the_finish_the_receipt_signs(self):
+        # A save-load after the finish keeps the runid: the recording found first (evidence tree) is a later,
+        # faster finish; the receipt's own finish is archived under runs/.
+        path, recording, actual = self.signed()
+        later = recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 7))
+        self.assertNotEqual(later, recording)
+        fixtures.with_rec(self.m, self.sw, '20261008-000300-0', later)
+        own = self.kept(recording, actual, 'p1867-own')
+        result = self.sw.read_receipt(path)
+        self.assertEqual((result[0], result[3], result[5]), ('VALID', 'OK', 1))
+        r = rcptcheck.read(path)
+        rcptcheck.join_rec(r)
+        self.assertEqual((r.recpath, r.faults), (own, []))
+        self.assertTrue(any('2 recordings carry this runid' in n and str(actual) in n for n in r.notes))
+        # CONTROL: joining the first recording found, as before P1867, faults the same pair.
+        with mock.patch.object(rcptcheck, '_signed_finish', lambda r, cands: cands[0]):
+            before = self.sw.read_receipt(path)
+        self.assertEqual((before[0], before[5]), ('FAULT', 1))
+        self.assertIn('recording finish is %d' % (actual - 7), before[4])
+
+    def test_p1867_no_matching_finish_keeps_the_first_and_its_fault(self):
+        path, recording, actual = self.signed()
+        fixtures.with_rec(self.m, self.sw, '20261008-000300-0',
+                          recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 7)))
+        self.kept(recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 3)), actual - 3, 'p1867-other')
+        result = self.sw.read_receipt(path)
+        self.assertEqual((result[0], result[5]), ('FAULT', 1))
+        self.assertIn('recording finish is %d' % (actual - 7), result[4])
+        r = rcptcheck.read(path)
+        rcptcheck.join_rec(r)
+        self.assertTrue(any('none finishes at the signed ticks' in n for n in r.notes))
+
+    def test_p1867_two_matching_finishes_keep_the_first(self):
+        path, recording, actual = self.signed()
+        first = os.path.join(rcptcheck.GAME, 'data', 'evidence', 'bhop_eazy', '20261008-000300-0.rec')
+        self.kept(recording, actual, 'p1867-twin')
+        r = rcptcheck.read(path)
+        rcptcheck.join_rec(r)
+        self.assertEqual((r.recpath, r.faults), (first, []))
+        self.assertTrue(any('more than one' in n for n in r.notes))
+
+    def test_p1867_unkept_and_abandon_receipts_are_not_matched(self):
+        for signed in (-1, 0):
+            path, recording, actual = self.signed(ticks=signed)
+            first = os.path.join(rcptcheck.GAME, 'data', 'evidence', 'bhop_eazy', '20261008-000300-0.rec')
+            twin = self.kept(recording, actual, 'p1867-sentinel%d' % (signed + 1))
+            r = rcptcheck.read(path)
+            rcptcheck.join_rec(r)
+            self.assertEqual((r.recpath, r.faults), (first, []))
+            os.remove(twin)
+
+
 if __name__ == '__main__':
     unittest.main()
