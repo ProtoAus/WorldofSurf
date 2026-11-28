@@ -3474,7 +3474,7 @@ def noev_reasons(db, cands):
         rc = got.get(runid) if runid not in ("", "-") else None
         if rc is None:
             out[(runid, ticks)] = "receipt"
-        elif rc[2] != -2 and rc[2] != ticks:
+        elif rc[2] not in (-2, -1) and rc[2] != ticks:      # -1: an unkept finish's own receipt (see list_top10)
             out[(runid, ticks)] = "finish"
         elif not rc[0]:
             out[(runid, ticks)] = "view"

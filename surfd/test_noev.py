@@ -96,10 +96,12 @@ def main():
     # P1868: a receipt signing another finish of the same runid (a save-load after a finish) is not this run's
     sql(mod, "UPDATE receipts SET ticks = 4600 WHERE runid = 'r-p05'")      # p05 finished at 4500
     sql(mod, "UPDATE receipts SET ticks = 4600 WHERE runid = 'r-p06'")      # p06 finished at 4600: its own
-    sql(mod, "UPDATE receipts SET ticks = -1 WHERE runid = 'r-p07'")        # unkept latch: covers no kept finish
+    sql(mod, "UPDATE receipts SET ticks = -1 WHERE runid = 'r-p07'")        # unkept: that very finish (review 2)
+    sql(mod, "UPDATE receipts SET ticks = 0 WHERE runid = 'r-p08'")         # an abandon signs no finish
     m = marks(test_board.board(mod))
     eq("P1868: only the run whose finish the receipt is for is covered by it",
-       (m.get("p05"), m.get("p06"), m.get("p07"), m.get("p08")), ("finish", None, "finish", None))
+       (m.get("p05"), m.get("p06"), m.get("p07"), m.get("p08")), ("finish", None, None, "finish"))
+    sql(mod, "UPDATE receipts SET ticks = -2 WHERE runid = 'r-p08'")
     # review 1: two rows sharing a runid are judged by their own ticks (p08 takes p06's runid, finishing at 4800)
     sql(mod, "UPDATE runs SET runid = 'r-p06' WHERE player = 'p08'")
     m = marks(test_board.board(mod))

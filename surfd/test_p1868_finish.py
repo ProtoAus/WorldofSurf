@@ -49,6 +49,20 @@ def main():
         conn.execute("UPDATE receipts SET ticks = -2 WHERE runid = 'r-pb'")
         got = admin.receipt_for(conn, ids["pb"], "r-pb")
         eq("run page: an unread receipt is not flagged", got["other_finish"] if got else "no receipt", None)
+        # review 2: -1 is an unkept (practice/held) finish's own receipt; an abandon's evidence replay has its own 0
+        conn.execute("UPDATE receipts SET ticks = -1 WHERE runid = 'r-pb'")
+        got = admin.receipt_for(conn, ids["pb"], "r-pb")
+        eq("run page: an unkept finish's -1 receipt is not flagged", got["other_finish"] if got else "no receipt", None)
+        rows = {r["player"]: r for r in admin.list_top10(conn, 0, 0)}
+        eq("top-10: an unkept finish's -1 receipt is attached", (rows["pb"]["rverdict"], rows["pb"]["rother"]),
+           ("VALID", None))
+        conn.execute("UPDATE receipts SET ticks = 0 WHERE runid = 'r-pb'")
+        conn.execute("UPDATE replays SET kind = 'evidence' WHERE id = ?", (ids["pb"],))
+        got = admin.receipt_for(conn, ids["pb"], "r-pb")
+        eq("run page: an abandon's evidence replay is not flagged", got["other_finish"] if got else "no receipt", None)
+        conn.execute("UPDATE replays SET kind = 'run' WHERE id = ?", (ids["pb"],))
+        got = admin.receipt_for(conn, ids["pb"], "r-pb")
+        eq("run page: a kept run with an abandon's receipt is flagged", got["other_finish"] if got else "no receipt", 0)
     finally:
         conn.close()
     print("%d failed" % len(FAILS))

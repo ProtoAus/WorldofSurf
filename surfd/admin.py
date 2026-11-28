@@ -400,9 +400,10 @@ def list_top10(conn, since, offset):
           else "NULL AS rverdict, NULL AS angles, NULL AS rreason, NULL AS sig, NULL AS journal")
     join = " LEFT JOIN receipts rc ON rc.runid = k.runid AND k.runid NOT IN ('', '-')" if "verdict" in rcols else ""
     if join and "ticks" in rcols:
-        # P1868: on the main course, only the finish the receipt's run ended at (-2: not read since); `rother` is
-        # the other finish's ticks when this run has no receipt of its own.  Stage rows keep their run's receipt.
-        other = "rc{0}.ticks <> -2 AND k.leg = 0 AND rc{0}.ticks <> k.ticks"
+        # P1868: on the main course, only the finish the receipt's run ended at; `rother` is the other finish's
+        # ticks when this run has no receipt of its own.  -2 (not read since) and -1 (unkept: a practice or held
+        # finish signs -1 for that very finish, review 2) attach as before; stage rows keep their run's receipt.
+        other = "rc{0}.ticks NOT IN (-2, -1) AND k.leg = 0 AND rc{0}.ticks <> k.ticks"
         join += " AND NOT (" + other.format("") + ")"
         join += (" LEFT JOIN receipts rco ON rco.runid = k.runid AND k.runid NOT IN ('', '-') AND "
                  + other.format("o"))
@@ -484,11 +485,12 @@ def receipt_for(conn, rid, runid, *, own_association_budget=False):
     if rc is None:
         return None
     out = dict(rc)
-    # P1868: a main-course replay whose finish is not the one the runid's receipt is for has none of its own.
+    # P1868: a kept main-course run whose finish is not the one the runid's receipt is for has none of its own
+    # (an abandon's evidence replay carries its own 0 receipt, review 2; -1/-2 as in list_top10).
     out["other_finish"] = None
-    if out.get("ticks", -2) != -2 and rid:
-        rp = conn.execute("SELECT ticks, leg FROM replays WHERE id = ?", (rid,)).fetchone()
-        if rp is not None and rp[1] == 0 and rp[0] != out["ticks"]:
+    if out.get("ticks", -2) not in (-2, -1) and rid:
+        rp = conn.execute("SELECT ticks, leg, kind FROM replays WHERE id = ?", (rid,)).fetchone()
+        if rp is not None and rp[1] == 0 and rp[2] == "run" and rp[0] != out["ticks"]:
             out["other_finish"] = out["ticks"]
     out["identity_bound"] = bool(out.pop("identity", ""))
     out.setdefault("angles_reason", "")
