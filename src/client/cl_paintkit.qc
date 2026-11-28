@@ -7,12 +7,14 @@
 #define PKC_IDS 11000i
 #define PKC_USP 25
 #define PKC_GLOCK 26
+#define PKC_SSG08 27
 #define PKC_NAME 0i
 #define PKC_FILES 1i
 #define PKC_INFO 2i
-float wkit_mode, wkit_kind, wkit_avail, wkit_pistol, wkit_primarymodel;
+float wkit_mode, wkit_kind, wkit_avail, wkit_pistol, wkit_primarymodel, wkit_silencer;
 int pk_rand_idum, pk_rand_iy, *pk_rand_iv, pk_wplace_kit, pk_gplace_kit;
 float pk_wplace_seed, pk_gplace_seed;
+vector pk_wstate, pk_gstate;
 int pkc_count, *pkc_ids, *pkc_index, *pkc_bits;
 string *pkc_meta;
 void() PKC_Data;
@@ -44,7 +46,14 @@ void() PK_Register =
 	registercvar("cl_wshop_kit", "413", CVAR_ARCHIVE);
 	registercvar("cl_wshop_seed", "1", CVAR_ARCHIVE);
 	registercvar("cl_wshop_wear", "0.05", CVAR_ARCHIVE);
-	registercvar("cl_wshop_gunwear", "0.15", CVAR_ARCHIVE);
+	registercvar("cl_wshop_uspwear", "0.15", CVAR_ARCHIVE);
+	registercvar("cl_wshop_glockwear", "0.15", CVAR_ARCHIVE);
+	registercvar("cl_wshop_scoutwear", "0.15", CVAR_ARCHIVE);
+	registercvar("cl_wshop_uspseed", "1", CVAR_ARCHIVE);
+	registercvar("cl_wshop_glockseed", "1", CVAR_ARCHIVE);
+	registercvar("cl_wshop_scoutseed", "1", CVAR_ARCHIVE);
+	registercvar("cl_wshop_gloveseed", "1", CVAR_ARCHIVE);
+	registercvar("cl_wshop_scoutkit", "0", CVAR_ARCHIVE);
 	registercvar("cl_wshop_gunfinish", "1", CVAR_ARCHIVE);
 	registercvar("cl_wshop_uspkit", "318", CVAR_ARCHIVE);
 	registercvar("cl_wshop_glockkit", "1119", CVAR_ARCHIVE);
@@ -63,6 +72,8 @@ void() PK_Register =
 	for (i = 0; i < 8; i += 1) registercvar(sprintf("cl_gkit_opts%g", i), "0 0 0", 0);
 	registercvar("cl_wkit_place", "0 0 0", 0);
 	registercvar("cl_gkit_place", "0 0 0", 0);
+	registercvar("cl_wkit_state", "0 0 0", 0);   // active weapon: wear, seed
+	registercvar("cl_gkit_state", "0 0 0", 0);   // gloves: wear, seed
 };
 
 string(string path) PK_Alias =
@@ -94,7 +105,7 @@ float(int index, float model) PKC_Matches =
 {
 	if (!pkc_bits || index <= 0i || index > pkc_count || model == 0) return FALSE;
 	if (model < 0) return pkc_bits[index] == (int)model;
-	if (model > PKC_GLOCK || pkc_bits[index] < 0i) return FALSE;
+	if (model > PKC_SSG08 || pkc_bits[index] < 0i) return FALSE;
 	return (pkc_bits[index] & (1i << (int)model)) != 0i;
 };
 string(int index, int field) PKC_Get =
@@ -108,16 +119,23 @@ vector(int index) PKC_Wear =
 	tokenizebyseparator(PKC_Get(index, PKC_INFO), "|");
 	return stov(argv(0));
 };
+// Per-item settings: model < 0 gloves, PKC_USP/GLOCK/SSG08 guns, else the knife.
+// field is "kit", "wear" or "seed": cl_wshop_kit, cl_wshop_glovewear, cl_wshop_uspseed, ...
+string(float model, string field) PK_ItemCvar =
+{
+	if (model < 0) return strcat("cl_wshop_glove", field);
+	if (model == PKC_USP) return strcat("cl_wshop_usp", field);
+	if (model == PKC_GLOCK) return strcat("cl_wshop_glock", field);
+	if (model == PKC_SSG08) return strcat("cl_wshop_scout", field);
+	return strcat("cl_wshop_", field);
+};
 int(float model) PKC_Selected =
 {
 	local float id;
 	local int index;
-	if (model < 0) id = cvar("cl_wshop_glovekit");
-	else if (model == PKC_USP) id = cvar("cl_wshop_uspkit");
-	else if (model == PKC_GLOCK) id = cvar("cl_wshop_glockkit");
-	else
+	id = cvar(PK_ItemCvar(model, "kit"));
+	if (model > 0 && model < PKC_USP)
 	{
-		id = cvar("cl_wshop_kit");
 		if (id == 1) id = 413;
 		else if (id == 2) id = 12;
 		else if (id == 3) id = 38;
@@ -125,15 +143,30 @@ int(float model) PKC_Selected =
 	index = PKC_Index(id);
 	return PKC_Matches(index, model) ? index : 0i;
 };
+float(float model) PKC_Count =
+{
+	local int i;
+	local float count;
+	count = 0;
+	for (i = 1i; i <= pkc_count; i += 1i) if (PKC_Matches(i, model)) count += 1;
+	return count;
+};
+// index 0 picks the item's original finish.
 void(int index, float model) PKC_Select =
 {
-	local string id;
-	if (!PKC_Matches(index, model)) return;
-	id = itos(pkc_ids[index]);
-	if (model < 0) { cvar_set("cl_wshop_glovekit", id); cvar_set("cl_wshop_sporty", "1"); }
-	else if (model == PKC_USP) { cvar_set("cl_wshop_uspkit", id); cvar_set("cl_wshop_gunfinish", "1"); }
-	else if (model == PKC_GLOCK) { cvar_set("cl_wshop_glockkit", id); cvar_set("cl_wshop_gunfinish", "1"); }
-	else { cvar_set("cl_wshop_kit", id); if (!cvar("cl_wshop_mode")) cvar_set("cl_wshop_mode", "1"); }
+	if (index && !PKC_Matches(index, model)) return;
+	cvar_set(PK_ItemCvar(model, "kit"), index ? itos(pkc_ids[index]) : "0");
+	if (model < 0) cvar_set("cl_wshop_sporty", index ? "1" : "0");
+	else if (model >= PKC_USP) cvar_set("cl_wshop_gunfinish", "1");
+	else cvar_set("cl_wshop_mode", index ? (cvar("cl_wshop_mode") == 2 ? "2" : "1") : "0");
+};
+// The active weapon's / gloves' wear and seed as one shader uniform; set only on change.
+void(float glove, float wear, float seed) PK_State =
+{
+	local vector v;
+	v = [wear, seed, 0];
+	if (glove) { if (v == pk_gstate) return; pk_gstate = v; cvar_set("cl_gkit_state", sprintf("%.4f %g 0", wear, seed)); }
+	else { if (v == pk_wstate) return; pk_wstate = v; cvar_set("cl_wkit_state", sprintf("%.4f %g 0", wear, seed)); }
 };
 
 // The live view has at most one local weapon and one pair of gloves. Set their
@@ -186,11 +219,10 @@ float(float lo, float hi) PK_RandomFloat =
 	return f * (hi - lo) + lo;
 };
 // Sets cl_wkit_place / cl_gkit_place (offset x, offset y, rotation) when the kit or seed changes.
-void(int index, float glove) PK_Place =
+void(int index, float glove, float seed) PK_Place =
 {
-	local float seed;
 	local vector x, y, r;
-	seed = bound(0, floor(cvar("cl_wshop_seed")), 1000);
+	seed = bound(0, floor(seed), 1000);
 	if (glove)
 	{
 		if (index == pk_gplace_kit && seed == pk_gplace_seed) return;
@@ -213,18 +245,19 @@ void(int index, float glove) PK_Place =
 	if (cvar("developer")) print(sprintf("paintkit: place %s kit %i seed %g -> %.6f %.6f %.4f\n", glove ? "glove" : "weapon", pkc_ids[index], seed, x_z, y_z, r_z));
 };
 
-string(float kind, int kit, float mode, float pistol) PK_Shader =
+// Knife: kind is its catalog row, stem "". Gun: one material, dir/stem e.g. snip_ssg08/snip_ssg08_scope.
+string(float kind, int kit, float mode, string dir, string stem) PK_Shader =
 {
-	local string name, stem, base, mask, pattern, customized, ao, posmap, surface, data;
+	local string name, base, mask, pattern, customized, ao, posmap, surface, data;
 	local vector style;
-	local float ready;
+	local float ready, gun;
 	wkit_avail = FALSE;
 	if (cvar("fs_legacy_viewmodels") != 1) return "";
-	if (pistol)
+	gun = strcmp(stem, "") != 0;
+	if (gun)
 	{
-		stem = pistol == FS_WEAPON_USP ? "pist_223" : "pist_glock18";
-		customized = strcat(PK_ALIAS, "customization/", stem, "/", stem);
-		base = strcat(PK_ALIAS, "v_models/", stem, "/", stem, ".vtf");
+		customized = strcat(PK_ALIAS, "customization/", dir, "/", stem);
+		base = strcat(PK_ALIAS, "v_models/", dir, "/", stem, ".vtf");
 		mask = strcat(customized, "_masks.vtf");
 	}
 	else
@@ -247,16 +280,16 @@ string(float kind, int kit, float mode, float pistol) PK_Shader =
 				ready = TRUE;
 	if (!ready)
 	{
-		if (!pistol) return "";
-		name = sprintf("ftesurf/kit_unpainted_%g", pistol);
+		if (!gun) return "";
+		name = strcat("ftesurf/kit_unpainted_", stem);
 		data = sprintf("{\nprogram defaultskin\n{ map %s }\n}\n", base);
 		return shaderforname(name, data) > 0 ? name : "";
 	}
 	PKC_Uniforms(kit, FALSE);
 	style = stov(cvar_string("cl_wkit_opts4"));
-	name = sprintf("ftesurf/kit_%g_%g_%i_%g", kind, pistol, pkc_ids[kit], mode);
-	data = strcat(sprintf("{\nprogram weapon_catalog#STYLE=%g#EDIT=%g#PISTOL=%g\n{ map %s }\n{ map %s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n",
-		style_x, mode == 2, pistol != 0, base, pattern, mask, ao),
+	name = sprintf("ftesurf/kit_%g_%s_%i_%g", kind, stem, pkc_ids[kit], mode);
+	data = strcat(sprintf("{\nprogram weapon_catalog#STYLE=%g#EDIT=%g\n{ map %s }\n{ map %s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n",
+		style_x, mode == 2, base, pattern, mask, ao),
 		sprintf("{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%spaint_wear.vtf }\n{ map $nosrgb:%sgun_grunge.vtf }\n}\n",
 		posmap, surface, PK_SHARED, PK_SHARED));
 	wkit_avail = shaderforname(name, data) > 0;

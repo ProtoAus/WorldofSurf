@@ -6,7 +6,7 @@ float wp_eventat, wp_drawing, wp_events, wp_sndnext, wp_callbacks;
 float wp_scriptbytes, wp_scriptalias, wp_scripthits;
 string wp_model, wp_frame, wp_soundlast;
 float wp_motionvalid, wp_motiontime, wp_bobtime, wp_mountnext;
-float wp_css_mountnext, wp_wantlegacy, wp_legacy_next, wp_legacy_failed, wp_legacy_seen;
+float wp_css_mountnext, wp_wantlegacy, wp_legacy_next, wp_legacy_failed, wp_legacy_seen, wp_hidesilencer;
 float wp_mode, wp_burstleft, wp_burstat, wp_kick, wp_kickvel, wp_kickdt;
 float wp_zoom, wp_scopepending, wp_rezoomat, wp_drawstarts;
 entity wp_flashent;
@@ -83,7 +83,7 @@ void() WP_Register =
 	registercvar("cl_weapon_muzzleflash", "1", CVAR_ARCHIVE);
 	registercvar("cl_knife_model", "0", CVAR_ARCHIVE);
 	registercvar("cl_knife_equipped", "-1", CVAR_ARCHIVE);
-	registercvar("cl_wshop_pistols", "0", CVAR_ARCHIVE);
+	registercvar("cl_wshop_guns", "0", CVAR_ARCHIVE);   // CS:GO model per gun: FS_WEAPON_USP|SCOUT|GLOCK bits
 	registercommand("butterfly"); registercommand("m9"); registercommand("knife_css"); registercommand("inspect");
 	registercommand("knife_mount_done"); registercommand("css_weapon_mount_done");
 	// Existing independent projection, not a scale hack or a change to world FOV.
@@ -97,9 +97,14 @@ void() WP_Register =
 };
 
 float(float w) WP_IsPistol = { return w == FS_WEAPON_USP || w == FS_WEAPON_GLOCK; };
-float(float w) WP_LegacyPistol =
+float(float w) WP_LegacyGun;
+// CS:S's USP starts unsilenced (server mode 0); CS:GO's USP-S starts silenced, so its mode reads inverted.
+float() WP_Silenced = { return WP_LegacyGun(FS_WEAPON_USP) ? !wp_mode : wp_mode; };
+float(float w) WP_LegacyCapable = { return w == FS_WEAPON_USP || w == FS_WEAPON_GLOCK || w == FS_WEAPON_SCOUT; };
+// The CS:GO USP-S, Glock or SSG 08 (scout) replaces CS:S for this gun.
+float(float w) WP_LegacyGun =
 {
-	return WP_IsPistol(w) && !VM_IsMirroring() && cvar("cl_wshop_pistols") > 0 &&
+	return WP_LegacyCapable(w) && !VM_IsMirroring() && ((int)cvar("cl_wshop_guns") & (int)w) &&
 		cvar("fs_legacy_viewmodels") == 1 && !((int)wp_legacy_failed & (int)w);
 };
 
@@ -109,8 +114,9 @@ string(float w) WP_Model =
 	{
 		return KCAT_Get(KCAT_Knife(), KCAT_MODEL);
 	}
-	if (WP_LegacyPistol(w))
-		return w == FS_WEAPON_USP ? "models/ftesurf/legacy/v_pist_223.mdl" : "models/ftesurf/legacy/v_pist_glock18.mdl";
+	if (WP_LegacyGun(w))
+		return w == FS_WEAPON_USP ? "models/ftesurf/legacy/v_pist_223.mdl" :
+			w == FS_WEAPON_SCOUT ? "models/ftesurf/legacy/v_snip_ssg08.mdl" : "models/ftesurf/legacy/v_pist_glock18.mdl";
 	if (w == FS_WEAPON_USP) return "models/weapons/v_pist_usp.mdl";
 	if (w == FS_WEAPON_SCOUT) return "models/weapons/v_snip_scout.mdl";
 	if (w == FS_WEAPON_GLOCK)
@@ -129,7 +135,7 @@ string(float w) WP_Idle =
 	if (w == FS_WEAPON_SCOUT) return "idle1";
 	if (w == FS_WEAPON_KNIFE && KCAT_Knife() > 0) return KCAT_Get(KCAT_Knife(), KCAT_IDLE);
 	if (w == FS_WEAPON_GLOCK) return "glock_idle";
-	if (w == FS_WEAPON_USP && !wp_mode && !WP_LegacyPistol(w)) return "idle_unsil";
+	if (w == FS_WEAPON_USP && !wp_mode && !WP_LegacyGun(w)) return "idle_unsil";
 	return "idle";
 };
 
@@ -140,7 +146,7 @@ float(string name, float oneshot) WP_Animate =
 
 	f = frameforname(wp_ent.modelindex, name);
 	if (f < 0) f = frameforname(wp_ent.modelindex, strcat("@", name));
-	if (f < 0 && WP_LegacyPistol(wp_weapon) && wp_weapon == FS_WEAPON_USP)
+	if (f < 0 && WP_LegacyGun(wp_weapon) && wp_weapon == FS_WEAPON_USP)
 		f = frameforname(wp_ent.modelindex, strcat(name, "_masked_flash"));
 	if (f < 0 && wp_weapon == FS_WEAPON_KNIFE && KCAT_Knife() > 0)
 	{
@@ -373,7 +379,7 @@ void() WP_LoadMuzzle =
 void() WP_Muzzle =
 {
 	if (wp_muzzletag <= 0 || VM_Cvar("cl_weapon_muzzleflash") <= 0) return;
-	if (wp_weapon == FS_WEAPON_USP && wp_mode) return;
+	if (wp_weapon == FS_WEAPON_USP && WP_Silenced()) return;
 	if (wp_flashshot == wp_shots) return;
 	wp_flashshot = wp_shots;
 	wp_flashuntil = cltime + 0.04;
@@ -445,7 +451,7 @@ void(float w, float alternate) WP_Bullet =
 	wp_shots = wp_shots + 1;
 	WP_Muzzle(); // CSS game code flashes on a confirmed bullet, not a clip event.
 	if (w == FS_WEAPON_KNIFE) snd = (random() < 0.5) ? "weapons/knife/knife_slash1.wav" : "weapons/knife/knife_slash2.wav";
-	else if (w == FS_WEAPON_USP) snd = wp_mode ? "weapons/usp/usp1.wav" : "weapons/usp/usp_unsil-1.wav";
+	else if (w == FS_WEAPON_USP) snd = WP_Silenced() ? "weapons/usp/usp1.wav" : "weapons/usp/usp_unsil-1.wav";
 	else if (w == FS_WEAPON_SCOUT) snd = "weapons/scout/scout_fire-1.wav";
 	else snd = "weapons/glock/glock18-1.wav";
 	if (w == FS_WEAPON_USP || w == FS_WEAPON_SCOUT) wp_kickvel = wp_kickvel - 108.73127; // two-degree peak
@@ -484,7 +490,7 @@ void(float w, float kind) WP_Shot =
 		}
 		else WP_Animate((kind == FS_WEV_ALT) ? "stab_miss" : ((wp_shots % 2) ? "midslash2" : "midslash1"), TRUE);
 	}
-	else if (w == FS_WEAPON_USP) WP_Animate((wp_mode || WP_LegacyPistol(w)) ? "shoot1" : "shoot1_unsil", TRUE);
+	else if (w == FS_WEAPON_USP) WP_Animate((wp_mode || WP_LegacyGun(w)) ? "shoot1" : "shoot1_unsil", TRUE);
 	else if (w == FS_WEAPON_SCOUT)
 	{
 		WP_Animate("shoot", TRUE);
@@ -492,7 +498,7 @@ void(float w, float kind) WP_Shot =
 		wp_zoom = 0;
 		wp_rezoomat = cltime + 1.25;
 	}
-	else WP_Animate((kind == FS_WEV_BURST && !WP_LegacyPistol(w)) ? "glock_fireburst1" : "glock_firesingle", TRUE);
+	else WP_Animate((kind == FS_WEV_BURST && !WP_LegacyGun(w)) ? "glock_fireburst1" : "glock_firesingle", TRUE);
 	WP_Bullet(w, kind == FS_WEV_ALT);
 	if (kind == FS_WEV_BURST)
 	{
@@ -658,14 +664,14 @@ void() WP_Frame =
 	}
 	w = VM_Weapon();
 	seq = VM_Event();
-	if (cvar("cl_wshop_pistols") != wp_wantlegacy)
+	if (cvar("cl_wshop_guns") != wp_wantlegacy)
 	{
-		wp_wantlegacy = cvar("cl_wshop_pistols");
+		wp_wantlegacy = cvar("cl_wshop_guns");
 		wp_legacy_failed = 0;
 		wp_legacy_next = 0;
 	}
 	mdl = WP_Model(w);
-	legacy = WP_LegacyPistol(w);
+	legacy = WP_LegacyGun(w);
 	if (!strcmp(mdl, "") || VM_Cvar("cl_viewweapon") <= 0 ||
 	    (!VM_IsMirroring() && (!LT_StatsAreMine() || getstatf(STAT_FS_SPEC))) ||
 	    rec_gh_on || rec_wt_on || rw_on)
@@ -685,7 +691,7 @@ void() WP_Frame =
 		wp_legacy_seen = cvar("fs_legacy_viewmodels");
 	}
 	if (!VM_IsMirroring() && cvar_type("fs_legacy_viewmodels") && !cvar("fs_legacy_viewmodels") && time >= wp_legacy_next &&
-	    ((WP_IsPistol(w) && wp_wantlegacy) || (w == FS_WEAPON_KNIFE && KCAT_Knife() > 0 &&
+	    ((WP_LegacyCapable(w) && ((int)wp_wantlegacy & (int)w)) || (w == FS_WEAPON_KNIFE && KCAT_Knife() > 0 &&
 	     (cvar("cl_wshop_mode") > 0 || cvar("cl_wshop_sporty") > 0))))
 	{
 		wp_legacy_next = time + 60;
@@ -754,7 +760,7 @@ void() WP_Frame =
 		{
 			WP_LoadMuzzle(); // CSQC's private model slots are NEGATIVE.
 			wp_ready = WP_Animate((w == FS_WEAPON_GLOCK) ? "glock_draw" :
-				(w == FS_WEAPON_USP && legacy && wp_mode) ? "draw_silenced" :
+				(w == FS_WEAPON_USP && legacy && WP_Silenced()) ? "draw_silenced" :
 				(w == FS_WEAPON_USP && !legacy && !wp_mode) ? "draw_unsil" : "draw", TRUE);
 		}
 		if (legacy && !wp_ready)
@@ -781,7 +787,7 @@ void() WP_Frame =
 		kind = seq % 4;
 		if (kind == FS_WEV_MODE)
 		{
-			if (w == FS_WEAPON_USP) WP_Animate(legacy ? (wp_mode ? "attach" : "detach") : (wp_mode ? "add_silencer" : "detach_silencer"), TRUE);
+			if (w == FS_WEAPON_USP) WP_Animate(legacy ? (WP_Silenced() ? "attach" : "detach") : (wp_mode ? "add_silencer" : "detach_silencer"), TRUE);
 			else if (w == FS_WEAPON_SCOUT)
 			{
 				wp_zoom = (wp_zoom + 1) % 3;
@@ -829,13 +835,12 @@ void() WP_Frame =
 	wp_ent.angles = '0 0 0';
 	wp_ent.effects = WP_EF_NOGUNBOB;
 	WP_Motion();
-	if (legacy)
-	{
-		// These separate CS:GO pistol meshes point along local -Y. Orient
-		// the mesh and its bone-retargeted hands together in camera space.
-		wp_ent.origin += '18 -4.5 -7';
-		wp_ent.angles_y += 90;
-	}
+	// USP-S silencer: hidden by a skin rule (WPU_Apply; CSQC ents carry no .body) once unsilenced,
+	// but kept while the detach clip unscrews it.
+	wp_hidesilencer = FALSE;
+	if (legacy && w == FS_WEAPON_USP)
+		if (!WP_Silenced() && !(time < wp_until && strstrofs(wp_frame, "detach", 0) >= 0))
+			wp_hidesilencer = TRUE;
 	wp_ent.colormod = '1 1 1';
 	wp_ent.alpha = 1;
 	wp_ent.scale = 1;
@@ -865,7 +870,7 @@ void() WP_Inspect =
 	local string clip;
 	local float inspectkind;
 	if (VM_IsMirroring() && !vm_replaying) return;
-	if (wp_ready && WP_LegacyPistol(wp_weapon))
+	if (wp_ready && WP_LegacyGun(wp_weapon))
 	{
 		if (WP_Animate("lookat01", TRUE)) wp_until = time + bound(0.08, wp_duration, 20);
 		return;
@@ -1008,7 +1013,7 @@ float() WP_Command =
 		// Completion cannot equip anything, or retry a different selection.
 		if (strcmp(argv(1), "") || !wp_modelmissing || VM_Weapon() != wp_weapon ||
 		    strcmp(wp_model, WP_Model(wp_weapon))) return TRUE;
-		if ((wp_weapon == FS_WEAPON_KNIFE && KCAT_Knife() > 0) || WP_LegacyPistol(wp_weapon)) return TRUE;
+		if ((wp_weapon == FS_WEAPON_KNIFE && KCAT_Knife() > 0) || WP_LegacyGun(wp_weapon)) return TRUE;
 		f = fopen(wp_model, FILE_READ);
 		if (f < 0) return TRUE;
 		fclose(f);

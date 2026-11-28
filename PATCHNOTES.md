@@ -22,10 +22,12 @@
 ## next
 
 ### P1862 CS:GO weapon workshop
-- The knife, USP and Glock load Counter-Strike: Source's models by themselves when CS:S is installed, without changing your saved game list.
-- New Weapon workshop window (type weapon_workshop or bind it in Keys): real CS:GO finishes for Legacy knives, the CS:GO USP-S and Glock, and gloves, read from your own CS:GO Legacy install.
-- Pick a finish, set its wear float and pattern seed like in CS:GO, and inspect it. Custom mode lets you move, rotate, scale and tint the pattern.
-- 13 more CS:GO faction arms in the knife menu.
+- The knife, USP, Glock and scout load Counter-Strike: Source's models by themselves when CS:S is installed, without changing your saved game list.
+- New Weapon workshop (type weapon_workshop or bind it in Keys) with two screens. Loadout: your knife, hands and sleeves, CS:S or CS:GO for the USP, Glock and scout, and a skin for your gloves and each gun.
+- Knife finish: real CS:GO finishes for your knife with wear float and pattern seed placed like in CS:GO, plus Custom placement to move, turn, scale and tint the pattern.
+- The CS:GO USP-S, Glock-18 and SSG 08 play their CS:GO draw, idle, fire and inspect animations in your hands. The USP-S silencer comes off and goes back on.
+- Finishes and models are read from your own CS:GO Legacy install. The old Fade, Web and Marble knife looks are replaced by the real finishes; a saved one carries over.
+- 13 more CS:GO faction arms under Hands.
 
 ### P1861 CS:GO gloves
 - Choosing a CS:GO glove or hand style in the knife menu no longer risks crashing the game.

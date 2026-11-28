@@ -2,10 +2,11 @@
 
 ## P1862 CS:GO weapon workshop (branch wshop-p1862; local games only until lobby progs ship)
 
-- In a local game (`map surf_beginner`), type `usp` with CS:S installed but not in `fs_load`: the gun should appear after a moment, and `fs_loadlist` should still not list CS:S. Then `knife`, `glock`.
-- Open `weapon_workshop` (or bind **Weapon workshop** in Keys). Knives tab: equip Butterfly, Stock kit, pick Marble Fade, Case Hardened, Fade, Crimson Web; drag Wear float and Pattern seed; press Inspect. Compare against CS:GO Legacy's Workshop Workbench or a market screenshot at the same seed and float: pattern placement (offset/rotation per seed) is meant to match; the colour, gloss and how chips/scratches grow with wear are approximations, report what looks off.
-- Pistols tab: CS:GO kits, Equip USP / Glock, a few finishes, Inspect and shoot. Gloves tab: each family and a few finishes with the Wear slider. Custom kit: scale/rotation/offset/tint should move the pattern without touching Stock.
-- Mouse-drag the sliders and pick list on the desktop GPU (only software EGL was tested), and say if the knife or pistols sit oddly on screen.
+- In a local game (`map surf_beginner`), type `usp`, `glock`, `scout` with CS:S installed but not in `fs_load`: each gun should appear after a moment, and `fs_loadlist` should still not list CS:S.
+- Open `weapon_workshop` (or bind **Weapon workshop** in Keys). Loadout: set USP, Glock and Scout to CS:GO, press Equip on each; draw, idle, fire (and the USP-S silencer on right click) and Inspect should play with the gun in your hands, not floating in front of them.
+- Loadout skin row: Gloves (pick a Glove family under Hands first), USP-S, Glock, SSG 08: choose finishes, drag Wear float and Pattern seed. Knife finish: Butterfly, Marble Fade / Case Hardened / Fade / Crimson Web, Stock vs Custom placement.
+- Compare against CS:GO Legacy (Workshop Workbench or a market screenshot at the same seed and float): placement per seed is meant to match; colour, gloss and how chips grow with wear are approximations. Say what looks off.
+- Mouse-drag the sliders and the finish list on the desktop GPU (only software EGL was tested), and say if a gun sits oddly on screen at your FOV.
 
 ## P1851 post-finish reset and disconnect
 

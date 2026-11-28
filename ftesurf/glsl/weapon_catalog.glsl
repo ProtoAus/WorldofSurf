@@ -3,9 +3,7 @@
 !!permu SKELETAL
 !!permu FOG
 !!samps 8
-!!cvarf cl_wshop_seed
-!!cvarf cl_wshop_wear
-!!cvarf cl_wshop_gunwear
+!!cvar3f cl_wkit_state
 !!cvarf cl_wshop_scale
 !!cvarf cl_wshop_rotation
 !!cvarf cl_wshop_x
@@ -38,7 +36,7 @@ void main()
 #endif
 #ifdef FRAGMENT_SHADER
 #include "sys/fog.h"
-uniform float cvar_cl_wshop_seed, cvar_cl_wshop_wear, cvar_cl_wshop_gunwear;
+uniform vec3 cvar_cl_wkit_state;   // active item: wear, seed (cl_paintkit.qc PK_State)
 uniform float cvar_cl_wshop_scale, cvar_cl_wshop_rotation, cvar_cl_wshop_x, cvar_cl_wshop_y, cvar_cl_wshop_tint;
 uniform vec3 cvar_cl_wkit_opts0, cvar_cl_wkit_opts1, cvar_cl_wkit_opts2, cvar_cl_wkit_opts3, cvar_cl_wkit_opts4;
 uniform vec3 cvar_cl_wkit_place;
@@ -59,16 +57,12 @@ void main()
 	vec4 ao = texture2D(s_t3, kit_uv);
 	vec3 posmap = texture2D(s_t4, kit_uv).rgb;
 	vec3 surface = texture2D(s_t5, kit_uv).rgb;
-	float seed = floor(clamp(cvar_cl_wshop_seed, 0.0, 1000.0));
+	float seed = floor(clamp(cvar_cl_wkit_state.y, 0.0, 1000.0));
 	// Seeded offset/rotation from CS:GO's random stream (cl_paintkit.qc PK_Place).
 	vec2 shift = cvar_cl_wkit_place.xy;
 	float angle = cvar_cl_wkit_place.z;
 	float scale = cvar_cl_wkit_opts3.z;
-#if PISTOL == 1
-	float wear = cvar_cl_wshop_gunwear;
-#else
-	float wear = cvar_cl_wshop_wear;
-#endif
+	float wear = cvar_cl_wkit_state.x;
 	wear = clamp(wear, cvar_cl_wkit_opts0.x, cvar_cl_wkit_opts0.y);
 	vec2 uv = kit_uv;
 #if STYLE == 3 || STYLE == 6

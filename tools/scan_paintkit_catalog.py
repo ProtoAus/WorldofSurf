@@ -156,7 +156,7 @@ def label_for(tokens, kit):
 def build(directory):
     pack = VpkSource(directory / 'pak01_dir.vpk')
     _, models, _ = generate(pack.path)
-    model_bits = {'weapon_usp_silencer': 25, 'weapon_glock': 26}
+    model_bits = {'weapon_usp_silencer': 25, 'weapon_glock': 26, 'weapon_ssg08': 27}
     unfit = set()
     for m in models:
         stem = Path(m['path']).stem
@@ -168,7 +168,7 @@ def build(directory):
         maps.extend(mask.removesuffix('_masks.vtf') + suf + '.vtf' for suf in ('_ao', '_pos', '_surface'))
         if not mask.endswith('_masks.vtf') or not all(p in pack.entries for p in maps):
             unfit.add(name)
-        if not 0 < m['row'] < 25:  # bits 25/26 are the USP/Glock (cl_paintkit.qc PKC_USP/PKC_GLOCK)
+        if not 0 < m['row'] < 25:  # bits 25-27 are the USP/Glock/SSG 08 (cl_paintkit.qc PKC_USP..PKC_SSG08)
             raise ResourceError(f'knife row {m["row"]} collides with the pistol bits')
         model_bits[name] = m['row']
     schema = dict(kv((directory / 'scripts/items/items_game.txt').read_text(encoding='utf-8-sig')))['items_game']
