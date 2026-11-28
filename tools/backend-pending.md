@@ -1,5 +1,12 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026: P1864 waits for the next generation (worldofsurf-62)
+surfd/surfd.py + surfd/tournaments.py (runtime members). A sweep holding the write lock past connect()'s 5 s busy wait
+no longer turns lobby writes into 500 tracebacks: heartbeat answers 503 + Retry-After at once (it repeats), /api/run waits
+up to 10 s (a lobby never resends a run) and restores the normal wait after its commit, /api/tournaments/game waits up to
+8 s (a 'storage' reply aborts a live match). Busy is classified by sqlite result code. Known limit (measured): 12
+heartbeats x 5 s waits fill the 4 request threads during a long lock, so reads stall on parent and P1864 alike.
+
 ## 28 Nov 2026 UTC: tasrevd codes.txt gains 0.1.71's csprogs; heartbeat lock follow-up (worldofsurf-62)
 0.1.71's lobby/client csprogs 6fc76828082b3747... (lobbies 26 Nov 05:38Z to 28 Nov 06:04Z) was never appended at its
 rollout. worldofsurf-33 appended it at 06:09:07Z on Lex's yes (backup codes.txt.pre0171code-20261128T060907Z; 192 lines,
