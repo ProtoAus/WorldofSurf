@@ -282,6 +282,13 @@ DENY_PREFIX = {
     "models/weapons/v_models/arms/": "Mounted Steam CS:GO Legacy sleeves and gloves for the "
                                      "knife catalog (KCAT_Row/KCAT_Find); not ours to "
                                      "redistribute.",
+    "models/weapons/ct_arms_": "P1862: CS:GO Legacy faction arms (KCAT_Row) from the player's own "
+                               "install; not ours to redistribute.",
+    "models/weapons/t_arms_": "P1862: as models/weapons/ct_arms_.",
+    "models/ftesurf/legacy/": "P1862: read-only engine alias (fs.c) onto the player's CS:GO Legacy "
+                              "VPK (USP-S, Glock-18, SSG 08); never a file in our archive.",
+    "models/ftesurf/css/": "P1862: read-only engine alias (fs.c) onto the player's CS:S Glock; "
+                           "never a file in our archive.",
     "scripts/soundscapes_": "Read from INSIDE the map's BSP or a mounted Source "
                             "VPK, not from our gamedir; a loose copy here would "
                             "only be an override (cl_soundscape.qc's own header: "

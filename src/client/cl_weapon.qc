@@ -6,6 +6,7 @@ float wp_eventat, wp_drawing, wp_events, wp_sndnext, wp_callbacks;
 float wp_scriptbytes, wp_scriptalias, wp_scripthits;
 string wp_model, wp_frame, wp_soundlast;
 float wp_motionvalid, wp_motiontime, wp_bobtime, wp_mountnext;
+float wp_css_mountnext, wp_wantlegacy, wp_legacy_next, wp_legacy_failed, wp_legacy_seen, wp_hidesilencer, wp_lastpistol;
 float wp_mode, wp_burstleft, wp_burstat, wp_kick, wp_kickvel, wp_kickdt;
 float wp_zoom, wp_scopepending, wp_rezoomat, wp_drawstarts;
 entity wp_flashent;
@@ -82,8 +83,14 @@ void() WP_Register =
 	registercvar("cl_weapon_muzzleflash", "1", CVAR_ARCHIVE);
 	registercvar("cl_knife_model", "0", CVAR_ARCHIVE);
 	registercvar("cl_knife_equipped", "-1", CVAR_ARCHIVE);
+	registercvar("cl_wshop_guns", "0", CVAR_ARCHIVE);   // CS:GO model per gun: FS_WEAPON_USP|SCOUT|GLOCK bits
+	// viewmodel_offset_*: CS:GO's own names and desktop defaults (right, forward, up); CS:GO models only.
+	registercvar("viewmodel_offset_x", "1", CVAR_ARCHIVE);
+	registercvar("viewmodel_offset_y", "1", CVAR_ARCHIVE);
+	registercvar("viewmodel_offset_z", "-1", CVAR_ARCHIVE);
+	registercommand("slot1"); registercommand("slot2"); registercommand("slot3");
 	registercommand("butterfly"); registercommand("m9"); registercommand("knife_css"); registercommand("inspect");
-	registercommand("knife_mount_done");
+	registercommand("knife_mount_done"); registercommand("css_weapon_mount_done");
 	// Existing independent projection, not a scale hack or a change to world FOV.
 	if (!strcmp(cvar_string("r_viewmodel_fov"), "")) cvar_set("r_viewmodel_fov", "75");
 	registercommand("surf_weapon");
@@ -94,15 +101,37 @@ void() WP_Register =
 	registercommand("scout"); registercommand("glock");
 };
 
+float(float w) WP_IsPistol = { return w == FS_WEAPON_USP || w == FS_WEAPON_GLOCK; };
+float(float w) WP_LegacyGun;
+// CS:S's USP starts unsilenced (server mode 0); CS:GO's USP-S starts silenced, so its mode reads inverted.
+float() WP_Silenced = { return WP_LegacyGun(FS_WEAPON_USP) ? !wp_mode : wp_mode; };
+float(float w) WP_LegacyCapable = { return w == FS_WEAPON_USP || w == FS_WEAPON_GLOCK || w == FS_WEAPON_SCOUT; };
+// The CS:GO USP-S, Glock or SSG 08 (scout) replaces CS:S for this gun.
+float(float w) WP_LegacyGun =
+{
+	return WP_LegacyCapable(w) && !VM_IsMirroring() && ((int)cvar("cl_wshop_guns") & (int)w) &&
+		cvar("fs_legacy_viewmodels") == 1 && !((int)wp_legacy_failed & (int)w);
+};
+
 string(float w) WP_Model =
 {
 	if (w == FS_WEAPON_KNIFE)
 	{
 		return KCAT_Get(KCAT_Knife(), KCAT_MODEL);
 	}
+	if (WP_LegacyGun(w))
+		return w == FS_WEAPON_USP ? "models/ftesurf/legacy/v_pist_223.mdl" :
+			w == FS_WEAPON_SCOUT ? "models/ftesurf/legacy/v_snip_ssg08.mdl" : "models/ftesurf/legacy/v_pist_glock18.mdl";
 	if (w == FS_WEAPON_USP) return "models/weapons/v_pist_usp.mdl";
 	if (w == FS_WEAPON_SCOUT) return "models/weapons/v_snip_scout.mdl";
-	if (w == FS_WEAPON_GLOCK) return "models/weapons/v_pist_glock18.mdl";
+	if (w == FS_WEAPON_GLOCK)
+	{
+		// -1 (no Steam CS:S): a CS:S mounted another way still has the global name, unless
+		// Legacy is mounted too and its v49 Glock could answer it.
+		if (cvar_type("fs_css_weapon_assets") && (cvar("fs_css_weapon_assets") >= 0 || cvar("fs_legacy_viewmodels") == 1))
+			return "models/ftesurf/css/v_pist_glock18.mdl";
+		return "models/weapons/v_pist_glock18.mdl";
+	}
 	return "";
 };
 
@@ -111,7 +140,7 @@ string(float w) WP_Idle =
 	if (w == FS_WEAPON_SCOUT) return "idle1";
 	if (w == FS_WEAPON_KNIFE && KCAT_Knife() > 0) return KCAT_Get(KCAT_Knife(), KCAT_IDLE);
 	if (w == FS_WEAPON_GLOCK) return "glock_idle";
-	if (w == FS_WEAPON_USP && !wp_mode) return "idle_unsil";
+	if (w == FS_WEAPON_USP && !wp_mode && !WP_LegacyGun(w)) return "idle_unsil";
 	return "idle";
 };
 
@@ -122,6 +151,8 @@ float(string name, float oneshot) WP_Animate =
 
 	f = frameforname(wp_ent.modelindex, name);
 	if (f < 0) f = frameforname(wp_ent.modelindex, strcat("@", name));
+	if (f < 0 && WP_LegacyGun(wp_weapon) && wp_weapon == FS_WEAPON_USP)
+		f = frameforname(wp_ent.modelindex, strcat(name, "_masked_flash"));
 	if (f < 0 && wp_weapon == FS_WEAPON_KNIFE && KCAT_Knife() > 0)
 	{
 		candidate = "";
@@ -353,7 +384,7 @@ void() WP_LoadMuzzle =
 void() WP_Muzzle =
 {
 	if (wp_muzzletag <= 0 || VM_Cvar("cl_weapon_muzzleflash") <= 0) return;
-	if (wp_weapon == FS_WEAPON_USP && wp_mode) return;
+	if (wp_weapon == FS_WEAPON_USP && WP_Silenced()) return;
 	if (wp_flashshot == wp_shots) return;
 	wp_flashshot = wp_shots;
 	wp_flashuntil = cltime + 0.04;
@@ -363,7 +394,7 @@ void() WP_Muzzle =
 
 void() WP_FlashFrame =
 {
-	local vector pos, right, forward, up;
+	local vector right, forward, up;
 	if (cltime >= wp_flashuntil || wp_muzzletag <= 0) return;
 	if (!wp_flashent)
 	{
@@ -372,13 +403,11 @@ void() WP_FlashFrame =
 		setmodel(wp_flashent, "models/ftesurf/muzzle.md3");
 		wp_flashent.forceshader = shaderforname("ftesurf/muzzleflash", "{\nprogram default2d\nsort additive\ncull none\n{ map materials/effects/muzzleflash4.vtf\nblendfunc add\nrgbgen entity\nalphagen entity\n}\n}\n");
 	}
-	forward = v_forward; right = v_right; up = v_up;
-	makevectors(wp_ent.angles);
-	pos = v_right; // reflect about the animated entity's own side axis
+	forward = v_forward; right = v_right; up = v_up;   // gettaginfo sets v_* to the tag's axes
 	wp_flashent.origin = gettaginfo(wp_ent, wp_muzzletag);
 	wp_flashent.origin = wp_flashent.origin + v_forward * wp_muzzleorg_x - v_right * wp_muzzleorg_y + v_up * wp_muzzleorg_z;
-	if ((int)wp_ent.renderflags & RF_XFLIP)
-		wp_flashent.origin = wp_flashent.origin - 2 * ((wp_flashent.origin - wp_ent.origin) * pos) * pos;
+	if ((int)wp_ent.renderflags & RF_XFLIP)   // as the projection flip: about the view's centre, not the offset gun
+		wp_flashent.origin_y = -wp_flashent.origin_y;
 	v_forward = forward; v_right = right; v_up = up;
 	wp_flashent.angles = [0, 0, wp_flashroll];
 	wp_flashent.renderflags = RF_VIEWMODEL | RF_DEPTHHACK | RF_NOSHADOW;
@@ -425,7 +454,7 @@ void(float w, float alternate) WP_Bullet =
 	wp_shots = wp_shots + 1;
 	WP_Muzzle(); // CSS game code flashes on a confirmed bullet, not a clip event.
 	if (w == FS_WEAPON_KNIFE) snd = (random() < 0.5) ? "weapons/knife/knife_slash1.wav" : "weapons/knife/knife_slash2.wav";
-	else if (w == FS_WEAPON_USP) snd = wp_mode ? "weapons/usp/usp1.wav" : "weapons/usp/usp_unsil-1.wav";
+	else if (w == FS_WEAPON_USP) snd = WP_Silenced() ? "weapons/usp/usp1.wav" : "weapons/usp/usp_unsil-1.wav";
 	else if (w == FS_WEAPON_SCOUT) snd = "weapons/scout/scout_fire-1.wav";
 	else snd = "weapons/glock/glock18-1.wav";
 	if (w == FS_WEAPON_USP || w == FS_WEAPON_SCOUT) wp_kickvel = wp_kickvel - 108.73127; // two-degree peak
@@ -464,7 +493,7 @@ void(float w, float kind) WP_Shot =
 		}
 		else WP_Animate((kind == FS_WEV_ALT) ? "stab_miss" : ((wp_shots % 2) ? "midslash2" : "midslash1"), TRUE);
 	}
-	else if (w == FS_WEAPON_USP) WP_Animate(wp_mode ? "shoot1" : "shoot1_unsil", TRUE);
+	else if (w == FS_WEAPON_USP) WP_Animate((wp_mode || WP_LegacyGun(w)) ? "shoot1" : "shoot1_unsil", TRUE);
 	else if (w == FS_WEAPON_SCOUT)
 	{
 		WP_Animate("shoot", TRUE);
@@ -472,7 +501,7 @@ void(float w, float kind) WP_Shot =
 		wp_zoom = 0;
 		wp_rezoomat = cltime + 1.25;
 	}
-	else WP_Animate((kind == FS_WEV_BURST) ? "glock_fireburst1" : "glock_firesingle", TRUE);
+	else WP_Animate((kind == FS_WEV_BURST && !WP_LegacyGun(w)) ? "glock_fireburst1" : "glock_firesingle", TRUE);
 	WP_Bullet(w, kind == FS_WEV_ALT);
 	if (kind == FS_WEV_BURST)
 	{
@@ -589,11 +618,25 @@ float() WP_KnifeTexturePending =
 		return FALSE;
 	}
 	if (cvar("fs_knife_texture") > 0) return FALSE;
+	if (cvar_type("fs_legacy_viewmodels") && cvar("fs_legacy_viewmodels") < 0) return FALSE;	// no Legacy install
 	WP_MountKnifeContent(-1);
 	return TRUE;
 };
 
 // P1348: discard hidden presentation events, not VM preference/profile synchronization.
+// All non-Legacy weapons currently use the installed CS:S pack. Probe the
+// model before setmodel: a failed engine model slot is not hot-reloadable.
+void() WP_RequestCSSContent =
+{
+	if (time < wp_css_mountnext) return;
+	if (cvar_type("fs_css_weapon_assets") && cvar("fs_css_weapon_assets") < 0) return;	// failed this session; fs_css_weapon_mount retries by hand
+	wp_css_mountnext = time + 5;
+	if (cvar_type("fs_css_weapon_assets"))
+		localcmd("fs_css_weapon_mount\ncss_weapon_mount_done\n");
+	else
+		print("Weapon content unavailable. Install Counter-Strike: Source and mount it with fs_load, or update the client for automatic mounting.\n");
+};
+
 void() WP_OverviewFrame =
 {
 	wp_weapon = 0;
@@ -607,7 +650,7 @@ void() WP_OverviewFrame =
 
 void() WP_Frame =
 {
-	local float w, seq, kind, file;
+	local float w, seq, kind, file, legacy;
 	local string mdl;
 	local int i;
 
@@ -624,7 +667,15 @@ void() WP_Frame =
 	}
 	w = VM_Weapon();
 	seq = VM_Event();
+	if (cvar("cl_wshop_guns") != wp_wantlegacy)
+	{
+		wp_wantlegacy = cvar("cl_wshop_guns");
+		wp_legacy_failed = 0;
+		wp_legacy_next = 0;
+	}
 	mdl = WP_Model(w);
+	legacy = WP_LegacyGun(w);
+	if (w == FS_WEAPON_USP || w == FS_WEAPON_GLOCK) wp_lastpistol = w;
 	if (!strcmp(mdl, "") || VM_Cvar("cl_viewweapon") <= 0 ||
 	    (!VM_IsMirroring() && (!LT_StatsAreMine() || getstatf(STAT_FS_SPEC))) ||
 	    rec_gh_on || rec_wt_on || rw_on)
@@ -637,6 +688,18 @@ void() WP_Frame =
 		wp_zoom = wp_scopepending = 0;
 		wp_sequence = seq;
 		return;
+	}
+	if (cvar("fs_legacy_viewmodels") != wp_legacy_seen)
+	{
+		if (wp_legacy_seen == 1) wp_legacy_next = 0;	// a searchpath rebuild closed the pack: ask again now
+		wp_legacy_seen = cvar("fs_legacy_viewmodels");
+	}
+	if (!VM_IsMirroring() && cvar_type("fs_legacy_viewmodels") && !cvar("fs_legacy_viewmodels") && time >= wp_legacy_next &&
+	    ((WP_LegacyCapable(w) && ((int)wp_wantlegacy & (int)w)) || (w == FS_WEAPON_KNIFE && KCAT_Knife() > 0 &&
+	     (cvar("cl_wshop_mode") > 0 || cvar("cl_wshop_sporty") > 0))))
+	{
+		wp_legacy_next = time + 60;
+		WP_MountKnifeContent(-1);
 	}
 	if (w == FS_WEAPON_KNIFE)
 		if (WP_KnifeTexturePending()) return;
@@ -668,29 +731,58 @@ void() WP_Frame =
 		wp_modelmissing = FALSE;
 		if (strcmp(wp_model, "")) strunzone(wp_model);
 		wp_model = strzone(mdl);
-		if (w == FS_WEAPON_KNIFE && KCAT_Knife() > 0)
+		file = fopen(wp_model, FILE_READ);
+		if (file < 0)
 		{
-			file = fopen(wp_model, FILE_READ);
-			if (file < 0)
+			// Content readiness is not a new explicit cosmetic/equip choice.
+			wp_modelmissing = TRUE;
+			if (legacy) wp_legacy_failed = (float)((int)wp_legacy_failed | (int)w);
+			else if (w == FS_WEAPON_KNIFE && KCAT_Knife() > 0) WP_MountKnifeContent(-1);
+			else WP_RequestCSSContent();
+			return;
+		}
+		fclose(file);
+		if (legacy)
+		{
+			for (i = 0i; i < 3i; i += 1i)
 			{
-				// Content readiness is not a new explicit cosmetic/equip choice.
-				wp_modelmissing = TRUE;
-				WP_MountKnifeContent(-1);
-				return;
+				file = fopen(strcat(substring(mdl, 0, strlen(mdl) - 4),
+					i == 0i ? ".dx90.vtx" : i == 1i ? ".vvd" : ".ani"), FILE_READ);
+				if (file < 0)
+				{
+					wp_legacy_failed = (float)((int)wp_legacy_failed | (int)w);
+					print("Workshop: missing Legacy pistol data; showing CS:S instead.\n");
+					return;
+				}
+				fclose(file);
 			}
-			fclose(file);
 		}
 		setmodel(wp_ent, wp_model);
 		wp_ent.skeletonindex = 0;
 		wp_flashuntil = 0;
-		if (wp_ent.modelindex == 0) return;
-		WP_LoadMuzzle(); // CSQC's private model slots are NEGATIVE.
-		wp_ready = WP_Animate((w == FS_WEAPON_GLOCK) ? "glock_draw" : ((w == FS_WEAPON_USP && !wp_mode) ? "draw_unsil" : "draw"), TRUE);
+		if (wp_ent.modelindex != 0)
+		{
+			WP_LoadMuzzle(); // CSQC's private model slots are NEGATIVE.
+			wp_ready = WP_Animate((w == FS_WEAPON_GLOCK) ? "glock_draw" :
+				(w == FS_WEAPON_USP && legacy && WP_Silenced()) ? "draw_silenced" :
+				(w == FS_WEAPON_USP && !legacy && !wp_mode) ? "draw_unsil" : "draw", TRUE);
+		}
+		if (legacy && !wp_ready)
+		{
+			wp_legacy_failed = (float)((int)wp_legacy_failed | (int)w);
+			print("Workshop: unsupported Legacy pistol animation/model; showing CS:S instead.\n");
+		}
 		wp_drawing = wp_ready;
 		if (wp_ready) wp_drawstarts = wp_drawstarts + 1;
 		wp_zoom = wp_scopepending = 0;
 	}
-	if (!wp_ready) return;
+	if (!wp_ready)
+	{
+		if (wp_modelmissing && !legacy && !(w == FS_WEAPON_KNIFE && KCAT_Knife() > 0) &&
+		    cvar_type("fs_css_weapon_assets") && cvar("fs_css_weapon_assets") >= 0)
+			WP_RequestCSSContent();
+		return;
+	}
 	WP_KickFrame();
 	if (seq != wp_sequence)
 	{
@@ -699,7 +791,7 @@ void() WP_Frame =
 		kind = seq % 4;
 		if (kind == FS_WEV_MODE)
 		{
-			if (w == FS_WEAPON_USP) WP_Animate(wp_mode ? "add_silencer" : "detach_silencer", TRUE);
+			if (w == FS_WEAPON_USP) WP_Animate(legacy ? (WP_Silenced() ? "attach" : "detach") : (wp_mode ? "add_silencer" : "detach_silencer"), TRUE);
 			else if (w == FS_WEAPON_SCOUT)
 			{
 				wp_zoom = (wp_zoom + 1) % 3;
@@ -747,12 +839,20 @@ void() WP_Frame =
 	wp_ent.angles = '0 0 0';
 	wp_ent.effects = WP_EF_NOGUNBOB;
 	WP_Motion();
+	if (legacy || (w == FS_WEAPON_KNIFE && KCAT_Knife() > 0))
+		wp_ent.origin += [cvar("viewmodel_offset_y"), -cvar("viewmodel_offset_x"), cvar("viewmodel_offset_z")];   // RF_XFLIP mirrors it for the left hand
+	// USP-S silencer: hidden by a skin rule (WPU_Apply; CSQC ents carry no .body) once unsilenced,
+	// but kept while the detach clip unscrews it.
+	wp_hidesilencer = FALSE;
+	if (legacy && w == FS_WEAPON_USP)
+		if (!WP_Silenced() && !(time < wp_until && strstrofs(wp_frame, "detach", 0) >= 0))
+			wp_hidesilencer = TRUE;
 	wp_ent.colormod = '1 1 1';
 	wp_ent.alpha = 1;
 	wp_ent.scale = 1;
 	wp_ent.renderflags = RF_VIEWMODEL | RF_DEPTHHACK | RF_NOSHADOW;
-	// CSS guns are left-authored; the knife is right-authored.
-	if (w == FS_WEAPON_KNIFE)
+	// CS:S guns are left-authored. Legacy viewmodels, like the knife, are right-authored.
+	if (w == FS_WEAPON_KNIFE || legacy)
 	{
 		if (VM_Cvar("cl_viewweapon_left")) wp_ent.renderflags |= RF_XFLIP;
 	}
@@ -776,6 +876,11 @@ void() WP_Inspect =
 	local string clip;
 	local float inspectkind;
 	if (VM_IsMirroring() && !vm_replaying) return;
+	if (wp_ready && WP_LegacyGun(wp_weapon))
+	{
+		if (WP_Animate("lookat01", TRUE)) wp_until = time + bound(0.08, wp_duration, 20);
+		return;
+	}
 	if (wp_weapon != FS_WEAPON_KNIFE || !wp_ready || KCAT_Knife() <= 0)
 	{
 		if (!vm_replaying) print("inspect: select an installed Legacy knife first\n");
@@ -846,7 +951,7 @@ void(float kind) WP_ChooseKnifeReady =
 	local float frame, skeleton;
 	local string model;
 	if (!KCAT_Valid(kind)) { print("Knife workshop: invalid catalog choice\n"); return; }
-	if (!KCAT_Available(kind))
+	if (kind != 0 && !KCAT_Available(kind))
 	{
 		print("Knife content unavailable. Install CS:GO Legacy and use the updated client; selection unchanged.\n");
 		return;
@@ -897,7 +1002,7 @@ void(float kind) WP_ChooseKnife =
 	// Use the same command queue for warm and cold choices. A later CSS/hand
 	// choice must not be overwritten by an earlier queued mount completion.
 	WP_CancelKnifeChoice();
-	if (KCAT_Available(kind)) localcmd(sprintf("knife_mount_done %g %i\n", kind, wp_choiceepoch));
+	if (kind == 0 || KCAT_Available(kind)) localcmd(sprintf("knife_mount_done %g %i\n", kind, wp_choiceepoch));
 	else WP_MountKnifeContent(kind);
 };
 
@@ -909,6 +1014,18 @@ float() WP_Command =
 	local int *header;
 
 	cmd = argv(0);
+	if (!strcmp(cmd, "css_weapon_mount_done"))
+	{
+		// Completion cannot equip anything, or retry a different selection.
+		if (strcmp(argv(1), "") || !wp_modelmissing || VM_Weapon() != wp_weapon ||
+		    strcmp(wp_model, WP_Model(wp_weapon))) return TRUE;
+		if ((wp_weapon == FS_WEAPON_KNIFE && KCAT_Knife() > 0) || WP_LegacyGun(wp_weapon)) return TRUE;
+		f = fopen(wp_model, FILE_READ);
+		if (f < 0) return TRUE;
+		fclose(f);
+		wp_weapon = 0; // re-enter the normal model load/draw on the next frame
+		return TRUE;
+	}
 	if (!strcmp(cmd, "knife_mount_done"))
 	{
 		if (stof(argv(1)) >= 0)
@@ -971,6 +1088,16 @@ float() WP_Command =
 		print(sprintf("weapon: view %v render-angles %v input-angles %v\n", getproperty(VF_ORIGIN), getproperty(VF_ANGLES), getproperty(VF_CL_VIEWANGLES)));
 		return TRUE;
 	}
+	// CS weapon slots: 1 the scout, 2 a pistol (again: the other one), 3 the knife.
+	if (!strcmp(cmd, "slot1")) { localcmd("scout\n"); return TRUE; }
+	if (!strcmp(cmd, "slot2"))
+	{
+		if (wp_weapon == FS_WEAPON_USP) localcmd("glock\n");
+		else if (wp_weapon == FS_WEAPON_GLOCK || wp_lastpistol != FS_WEAPON_GLOCK) localcmd("usp\n");
+		else localcmd("glock\n");
+		return TRUE;
+	}
+	if (!strcmp(cmd, "slot3")) { localcmd("knife\n"); return TRUE; }
 	giving = !strcmp(cmd, "give");
 	if (!strcmp(cmd, "knife") || !strcmp(cmd, "usp") || !strcmp(cmd, "scout") || !strcmp(cmd, "glock"))
 	{
@@ -1004,6 +1131,7 @@ float() WP_Command =
 	WP_CancelKnifeChoice();
 	if (w == FS_WEAPON_KNIFE) WP_EquipKnife();
 	wp_restoreknife = FALSE;
+	if (wp_modelmissing && wp_weapon == w) wp_weapon = 0;
 	cvar_set("cl_viewweapon", "1");
 	localcmd(sprintf("cmd weapon %g\n", w));
 	return TRUE;

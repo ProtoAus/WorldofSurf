@@ -1,5 +1,12 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026: P1862 rides generation 1859 (Claude Code efb4d888; gen1858 was already frozen at 9b5d96fe, worldofsurf-62)
+surfd/viewmodel.py only: account setup field 3 (hands) accepts rows 32-63, matching sh_viewmodel.qc VM_HANDS (the 13
+CS:GO faction rigs are rows 50-62). No schema change; tools/test_viewmodel_ranges.py checks every field against the QC.
+Order: either. The 0.1.73 client + lobby progs may go first; until gen1859 is live a rig in 50-62 is
+refused by the account store (lobby VM_SVError, nothing saved); after it, old clients spectating such a player drop that
+player's mirrored setup (VM_Normalize rejects the whole payload).
+
 ## 28 Nov 2026 11:28Z: P1870 tasindex LIVE (worldofsurf-33) -- uploaded TAS runs are watchable from the TAS board
 proto user unit ftesurf-tasindex.service repointed d8c49533 -> 39294036 (/srv/nvme/ftesurf-ops/tasindex/39294036.../tasindex.py,
 sha256 77a6d500; unit backup ftesurf-tasindex.service.pre1870-20261128T112837Z). First pass by hand: updated=2 reps=2 (Rounin

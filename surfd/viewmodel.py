@@ -25,7 +25,7 @@ def limits(field):
     if field == 2:
         return 0, 24, True
     if field == 3:
-        return 32, 49, True
+        return 32, 63, True   # P1862: faction rigs 50-62 (sh_viewmodel.qc VM_HANDS)
     if field == 4:
         return 64, 117, True
     if field == 6:

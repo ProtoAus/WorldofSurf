@@ -20,7 +20,8 @@ float(float field) VM_ViewValue;
 #define KCAT_FAMILY 15i
 #define KCAT_NEUTRAL 16i
 #define KCAT_LIT 17i
-#define KCAT_FIELDS 18i
+#define KCAT_COMPLETE 18i
+#define KCAT_FIELDS 19i
 #define KCAT_ARMS 32i
 #define KCAT_LAYERS 64i
 string *kcat_values;
@@ -129,7 +130,7 @@ float() KCAT_Layer =
 float() KCAT_ActiveLayer =
 {
 	local float row;
-	if (KCAT_Hands() < (float)KCAT_ARMS + 2) return -1; // complete rigs have sleeves
+	if (!strcmp(KCAT_Get(KCAT_Hands(), KCAT_COMPLETE), "1")) return -1;
 	row = KCAT_Layer();
 	if (row == (float)KCAT_LAYERS + 1) return -1;
 	if (row == (float)KCAT_LAYERS)
@@ -176,13 +177,13 @@ string(string surfaces, string shader) KCAT_Rules =
 	}
 	return result;
 };
-string(float row) KCAT_PieceRules =
+// Character materials are not Valve inventory previews: keep their installed
+// diffuse, but use model lighting instead of the unsupported-class unlit fallback.
+string(float row) KCAT_LitRules =
 {
 	local float i, count;
 	local string result, previous, shader, surface, texture;
 	result = "";
-	// Character materials are not Valve inventory previews: keep their installed
-	// diffuse, but use model lighting instead of the unsupported-class unlit fallback.
 	count = min(128, tokenizebyseparator(KCAT_Get(row, KCAT_LIT), "|"));
 	for (i = 0; i + 1 < count; i = i + 2)
 	{
@@ -193,6 +194,13 @@ string(float row) KCAT_PieceRules =
 		result = strzone(strcat(result, sprintf("replace \"%s\" \"%s\"\n", surface, shader)));
 		if (strcmp(previous, "")) strunzone(previous);
 	}
+	return result;
+};
+string(float row) KCAT_PieceRules =
+{
+	local float i, count;
+	local string result, previous, shader, surface, texture;
+	result = KCAT_LitRules(row);
 	count = min(128, tokenizebyseparator(KCAT_Get(row, KCAT_NEUTRAL), "|"));
 	for (i = 0; i + 1 < count; i = i + 2)
 	{

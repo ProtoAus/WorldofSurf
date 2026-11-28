@@ -1,5 +1,13 @@
 # lextest.md — things waiting on a human
 
+## P1862 CS:GO weapon workshop (branch wshop-p1862; local games only until lobby progs ship)
+
+- In a local game (`map surf_beginner`), type `usp`, `glock`, `scout` with CS:S installed but not in `fs_load`: each gun should appear after a moment, and `fs_loadlist` should still not list CS:S. Bind slot1/slot2/slot3 in Keys (Game column; Weapon workshop and Patch notes now sit under Menus) and switch with them; both Keys tabs should fit without rows over the buttons or keyboard.
+- Open `weapon_workshop`. Loadout: clicking CS:S / CS:GO on a gun row or a skin tab equips that gun. Draw, idle, fire, right-click silencer (USP-S) and Inspect should play in your hands. View: try CS:GO, Classic, Close and Tune, and say which default sits best; with `cl_viewweapon_left 1` the gun should sit as far left as it sat right. Original (unpainted) guns should shine and reflect like painted ones.
+- Skins: walk from a bright spot into shade with a painted gun: it should darken like the hands. Look at the SSG 08 with Azure Glyph, Bloodshot, Acid Fade (scope should stay stock black) and Blue Spruce (scope painted). Knife patina finishes (Blue Steel, Stained, Case Hardened, USP-S Stainless) should be steel-coloured, not white.
+- Compare against CS:GO Legacy (Workshop Workbench or a market screenshot at the same seed and float): placement per seed is meant to match; airbrush/spray fades (Acid Fade, Fade) and how chips grow with wear are approximations, say what looks off.
+- Mouse-drag the sliders and the finish list on the desktop GPU (only software EGL was tested), and note any hitch the first time a finish is shown (each new finish style compiles a shader once).
+
 ## P1851 post-finish reset and disconnect
 
 - On a staged map, reach a later stage and press your normal reset key before and after finishing: the first reset should be to your current stage, the second to the map start. On the Windows client, try `!disconnect` in the chat box, rejoin, then use the red **Disconnect** button immediately left of **Lobbies**. You should return without quitting, and the button should disappear.
