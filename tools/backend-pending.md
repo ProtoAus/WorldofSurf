@@ -1,5 +1,15 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026 UTC: generation 1857 LIVE since 05:26:24Z -- reader pins installed (worldofsurf-62)
+Lex's Root install 04:59:05Z; step 6 hand-installed rcptcheck 32c88865, reccheck 651abe91, census/recsim b5890190 (REF
+4a3123dd: P1613, P1855, P1856, P1859, P1860) at 04:59:32Z (.pre1857-20261128T045932Z copies); primary eef5c7e7 (manifest
+d9312fa7) admitted 05:26:24Z; POSTFLIGHT PASS; token CLEAR. Ships P1857 (season-flag admin card), P1858 (collector
+rotation resume), P1859 (sims.reader/tried appended by the first sweep; re-measure running). DB backup
+surfd.db.bak-pre1857-20261128T044142Z. --reread-receipts marked 2,917 at 05:41Z (old verdicts exported to
+/srv/nvme/agent-work/gen1857-20261128-62/receipts-before-reread-20261128.tsv); a full shadow predicted exactly 17
+FAULT -> VALID (angles FAULT -> BLIND, P1856) and nothing else. NEXT CURRENT = primary eef5c7e7. P1856, P1857, P1858,
+P1859, P1860 and the reader pins above are no longer pending. KSF still stopped.
+
 ## 28 Nov 2026: P1860 waits for the reader pins (worldofsurf-62)
 tools/reccheck.py only (a reader pin change). On a numbered recording, more than 5% of in-run moves the command rule
 did not join (no number, no frame of their own command, or frames out of step) keeps the angle result below tight:
