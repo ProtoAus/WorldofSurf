@@ -21,6 +21,7 @@ NOTHING HERE IS WRITTEN UNDER data/.  Everything lands in a temporary directory
 and is removed, so no synthetic file can be mistaken for a run somebody made.
 """
 import math
+import random
 import os
 import re
 import shutil
@@ -2795,6 +2796,243 @@ def case_angle_command_rule():
           "CONTROL: without the drawn path the between-frames client faults")
 
 
+def forge_cmds(lines, lies, shift=2):
+    """P1856 round 3's forger: tick labels ALIGNED, frame j carries move j+shift's command number (a median command
+    delay of `shift`), and lies {m: (a, b, t)}: frames m+a..m+b carry move m's number and move m sends frame m+t's yaw.
+    With a <= -3 one extra frame keeps the two honest moves before the block on their drawn path."""
+    rows = [l.split() for l in lines if l.startswith("in ")]
+    ticks = [int(f[2]) - HORIZON for f in rows]
+    yaws = [float(f[8]) for f in rows]
+    top = int([l.split() for l in lines if l.startswith("end ")][0][1])
+    stamp = [1000 + j + shift for j in range(len(rows))]
+    newyaw, extra = {}, {}
+    for m, (a, b, t) in lies.items():
+        for j in range(m + a, m + b + 1):
+            stamp[j] = 1000 + m
+        newyaw[m] = yaws[m + t]
+        if a <= -3:
+            extra[m + a] = (1000 + m + a + 2, yaws[m + a + 2])
+    view = ["FTESURF-VIEW 2", "map bhop_eazy", "hid 1", "begin"]
+    for j, (tk, f) in enumerate(zip(ticks, rows)):
+        if 0 <= tk <= top:
+            if j in extra:
+                view.append("%.4f %d %d %.2f %.2f 0" % (10.0 + tk * TICK - 0.001, extra[j][0], tk, float(f[7]), extra[j][1]))
+            view.append("%.4f %d %d %.2f %.2f 0" % (10.0 + tk * TICK, stamp[j], tk, float(f[7]), yaws[j]))
+    out, k = [], 0
+    for l in lines:
+        if l.startswith("in "):
+            if k in newyaw:
+                f = l.split(" ")
+                f[8] = "%.4f" % newyaw[k]
+                l = " ".join(f)
+            k += 1
+        out.append(l)
+    return out, view
+
+
+def case_angle_command_excuses_a_remote_clients_clock_join():
+    """P1856.  ON A REMOTE CLIENT THE CLOCK-JOIN RULES DEFER, MOVE BY MOVE, TO THE COMMAND RULE.
+
+    28 Nov fleet: 19 of the 20 angle-faulted lobby runs since 20 Nov were judged clean by the command rule; the
+    one-frame and sweep rules join by a tick label a remote client draws late.  Only a move the command rule joined
+    and accepted on its own command's drawn path is excused, only when the run's median command delay says remote.
+    The first design (a wholesale overrule) was broken three ways in review: an unnumbered tail, renumbered chunks and
+    leads on an aligned pair.  Each is an arm here and must still fault."""
+    fault = lambda rep: bool([m for m in rep.faults if "does not describe this recording" in m or "does not match its sidecar" in m
+                              or "the sidecar is not this recording's" in m or "does not show what this recording sent" in m])
+    excused = lambda rep: "excused" in rep.info.get("angle_cmd", "")
+    def unnumbered_tail(lines, after):
+        rows = [i for i, l in enumerate(lines) if l.startswith("in ")]
+        return lines[:rows[after]] + ["cseq -1"] + lines[rows[after]:]
+    L = build(sweep=600, packets=400, cmdseq=1000)
+    w = wobble_view(L)
+    h = report_inproc(L, w)
+    check(not fault(h) and excused(h), "an honest remote pair (delay 3-4 ticks, one frame a tick): excused, no fault (%s | %s)"
+          % (h.faults[:1], h.info.get("angle_cmd", "")[-90:]))
+    # Review round 2: an excused tick was never checked to 0.05 deg, so it is no cover -- the pair is BLIND, not OK.
+    tight = lambda rep: rep.info.get("angle_rule") == "tight"
+    check(not tight(h) and "excused; " in h.info.get("angle_solo", ""),
+          "...and its excused ticks are not one-frame cover: the tight rule did not clear it (%s)"
+          % h.info.get("angle_solo", "")[-80:])
+    st = view_for(L, shift=-3)
+    hs = report_inproc(L, st)
+    check(not fault(hs) and not excused(hs) and tight(hs),
+          "an honest steady 3-tick delay needs no excusal and keeps its tight OK")
+    def within(lines, frac, seed=1856):
+        # A strafe optimiser inside one frame interval: each move's yaw moved w * (one move of turn), w in [0, frac].
+        rnd = random.Random(seed)
+        rows = [l for l in lines if l.startswith("in ")]
+        step = float(rows[2].split()[8]) - float(rows[1].split()[8])
+        out, k = [], 0
+        for l in lines:
+            if l.startswith("in "):
+                if k > 2:
+                    f = l.split(" ")
+                    f[8] = "%.4f" % (float(f[8]) + round(rnd.uniform(0, frac) * step / QUANTUM) * QUANTUM)
+                    l = " ".join(f)
+                k += 1
+            out.append(l)
+        return out
+    for vname, v in (("steady 3-tick delay", st), ("lobby wobble", w)):
+        for frac in (1.0, 0.5):
+            rep = report_inproc(within(L, frac), v)
+            check(fault(rep) or not tight(rep), "round 2: yaw led by up to %g of a move every move, %s: never a tight OK (%s)"
+                  % (frac, vname, rep.info.get("angle_rule")))
+        for moves, every in ((1.0, 4), (1.5, 1), (2.0, 1)):
+            rep = report_inproc(leads(L, every, moves), v)
+            check(fault(rep) or not tight(rep), "F3 remote: a %g-move lead on 1 move in %d, %s: never a tight OK (%s)"
+                  % (moves, every, vname, rep.info.get("angle_rule")))
+    plain = build(sweep=600, packets=400)
+    check(fault(report_inproc(plain, wobble_view(plain))), "CONTROL: the same pair without command numbers keeps its fault")
+    al = report_inproc(L, view_for(L))
+    check(not fault(al) and not excused(al), "an aligned honest pair needs and gets no excusal")
+    # Review F1: an unnumbered tail (a forward sequence jump past 2^24 writes `cseq -1`) excuses nothing.
+    tail = unnumbered_tail(L, 140)
+    for name, lie in (("30 deg on moves 145-394", snapped(tail, 10 ** 6, 30.0, 250, start=145)),
+                      ("a 90 deg snap on 1 move in 7", snapped(tail, 7, 90.0, 1, start=145))):
+        check(fault(report_inproc(lie, w)), "F1: unnumbered tail + %s, remote: still a fault" % name)
+    # Review F2: frames renumbered so 4 chunks of 60 lied moves never join; they keep their disagreements.
+    L3 = build(sweep=97, packets=3000, cmdseq=1000)
+    w3 = wobble_view(L3)
+    starts = (500, 1100, 1700, 2300)
+    lied = L3
+    for st in starts:
+        lied = snapped(lied, 10 ** 6, 45.0, 60, start=st)
+    renum = recmd(w3, lambda cc, k: cc + 100000 if any(st <= k < st + 60 for st in starts) else cc)
+    check(fault(report_inproc(lied, renum)), "F2: 4 x 60 moves 45 deg off with their frames renumbered, remote: still a fault")
+    check(not fault(report_inproc(L3, recmd(view_for(L3), lambda cc, k: cc + 100000 if any(st <= k < st + 60 for st in starts) else cc))),
+          "...the same renumbering on an honest ALIGNED run is not a fault (renumbering alone is not judged)")
+    rr = report_inproc(L3, renum)
+    check(fault(rr), "...while on a remote run renumbered moves are not excused, so the clock join's verdict stands (%s)"
+          % rr.info.get("angle_cmd", "")[-70:])
+    # Review F3: on an aligned pair the one-frame rule keeps its force against leads along the turn.
+    for moves, every in ((1.0, 4), (1.5, 1), (2.0, 1)):
+        check(fault(report_inproc(leads(L, every, moves), view_for(L))),
+              "F3: a %g-move lead on 1 move in %d, aligned: still a fault" % (moves, every))
+    # A snap the client never drew, on a remote client: off the drawn path, so never excused.
+    check(fault(report_inproc(snapped(L3, 300, 30.0, 3), w3)), "a 30 deg snap on 3 moves in 300, remote: still a fault")
+    # Round 3 (attack): the command column and frame grouping are the client's.  Aligned labels with commands
+    # stamped two ahead, and one number on many frames, each turned a parent FAULT into a tight OK.
+    F = build(sweep=600, packets=3000, cmdseq=1000)
+    n = len([l for l in F if l.startswith("in ")])
+    # These turned a parent FAULT into a tight OK on v4; the cap keeps every one below OK.  (They may land BLIND: the
+    # parent gives the same lies BLIND at a high frame rate, review rounds 3-4.)
+    for name, lies in (("S1: stamps +2, 1 in 5 moves 2 moves stale", {m: (-2, -2, -2) for m in range(40, n - 40, 5)}),
+                       ("A: 1 in 8 moves led 3 moves", {m: (-2, 3, 3) for m in range(40, n - 40, 8)}),
+                       ("B: 1 in 25 moves 17 moves stale", {m: (-17, -2, -17) for m in range(100, n - 100, 25)}),
+                       ("B: 1 in 80 moves 62 moves stale", {m: (-62, -2, -62) for m in range(100, n - 100, 80)})):
+        rep = report_inproc(*forge_cmds(F, lies))
+        check(fault(rep) or not tight(rep), "round 3, %s: never a tight OK (%s)" % (name, rep.info.get("angle_rule")))
+    rep = report_inproc(*forge_cmds(F, {}))
+    check(not fault(rep) and tight(rep) and not excused(rep), "...the forger's honest pair (labels aligned, stamps +2): "
+          "tight OK, nothing excused (no rule would fault)")
+    # Round 3 (predicate): a steady delay that lines the clock join up, with leads on 1 move in 60.  The column is the
+    # client's, so no per-move test keeps this a FAULT (round 4); the cap keeps it from OK.
+    for sh in (-3, -2):
+        rep = report_inproc(leads(L3, 60, 1.0), view_for(L3, shift=sh))
+        check(fault(rep) or not tight(rep), "round 3: steady %d-tick delay, a 1-move lead on 1 move in 60: never a "
+              "tight OK (%s)" % (-sh, rep.info.get("angle_rule")))
+    # Round 5 (predicate): an excusal that does not clear its rule is dropped -- a fault that stands keeps the
+    # parent's figures; and a run with too few one-frame ticks keeps that as its reason.
+    import reccheck as _rcp
+    big = snapped(L, 10 ** 6, 30.0, 250, start=60)
+    rep = report_inproc(big, w)
+    par = _rcp.ANG_CMD_REMOTE
+    _rcp.ANG_CMD_REMOTE = 10 ** 6
+    try:
+        base = report_inproc(big, w)
+    finally:
+        _rcp.ANG_CMD_REMOTE = par
+    check(fault(rep) and not excused(rep) and rep.info.get("angle_solo") == base.info.get("angle_solo")
+          and rep.faults == base.faults, "round 5: 30 deg on 250 moves of a remote run still faults, with the parent's "
+          "figures and no excusal (%s)" % rep.info.get("angle_solo", "")[:90])
+    D = build(sweep=600, packets=400, cmdseq=1000)
+    rep = report_inproc(D, wobble_view(D, a=-3, b=-9, dense=2))
+    check(int(rep.info.get("angle_solo", "0 ").split()[0]) < 100 and "NOT ENOUGH TO JUDGE" in rep.info.get("angle_solo", "")
+          and "EXCUSALS" not in rep.info.get("angle_solo", ""),
+          "round 5: a dense remote run with too few one-frame ticks keeps NOT ENOUGH TO JUDGE, not the excusal label (%s)"
+          % rep.info.get("angle_solo", "")[-60:])
+    # Round 6: when the command rule itself faults, no excusal touches the other rules' stored detail.
+    cm = report_inproc(snapped(L3, 10, 45.0, 3), w3)
+    par = _rcp.ANG_CMD_REMOTE
+    _rcp.ANG_CMD_REMOTE = 10 ** 6
+    try:
+        cb = report_inproc(snapped(L3, 10, 45.0, 3), w3)
+    finally:
+        _rcp.ANG_CMD_REMOTE = par
+    check(any("does not show what this recording sent" in f for f in cm.faults) and not excused(cm)
+          and cm.faults == cb.faults and cm.info.get("angle_solo") == cb.info.get("angle_solo")
+          and cm.info.get("angle_off") == cb.info.get("angle_off"),
+          "round 6: a run the command rule faults keeps the parent's one-frame and sweep detail (no excusal)")
+    # Round 7: a sidecar that already carries a validation fault faults anyway; no excusal touches its angle detail.
+    top = int([l.split() for l in L if l.startswith("end ")][0][1])
+    wv = w + [w[-1].split()[0] + "1 " + " ".join([w[-1].split()[1], str(top + 5)] + w[-1].split()[3:])]
+    par = _rcp.ANG_CMD_REMOTE
+    _rcp.ANG_CMD_REMOTE = 10 ** 6
+    try:
+        vb = report_inproc(L, wv)
+    finally:
+        _rcp.ANG_CMD_REMOTE = par
+    vr = report_inproc(L, wv)
+    check(any("reaches tick" in f for f in vr.faults) and not excused(vr) and vr.faults == vb.faults
+          and vr.info.get("angle_solo") == vb.info.get("angle_solo"),
+          "round 7: a validation-faulted sidecar keeps the parent's angle faults and detail (%s)" % vr.faults[:1])
+    # Round 4 (predicate): excusals apply only where a rule would fault, so a stray late stamp costs no OK.
+    G = build(sweep=600, packets=1000, cmdseq=1000)
+    gv = view_for(G, shift=-3)
+    gv = gv[:4] + [" ".join(ln.split()[:2] + [str(max(0, int(ln.split()[2]) - 1))] + ln.split()[3:])
+                   if i >= 20 and (i - 20) % 200 in (0, 1) else ln for i, ln in enumerate(gv[4:])]
+    rep = report_inproc(G, gv)
+    check(not fault(rep) and tight(rep) and not excused(rep),
+          "round 4: an honest steady-delay pair with one late stamp in 200 frames keeps its tight OK")
+    # Round 4 (attack): the format's one backward step in the command column put a far frame in a lie command's group
+    # (frames at tick-3, two picks per early tick), excusing 300 contiguous moves 30 deg off.  Groups must be contiguous.
+    rs = [l.split() for l in F if l.startswith("in ")]
+    yaw = [float(f[8]) for f in rs]
+    ticks = [int(f[2]) - HORIZON for f in rs]
+    top = int([l.split() for l in F if l.startswith("end ")][0][1])
+    lies = list(range(2000, 2300))
+    ok = lambda t, m: 31.0 <= (yaw[t] - yaw[m - 1] + 180.0) % 360.0 - 180.0 <= 175.0
+    pairs, t, k = [], 100, 0
+    while k < len(lies) and t < 1900:
+        if k + 1 < len(lies) and ok(t, lies[k]) and ok(t, lies[k + 1]):
+            pairs.append((t, lies[k], lies[k + 1]))
+            k += 2
+        t += 1
+    pt = {q[0]: q for q in pairs}
+    fr = lambda j, c, dt=0.0: "%.4f %d %d %.2f %.2f 0" % (10.0 + ticks[j] * TICK + dt, c, max(0, ticks[j] - 3),
+                                                          float(rs[j][7]), yaw[j])
+    ev = ["FTESURF-VIEW 2", "map bhop_eazy", "hid 1", "begin"]
+    for j in range(len(rs)):
+        if 0 <= ticks[j] <= top:
+            if pairs[0][0] <= j <= pairs[-1][0]:
+                if j in pt:
+                    ev += [fr(j, 1000 + pt[j][1]), fr(j, 1000 + pt[j][2], 0.004)]
+                continue
+            ev.append(fr(j, 1000 + j + 1))
+    erec = [l for l in F]
+    k = 0
+    for idx, l in enumerate(erec):
+        if l.startswith("in "):
+            if k in set(lies):
+                f = l.split(" ")
+                f[8] = "%.4f" % (float(f[8]) + 30.0)
+                erec[idx] = " ".join(f)
+            k += 1
+    rep = report_inproc(erec, ev)
+    check(k == len(rs) and len(pairs) == 150 and fault(rep),
+          "round 4: 300 contiguous moves 30 deg off behind a command-column reset: still a fault (%s)"
+          % rep.info.get("angle_rule"))
+    import reccheck as _rc
+    keep = _rc.ANG_CMD_REMOTE
+    _rc.ANG_CMD_REMOTE = 10 ** 6
+    try:
+        f = report_inproc(L, w)
+    finally:
+        _rc.ANG_CMD_REMOTE = keep
+    check(fault(f) and not excused(f), "CONTROL: with the remote gate unreachable the honest remote pair faults again")
+
+
 def case_angle_sweep_joins_at_the_named_offset():
     """P1599.  A SWEEP JUDGED AT THE WRONG OFFSET MEASURES NOTHING.
 
@@ -4533,6 +4771,7 @@ def main():
                case_angle_lag_is_not_claimed_when_the_winner_is_bad,
                case_angle_sweep_joins_at_the_named_offset,
                case_angle_command_rule,
+               case_angle_command_excuses_a_remote_clients_clock_join,
                case_angle_sweep_offset_gate,
                case_angle_sweep_join_keeps_the_one_frame_fault,
                case_angle_sweep_join_is_v9_only,

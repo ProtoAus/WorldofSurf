@@ -4206,6 +4206,7 @@ ANG_CMD_STEP = 8         # ticks a move's own delay (its tick minus its command'
                          # the run's median: further is a held view (a save's tail drew a frozen clock), not judged
 ANG_CMD_DELAY = (-4, 1000)   # ticks that delay may be at all: a frame cannot show a clock past the move's own tick,
                          # nor a thousand behind (an NQ client's numbers jump 65536 per map change)
+ANG_CMD_REMOTE = 2       # P1856: median command delay (ticks) from which the clock-join rules defer, move by move
 
 
 def _onseg(x, a, b):
@@ -4215,13 +4216,28 @@ def _onseg(x, a, b):
     return min(0.0, d) - ANG_SOLO <= e <= max(0.0, d) + ANG_SOLO
 
 
+def _owngroup(g, pos):
+    """P1856: a command's frames may excuse only as one contiguous run of the file (round 4: the format's one backward
+    step in the command column let a far frame join a group and excuse 300 moves 30 deg off).  No frame-count or tick
+    span limit: honest 144+ fps lobby clients carry 2-9 frames a command and 1.5% of commands span 3+ ticks; a limit
+    refused 10 of 17 honest runs (28 Nov fleet).  The wider stale lie it stopped gets BLIND or OK in the parent when
+    the tick labels follow the same warp (the label column is checked only for order and range: FINDINGS 28 Nov,
+    review round 5).  If labels are ever constrained, this needs a group tick-span or delay-variance limit."""
+    return pos[id(g[-1])] - pos[id(g[0])] == len(g) - 1
+
+
 def command_rule(mts, yaws, pits, cmds, instart, endtick, gw, frames):
-    """P1613 -> dict: comparable, joined, exact, between, bad, unstep, worst."""
+    """P1613 -> dict: comparable, joined, exact, between, bad, unstep, worst; P1856: onpath (the joined move indices
+    on their OWN command's drawn path -- its frames, or on to the next command's first frame -- held views excluded)
+    and delay (the run's median move-to-frame delay in ticks, which says whether the client was remote)."""
     bycmd = {}
-    for f in frames:
+    pos = {}
+    for k, f in enumerate(frames):
         bycmd.setdefault(int(f[1]), []).append(f)
+        pos[id(f)] = k
     out = {"comparable": 0, "joined": 0, "exact": 0, "between": 0, "bad": 0, "unstep": 0, "worst": 0.0}
     picked = []
+    onpath = set()
     for i in range(len(mts)):
         raw = mts[i] - instart
         c = cmds[i]
@@ -4234,36 +4250,47 @@ def command_rule(mts, yaws, pits, cmds, instart, endtick, gw, frames):
             continue
         y, pt = yaws[i], pits[i]
         if any(angdelta(y, f[4]) <= ANG_SOLO and angdelta(pt, f[3]) <= ANG_SOLO for f in g):
-            picked.append((i, c, 0))
+            picked.append((i, c, 0, _owngroup(g, pos)))
             continue
         fs = [f for j in range(c - ANG_CMD_W, c + ANG_CMD_W + 1) for f in bycmd.get(j, ())]
         nx = bycmd.get(c + ANG_CMD_W + 1)
         if nx:
             fs.append(nx[0])
+        # P1856: "own" = this command's frames, or the stretch from its last frame to the next command's first (a
+        # command built between two frames); never the wider window, so a remote excusal admits at most one frame
+        # interval of turn, not the window's ~3 ticks.
+        nx1 = bycmd.get(c + 1)
+        mine = list(g) + ([nx1[0]] if nx1 and pos[id(nx1[0])] == pos[id(g[-1])] + 1 else [])
+        owns = _owngroup(g, pos) and \
+            any(_onseg(y, a[4], b[4]) and _onseg(pt, a[3], b[3]) for a, b in zip(mine, mine[1:]))
         if any(angdelta(y, f[4]) <= ANG_SOLO and angdelta(pt, f[3]) <= ANG_SOLO for f in fs):
-            picked.append((i, c, 0))
+            picked.append((i, c, 0, owns))
         elif any(_onseg(y, a[4], b[4]) and _onseg(pt, a[3], b[3]) for a, b in zip(fs, fs[1:])):
-            picked.append((i, c, 1))
+            picked.append((i, c, 1, owns))
         else:
-            picked.append((i, c, 2))
+            picked.append((i, c, 2, False))
     # A held view (a save's tail, a frozen clock) stops describing the aim: a move whose own delay strays from the
     # run's median, or whose time lies past the clock the sidecar drew, is not judged -- as the tick join leaves
     # such moves uncovered.
-    step = {i: (mts[i] - instart) - int(bycmd[c][-1][2]) for i, c, _x in picked}
+    step = {i: (mts[i] - instart) - int(bycmd[c][-1][2]) for i, c, _x, _o in picked}
     ds = sorted(step.values())
     mid = ds[len(ds) // 2] if ds else 0
     labs = [int(f[2]) for f in frames]
     lo, hi = (min(labs), max(labs)) if labs else (0, -1)
-    for i, c, x in picked:
+    for i, c, x, ow in picked:
         if abs(step[i] - mid) > ANG_CMD_STEP or not lo <= (mts[i] - instart) - mid <= hi or \
                 not ANG_CMD_DELAY[0] <= step[i] <= ANG_CMD_DELAY[1]:
             out["unstep"] += 1
             continue
         out["joined"] += 1
         out[("exact", "between", "bad")[x]] += 1
+        if x != 2 and ow:
+            onpath.add(i)
         if x == 2:
             out["worst"] = max(out["worst"], min(max(angdelta(yaws[i], f[4]), angdelta(pits[i], f[3]))
                                                  for f in bycmd[c]))
+    out["onpath"] = onpath
+    out["delay"] = mid
     return out
 
 
@@ -4466,12 +4493,24 @@ def angle_join(r, rec, frames):
     # What review fixed is that those moves are no longer erased from the
     # coverage denominator too, so the hiding shows as a lower cover figure.
 
-    joined = uncovered = past = ghosted = prestart = postend = 0
-    stretch = longest = 0
-    worst = 0.0
+    # P1856: the command rule runs first. On a REMOTE client (median command delay >= ANG_CMD_REMOTE) the clock-join
+    # rules join by a tick label drawn late, so a rule that would fault excuses, move by move, a disagreement on a
+    # move the command rule joined and accepted on its own command's drawn path. The gate and the path rest on
+    # columns the client writes, so an excusal never clears a run: the verdict is BLIND at best (cover block). An
+    # angle-matched offset gate (round 3) refused honest high-fps runs whose sweep vote fails; with the cap it only
+    # decided FAULT against BLIND. 28 Nov fleet: honest remote runs faulted on the clock join alone.
+    cmds = getattr(rec, "angle_cmds", None)
+    cmd = (command_rule(mts, yaws, pits, cmds, instart, endtick, gw, frames)
+           if tight and cmds is not None and len(cmds) == len(mts) else None)
+    own = (cmd["onpath"] if cmd is not None and cmd["joined"] >= ANG_CMD_MIN and cmd["delay"] >= ANG_CMD_REMOTE
+           else frozenset())
+    # No per-move "the join was on time" test: round 3's (the join found the move's own frame) refused honest lobby
+    # runs, whose commands are built between frames, and the client writes the column it reads (round 4).
+    joined = uncovered = ghosted = prestart = postend = 0
     travel = 0.0
     devs = []
-    solo = []
+    solo_raw = []       # (deviation, excusable) per one-frame tick
+    sweep_raw = []      # (normalised residual, excusable) per joined move, in order
     py = pp = None
     for i in range(len(mts)):
         y, p = yaws[i], pits[i]
@@ -4511,7 +4550,8 @@ def angle_join(r, rec, frames):
             continue
         g = byt.get(tk)
         if g and len(g) == 1:   # the one-frame rule keeps this join; P1599 moves only the sweep's
-            solo.append(max(angdelta(y, g[0][4]), angdelta(p, g[0][3])))
+            dev = max(angdelta(y, g[0][4]), angdelta(p, g[0][3]))
+            solo_raw.append((dev, i in own))
         if slag != lag:
             g = byt.get(raw - slag)
         if not g:
@@ -4526,13 +4566,46 @@ def angle_join(r, rec, frames):
         # The floor keeps a still camera from dividing 0.003 by 0.0001.
         n = max(dy / max(sy, 1.0), dp / max(sp, 1.0))
         devs.append(max(dy, dp))
-        worst = max(worst, n)
-        if n > ANG_CUT:
-            past += 1
-            stretch += 1
-            longest = max(longest, stretch)
-        else:
-            stretch = 0
+        sweep_raw.append((n, i in own))
+
+    def sweep_tally(excuse):
+        past = stretch = longest = excused = 0
+        worst = 0.0
+        for n, e in sweep_raw:
+            if excuse and e and n > ANG_CUT:
+                excused += 1
+                n = 0.0
+            worst = max(worst, n)
+            if n > ANG_CUT:
+                past += 1
+                stretch += 1
+                longest = max(longest, stretch)
+            else:
+                stretch = 0
+        return past, longest, worst, excused
+    # P1856: excusals apply only to a rule that would otherwise fault (round 4: one excused tick cost an honest remote
+    # run the parent's OK), and any that apply cap the verdict below tight (see the cover block).
+    # Rounds 5-6: excusals apply only when they turn the run's angle FAULT into none -- the command rule does not
+    # fault and every clock rule that would fault clears.  Otherwise the run faults anyway and stores the parent's
+    # figures and texts unchanged.
+    sweep_faults = lambda past, longest: 100.0 * past / joined > ANG_HOLD or longest > ANG_RUN
+    past, longest, worst, _none = sweep_tally(False)
+    held = len(solo_raw)
+    raw_bad = sum(1 for d, _e in solo_raw if d > ANG_SOLO)
+    excused_solo = excused_sweep = 0
+    solo_would = tight and held >= ANG_SOLO_MIN and 100.0 * raw_bad / held > ANG_SOLO_HOLD
+    sweep_would = bool(joined) and not rec.angle_epoch and sweep_faults(past, longest)
+    cmd_faults = cmd is not None and cmd["joined"] >= ANG_CMD_MIN and \
+        100.0 * cmd["bad"] / cmd["joined"] > ANG_CMD_HOLD
+    if own and (solo_would or sweep_would) and not cmd_faults and not r.faults:     # r.faults: round 7
+        tallied = sweep_tally(True) if sweep_would else None
+        cand = sum(1 for d, e in solo_raw if e and d > ANG_SOLO) if solo_would else 0
+        if (not sweep_would or (tallied[3] and not sweep_faults(tallied[0], tallied[1]))) and \
+                (not solo_would or 100.0 * (raw_bad - cand) / held <= ANG_SOLO_HOLD):
+            if sweep_would:
+                past, longest, worst, excused_sweep = tallied
+            excused_solo = cand
+    solo = [d for d, e in solo_raw if not (excused_solo and e and d > ANG_SOLO)]
     if not joined:
         r.note("no frame shares a tick with any move in the recording -- "
                "nothing to compare")
@@ -4560,9 +4633,7 @@ def angle_join(r, rec, frames):
                                    "frame under it" % (slag, slag))
         r.info["angle_dev"] += " -- the sweep's join, at %+d ticks" % slag
     # ---- the command rule (P1613) ----------------------------------------
-    cmds = getattr(rec, "angle_cmds", None)
-    if tight and cmds is not None and len(cmds) == len(mts):
-        cmd = command_rule(mts, yaws, pits, cmds, instart, endtick, gw, frames)
+    if cmd is not None:
         cj = cmd["joined"]
         cbad = 100.0 * cmd["bad"] / cj if cj else 0.0
         cjudged = cj >= ANG_CMD_MIN
@@ -4572,6 +4643,11 @@ def angle_join(r, rec, frames):
                                % (cj, cmd["comparable"], cbad, cmd["worst"],
                                   100.0 * cmd["exact"] / cj if cj else 0.0, 100.0 * cmd["between"] / cj if cj else 0.0,
                                   cmd["unstep"], "" if cjudged else " -- NOT JUDGED"))
+        if excused_solo or excused_sweep:
+            r.info["angle_cmd"] += (" -- remote (delay %d): excused %d one-frame, %d sweep (P1856)"
+                                    % (cmd["delay"], excused_solo, excused_sweep))
+            r.note("%d one-frame and %d sweep disagreement(s) of a remote client lay on their own command's drawn path "
+                   "with the clock join late: excused (P1856)" % (excused_solo, excused_sweep))
         if not cjudged:
             r.note("the command rule did not judge this pair: %d moves joined to a frame of their own command, "
                    "under the %d it needs" % (cj, ANG_CMD_MIN))
@@ -4589,27 +4665,35 @@ def angle_join(r, rec, frames):
     # choose.  Honest cover on the v9 corpus: 89.9% at 110 fps, 97-100% at or
     # below the mover rate, 50% at 150 fps, 0.3% at 250.
     comparable = max(1, len(mts) - ghosted - prestart - postend)
+    # P1856: excused ticks are not in `solo`: not checked, not cover, but still counted among the ticks that held
+    # one frame, so a disagreement's share (and whether there are enough to judge) is never above the parent's.
+    # Any excusal caps the verdict below tight: it rests on columns the client writes, so it may turn a FAULT into
+    # BLIND (which a high frame rate already reaches) but never into OK (review rounds 2-3).
+    excused = excused_solo + excused_sweep
     cover = 100.0 * len(solo) / comparable
     # TWO QUESTIONS, NOT ONE.  `judged` is whether there are enough one-frame
     # ticks to make a finding on; `covered` is whether they are enough of the
     # run to CLEAR it.  Folding them together is what let a sidecar that padded
     # 55% of its ticks print the cleanest line the rule can produce.
-    judged = tight and len(solo) >= ANG_SOLO_MIN
-    covered = judged and cover >= ANG_SOLO_COVER
+    judged = tight and held >= ANG_SOLO_MIN
+    covered = judged and cover >= ANG_SOLO_COVER and not excused
     if tight:
         # THE COVERAGE IS PRINTED FIRST AND ALWAYS, INCLUDING AT ZERO.  What
         # this rule examined is as much the answer as what it found, and the
         # first cut of this line said "150 ticks held one frame, 0 past 0.05"
         # for a sidecar that was two degrees out on the 184 it did not mention.
         sbad = sum(1 for d in solo if d > ANG_SOLO)
-        sfrac = 100.0 * sbad / len(solo) if solo else 0.0
+        sfrac = 100.0 * sbad / held if held else 0.0
         r.info["angle_solo"] = ("%d of %d moves held one frame (%.0f%%), "
-                                "%d past %g deg (%.2f%%, worst %.4f)%s"
-                                % (len(solo), comparable, cover, sbad, ANG_SOLO,
+                                "%d past %g deg (%.2f%%, worst %.4f)%s%s"
+                                % (held, comparable, 100.0 * held / comparable, sbad, ANG_SOLO,
                                    sfrac, max(solo) if solo else 0.0,
+                                   " -- %d excused; %d of the %d checked past %g deg; cover %.0f%% (P1856)"
+                                   % (excused_solo, sbad, len(solo), ANG_SOLO, cover) if excused_solo else "",
                                    "" if covered else
-                                   (" -- PARTIAL COVER" if judged
-                                    else " -- NOT ENOUGH TO JUDGE")))
+                                   (" -- NOT ENOUGH TO JUDGE" if not judged else
+                                    " -- EXCUSALS, NOT CLEARED" if excused
+                                    else " -- PARTIAL COVER")))
         if slag != lag:
             r.info["angle_solo"] += " -- one-frame join at %+d ticks" % lag
         if judged and sfrac > ANG_SOLO_HOLD:
@@ -4620,7 +4704,7 @@ def angle_join(r, rec, frames):
             r.fault("the sidecar is not this recording's: %.1f%% of %d ticks "
                     "that held one rendered frame disagree by over %g deg, "
                     "worst %.2f (honest worst measured: 0.0104)"
-                    % (sfrac, len(solo), ANG_SOLO, max(solo)))
+                    % (sfrac, held, ANG_SOLO, max(solo)))
 
     # THE VERDICT IN ONE WORD, FOR THE CALLER THAT HAS TO STORE ONE.  rcptcheck
     # used to reach this by testing whether `angle_off` started with "BLIND",
@@ -4638,13 +4722,15 @@ def angle_join(r, rec, frames):
             why = ("this recording's angles are %s, which the tight rule cannot "
                    "use" % (source if not rec.angle_epoch else
                             "joined across a %s" % "/".join(rec.angle_epoch)))
-        elif len(solo) < ANG_SOLO_MIN:
+        elif held < ANG_SOLO_MIN:
             why = ("only %d moves held one rendered frame, under the %d it needs"
-                   % (len(solo), ANG_SOLO_MIN))
+                   % (held, ANG_SOLO_MIN))
+        elif excused:
+            why = ("%d one-frame and %d sweep disagreement(s) were excused by the command rule (P1856), which "
+                   "cannot clear a run" % (excused_solo, excused_sweep))
         else:
             why = ("%d of %d moves held one rendered frame (%.0f%%), under the "
-                   "%g%% it needs" % (len(solo), comparable, cover,
-                                      ANG_SOLO_COVER))
+                   "%g%% it needs" % (len(solo), comparable, cover, ANG_SOLO_COVER))
         r.note("the tight angle rule did not judge this pair: %s -- what is "
                "left is the sweep rule, which is blind to a lie smaller than "
                "the tick's own sweep" % why)
