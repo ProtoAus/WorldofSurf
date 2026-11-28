@@ -1,5 +1,14 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026: P1859 waits for the next generation AND the reader update (worldofsurf-62)
+surfd/simcheck.py + surfd/sweep.py (runtime) and tools/census/recsim.py (READER_REVISION = 2; a reader pin change).
+Schema: simcheck.ensure_schema ADDs sims.reader (INTEGER NOT NULL DEFAULT 1) and sims.tried (INTEGER NOT NULL DEFAULT 0)
+on the first cron pass, exactly like P1855's yaw columns: an empty-DB CREATE puts them before `at`, the live table gets
+them last -- never compare sims table text. With the installed (revisionless) recsim nothing is re-measured; once the
+revision-2 recsim is pinned, ~15k unmodelled/malformed skips are re-measured once, in place, at ~110 pairs a pass
+(~11 h; note "sims re-measured N (M unjudgeable)"). `sweep.py --dry-run` prints the backlog. Ship it together with
+the reader pins (P1613 reccheck, P1671/P1689/P1855 recsim).
+
 ## 28 Nov 2026: P1858 waits for the next generation (worldofsurf-62)
 surfd/simcheck.py only (source selection). Live, the collector's rotation starved: the cursor sat at the newest run, each
 pass's wrap read judged ~650 complete runs before the oldest incomplete one and overran the 1M-step budget ("sims SQL read
