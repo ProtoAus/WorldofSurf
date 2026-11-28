@@ -683,8 +683,23 @@ string() Watch_SourceName =
 	return rec_wt_source;
 };
 
+// Replay chrome owns three zoned strings, not frame-temp pointers. Header
+// data is immutable between Watch_Free and the next accepted Watch_Scan.
+string wt_chrome_title, wt_chrome_duration, wt_chrome_paused;
+float wt_chrome_cut, wt_chrome_seg, wt_chrome_start, wt_chrome_end;
+float wt_chrome_ticks, wt_chrome_rate;
+
+void() Watch_ChromeTextClear =
+{
+	if (wt_chrome_title != "") strunzone(wt_chrome_title);
+	if (wt_chrome_duration != "") strunzone(wt_chrome_duration);
+	if (wt_chrome_paused != "") strunzone(wt_chrome_paused);
+	wt_chrome_title = wt_chrome_duration = wt_chrome_paused = "";
+};
+
 void() Watch_Free =
 {
+	Watch_ChromeTextClear();
 	if (rec_wt_rec >= 1)
 		buf_del(rec_wt_rec);
 	if (rec_wt_view >= 1)
@@ -5362,10 +5377,65 @@ void(float r) Watch_SetRate =
   hud_watch_scale is the second half: the panel and its text together, on top of
   hud_scale, because "bigger" was asked for separately from "not broken".
 */
+void() Watch_ChromeText =
+{
+	local string name, title, duration;
+
+	if (wt_chrome_title != "" && wt_chrome_cut == rec_wt_wincut &&
+	    (!rec_wt_wincut || (wt_chrome_seg == rec_wt_winseg &&
+	     wt_chrome_start == rec_wt_wint0 && wt_chrome_end == rec_wt_wint1)))
+		return;
+	Watch_ChromeTextClear();
+	wt_chrome_cut = rec_wt_wincut;
+	wt_chrome_seg = rec_wt_winseg;
+	wt_chrome_start = rec_wt_wint0;
+	wt_chrome_end = rec_wt_wint1;
+
+	name = (rec_wt_owner != "") ? UI_NameShow(rec_wt_owner, 0) : "unknown";
+	if (rec_wt_hon > 0)
+		name = strcat(UI_NameShow(rec_wt_honame[rec_wt_hon - 1], 0), " (with help)");
+	if (rec_wt_wincut)
+	{
+		duration = Time_TickString((rec_wt_wint1 - rec_wt_wint0) / rec_wt_tickrate, rec_wt_tickrate);
+		title = sprintf("Demo  %s   stage %g", name, rec_wt_winseg + 1);
+	}
+	else
+	{
+		duration = Time_TickString(rec_wt_endticks, rec_wt_tickrate);
+		title = sprintf("Demo  %s   %s%s", name, duration, rec_wt_abandon ? " (abandoned)" : "");
+	}
+	if (strcmp(rec_wt_source, "ksf") == 0)
+		title = strcat(sprintf("CS:S %s import (build unknown)  ", rec_wt_ksfstyle), title);
+	wt_chrome_title = strzone(title);
+	wt_chrome_duration = strzone(duration);
+};
+
+string() Watch_ChromeClock =
+{
+	local float ticks;
+	local string clock;
+
+	// Keep the old full-run and stage clock rules, including negative lead-in.
+	// Cache an unchanged paused clock, never throttle play/scrub or zone a
+	// different playing timestamp every frame. The cut invalidates the duration.
+	ticks = rec_wt_wincut ? (rec_wt_time - rec_wt_wint0) / rec_wt_tickrate : Watch_ClockTicks();
+	if (rec_wt_paused && wt_chrome_paused != "" && wt_chrome_ticks == ticks && wt_chrome_rate == rec_wt_rate)
+		return wt_chrome_paused;
+	clock = sprintf("%s / %s   %.2fx  %s", Time_TickString(ticks, rec_wt_tickrate),
+	                wt_chrome_duration, rec_wt_rate, rec_wt_paused ? "Play" : "Pause");
+	if (!rec_wt_paused)
+		return clock;
+	if (wt_chrome_paused != "") strunzone(wt_chrome_paused);
+	wt_chrome_ticks = ticks;
+	wt_chrome_rate = rec_wt_rate;
+	wt_chrome_paused = strzone(clock);
+	return wt_chrome_paused;
+};
+
 void(vector scr) Watch_Chrome =
 {
 	local vector p, sz;
-	local float w, h, y, sp, small, tiny, cw, bx, bw, sw, xs;
+	local float w, h, y, sp, small, tiny, bx, bw, sw, xs;
 	local float wsc, pad, gap, wtitle, wclock, th, kw;
 	local string s, stitle, sclock;
 	local float i, xa, xb, skw, skx, skon, ha;
@@ -5378,38 +5448,14 @@ void(vector scr) Watch_Chrome =
 	Font_Set(ui_font_ui);
 	small = Font_Px(8 * ui_cv_scale * wsc);
 	tiny  = Font_Px(7 * ui_cv_scale * wsc);
-	cw    = small * 0.6;            // this face's advance, exactly
 	pad   = floor(WT_PAD * wsc);    // panel edge to content
 	gap   = floor(WT_GAP * wsc);    // between rows, and either side of the clock
 
-	/*
-	  The two strings the top row actually holds, built BEFORE the panel is sized.
-	  The owner is spelled once, here, so the width and the draw cannot disagree
-	  about whether it is "unknown".
-	*/
-	s = (rec_wt_owner != "") ? UI_NameShow(rec_wt_owner, 0) : "unknown";
-	if (rec_wt_hon > 0)                 // P1567: the last runner's, with help
-		s = strcat(UI_NameShow(rec_wt_honame[rec_wt_hon - 1], 0), " (with help)");
-	stitle = sprintf("Demo  %s   %s%s", s, Time_TickString(rec_wt_endticks, rec_wt_tickrate),
-	                 rec_wt_abandon ? " (abandoned)" : "");
-	sclock = sprintf("%s / %s   %.2fx  %s",
-	                 Time_TickString(Watch_ClockTicks(), rec_wt_tickrate),
-	                 Time_TickString(rec_wt_endticks, rec_wt_tickrate),
-	                 rec_wt_rate, rec_wt_paused ? "Play" : "Pause");
-	// Patch 431: a cut reads in the stage's own time (negative in the lead-in).
-	if (rec_wt_wincut)
-	{
-		stitle = sprintf("Demo  %s   stage %g", s, rec_wt_winseg + 1);
-		sclock = sprintf("%s / %s   %.2fx  %s",
-		                 Time_TickString((rec_wt_time - rec_wt_wint0) / rec_wt_tickrate,
-		                                 rec_wt_tickrate),
-		                 Time_TickString((rec_wt_wint1 - rec_wt_wint0) / rec_wt_tickrate,
-		                                 rec_wt_tickrate),
-		                 rec_wt_rate, rec_wt_paused ? "Play" : "Pause");
-	}
-
-	if (strcmp(rec_wt_source, "ksf") == 0)
-		stitle = strcat(sprintf("CS:S %s import (build unknown)  ", rec_wt_ksfstyle), stitle);
+	// Only the strings are cached: widths and hit regions still follow the
+	// acting fonts, scale and viewport this frame.
+	Watch_ChromeText();
+	stitle = wt_chrome_title;
+	sclock = Watch_ChromeClock();
 
 	wtitle = stringwidth(stitle, TRUE, [small, small]) + small + 4;     // Patch 789: the face
 	Font_Set(ui_font_mono);             // stable-width clock, like the board's time column
