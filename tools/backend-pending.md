@@ -1,5 +1,14 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026 UTC: generation 1858 LIVE since 11:27:19Z -- P1864 + P1870's surfd half (worldofsurf-62)
+Lex Root 10:59:44Z (backup .owner-backup-p1864-_kdexbfm; proposal conf ca1aaed8, observe 159c5ad9, policy a6da89e7, probe
+50a8a3b7 unchanged). PIN a501e834, REF 2cb308fd, independent token CLEAR (REV 02475b24). run_window launched 11:24:15Z,
+ACTUAL_TRANSITION_RETURNED 11:27:19Z; primary 5180d72f, manifest 836ffda8; surfd up 11:26:23Z. POSTFLIGHT PASS: readers
+unchanged (rcptcheck 32c88865, reccheck 651abe91, recsim b5890190), native df333e50, crontab, 56 tables, routes. Pending:
+--mapwatch-only after 12:23Z, --mapnew-only after the next :28/:58. Live from source 9b5d96fe: P1864 (heartbeat 503 +
+Retry-After on a held write lock; /api/run 10 s, /api/tournaments/game 8 s) and P1870's surfd half ('tasup' replays).
+Told worldofsurf-33: it repoints tasindex (P1870's other half). Rollback after that: tasindex --withdraw FIRST.
+
 ## 28 Nov 2026: P1867 waits for the next reader pins (worldofsurf-62)
 Reader only: tools/rcptcheck.py at 4c341454 (main 014e8e08..4c341454). A save-load after a finish keeps the runid
 (Patch 426), so one runid can have several kept finishes (live: 88 runids, 403 files, up to 39 for one); join_rec took
@@ -36,7 +45,7 @@ logs clean; heartbeats flowing. Rollback: game/ftesurf/qwprogs.dat.pre1863-20261
 /srv/nvme/agent-work/acland-20261128-62/lobby1863/data-pre1863-20261128T074143Z.tar (parts+resume, 3,751 entries). A
 later release must carry P1863 (it is on main) so the lobbies do not regress.
 
-## 28 Nov 2026: P1864 waits for the next generation (worldofsurf-62)
+## 28 Nov 2026: P1864 waits for the next generation (worldofsurf-62) -- LIVE in gen1858 11:27:19Z
 surfd/surfd.py + surfd/tournaments.py (runtime members). A sweep holding the write lock past connect()'s 5 s busy wait
 no longer turns lobby writes into 500 tracebacks: heartbeat answers 503 + Retry-After at once (it repeats), /api/run waits
 up to 10 s (a lobby never resends a run) and restores the normal wait after its commit, /api/tournaments/game waits up to
