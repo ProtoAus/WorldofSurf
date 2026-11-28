@@ -153,6 +153,20 @@ def label_for(tokens, kit):
     return raw[:64]
 
 
+GUN_MATERIALS = ('customization/pist_223/pist_223', 'customization/pist_glock18/pist_glock18',
+                 'customization/snip_ssg08/snip_ssg08', 'customization/snip_ssg08/snip_ssg08_scope')
+
+
+def materials(pack, models):
+    """Customized material keys (relative to ROOT, no extension) for the knives and guns."""
+    keys = set(GUN_MATERIALS)
+    for m in models:
+        mask = m.get('mask') or ''
+        if m['kind'] == 'knife' and mask.startswith(ROOT) and mask.endswith('_masks.vtf'):
+            keys.add(mask[len(ROOT):-len('_masks.vtf')])
+    return sorted(keys)
+
+
 def build(directory):
     pack = VpkSource(directory / 'pak01_dir.vpk')
     _, models, _ = generate(pack.path)
@@ -257,10 +271,17 @@ def build(directory):
                 continue
             values = base | kit
             files = [pattern]
+            normal = pattern_path(pack, kit.get('normal'), style) if values.get('use_normal', '0') != '0' else None
+            if normal:
+                files.append(normal)
+            # info[9]: CS:GO kit flags -- ignore_weapon_size_scale, only_first_material (later
+            # materials such as a scope keep their stock look), and a normal map in files[1].
             info = [vector(wear(kit, (.06, .8))), *pattern_params(values),
                     vector((style, number(values, 'phongexponent', 32, (1, 255)),
                             number(values, 'phongintensity', 40, (0, 255)))),
-                    *[rgb(values.get(f'color{i}')) for i in range(4)]]
+                    *[rgb(values.get(f'color{i}')) for i in range(4)],
+                    vector((int(values.get('ignore_weapon_size_scale', '0') != '0'),
+                            int(values.get('only_first_material', '0') != '0'), int(bool(normal))))]
         rows.append((label, kit_id, bitmask, '|'.join(files), '|'.join(info)))
     if not rows or len(rows) >= 1024 or any(not 0 < kit_id < 11000 for _, kit_id, *_ in rows):
         raise ResourceError('catalog outside checked VM bounds')
@@ -274,6 +295,30 @@ def build(directory):
              'void() PKC_Data =', '{']
     for label, kit_id, mask, files, info in sorted(rows, key=lambda r: (r[0].casefold(), r[1])):
         lines.append(f'\tPKC_Add({kit_id}i, {mask}i, {json.dumps(label)}, {json.dumps(files)}, {json.dumps(info)});')
+    # Per customized material: the compositor's weapon UV / object scales, the wear and grunge
+    # texture scale, and the stock phong exponent map ($exptexture), from its patch VMT.
+    for key in materials(pack, models):
+        # Read the patch's own insert block: its master.vmt includes paints/solid/solid1.vmt,
+        # which Legacy does not ship, and every value used here is set per weapon.
+        try:
+            shader, params = keyvalues(pack.read(f'{ROOT}{key}.vmt').data)
+        except (ResourceError, KeyError):
+            continue
+        params = params.get('insert', {}) if shader == 'patch' else params
+        params = {k.lower(): v for k, v in params.items() if isinstance(v, str)}
+        wear_scale = re.search(r'scale\s+([0-9.]+)', params.get('$weartexturetransform', '')) or None
+        scales = (number(params, '$previewweaponuvscale', 1, (.01, 16)), number(params, '$previewweaponobjscale', 1, (.01, 16)),
+                  float(wear_scale.group(1)) if wear_scale else 1)
+        exp = vtf(pack, params.get('$exptexture')) if params.get('$exptexture') else None
+        # The stock material's $envmaptint (v_models/<dir>/<stem>.vmt), averaged; 0.1 when absent.
+        env = 0.1
+        try:
+            _, stock = keyvalues(pack.read(f"{ROOT}v_models/{key.split('/', 1)[1]}.vmt").data)
+            tint = numbers({k.lower(): v for k, v in stock.items()}.get('$envmaptint'), (.1, .1, .1), (0, 4))
+            env = sum(tint) / 3
+        except (ResourceError, KeyError):
+            pass
+        lines.append(f'\tPKM_Add({json.dumps(key)}, {json.dumps(vector(scales + (env,)))}, {json.dumps(exp or NULL)});')
     lines += ['};', '']
     return '\n'.join(lines), summary
 

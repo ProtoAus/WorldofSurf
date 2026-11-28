@@ -37,7 +37,7 @@
 ===========================================================================
 */
 
-#define KC_N        42
+#define KC_N        47
 
 // FTE names it; #630 in the engine table. checkbuiltin-gated in KC_SetBind.
 void(float keynum, string bindcmd, optional float bindmap, optional float modifier) setkeybind = #0:setkeybind;
@@ -92,6 +92,11 @@ string(float i) KC_Def =
 	if (i == 39) return "fullscreen|Fullscreen|fullscreen_toggle|vid_toggle|F11|Game|fullscreen";
 	if (i == 40) return "jumpduck|Jump + duck|+jumpduck|||Movement|jump+duck";   // P1796: listed after Duck (KC_Order)
 	if (i == 41) return "workshop|Weapon workshop|weapon_workshop|knife_menu||Game|weapon kits";
+	if (i == 42) return "slot1|Scout (slot 1)|slot1|||Game|weapon primary";
+	if (i == 43) return "slot2|Pistol (slot 2, again swaps USP/Glock)|slot2|||Game|weapon pistol";
+	if (i == 44) return "slot3|Knife (slot 3)|slot3|||Game|weapon knife";
+	if (i == 45) return "inspect|Inspect weapon|inspect|||Game|weapon look";
+	if (i == 46) return "drop|Drop weapon|drop|||Game|weapon";
 	return "";
 };
 
@@ -104,7 +109,7 @@ float(float n) KC_Order =
 {
 	if (n < 6) return n;
 	if (n == 6) return 40;
-	if (n == 41) return 41;
+	if (n >= 41) return n;   // the workshop and weapon rows keep table order
 	n = n - 1;
 	if (n < 13) return n;
 	if (n < 28) return n + 1;

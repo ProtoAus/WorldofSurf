@@ -6,7 +6,7 @@ float wp_eventat, wp_drawing, wp_events, wp_sndnext, wp_callbacks;
 float wp_scriptbytes, wp_scriptalias, wp_scripthits;
 string wp_model, wp_frame, wp_soundlast;
 float wp_motionvalid, wp_motiontime, wp_bobtime, wp_mountnext;
-float wp_css_mountnext, wp_wantlegacy, wp_legacy_next, wp_legacy_failed, wp_legacy_seen, wp_hidesilencer;
+float wp_css_mountnext, wp_wantlegacy, wp_legacy_next, wp_legacy_failed, wp_legacy_seen, wp_hidesilencer, wp_lastpistol;
 float wp_mode, wp_burstleft, wp_burstat, wp_kick, wp_kickvel, wp_kickdt;
 float wp_zoom, wp_scopepending, wp_rezoomat, wp_drawstarts;
 entity wp_flashent;
@@ -83,7 +83,12 @@ void() WP_Register =
 	registercvar("cl_weapon_muzzleflash", "1", CVAR_ARCHIVE);
 	registercvar("cl_knife_model", "0", CVAR_ARCHIVE);
 	registercvar("cl_knife_equipped", "-1", CVAR_ARCHIVE);
-	registercvar("cl_wshop_guns", "0", CVAR_ARCHIVE);   // CS:GO model per gun: FS_WEAPON_USP|SCOUT|GLOCK bits
+	registercvar("cl_wshop_guns", "0", CVAR_ARCHIVE);
+	// CS:GO's own names and desktop defaults (right, forward, up); CS:GO models only.
+	registercvar("viewmodel_offset_x", "1", CVAR_ARCHIVE);
+	registercvar("viewmodel_offset_y", "1", CVAR_ARCHIVE);
+	registercvar("viewmodel_offset_z", "-1", CVAR_ARCHIVE);
+	registercommand("slot1"); registercommand("slot2"); registercommand("slot3");   // CS:GO model per gun: FS_WEAPON_USP|SCOUT|GLOCK bits
 	registercommand("butterfly"); registercommand("m9"); registercommand("knife_css"); registercommand("inspect");
 	registercommand("knife_mount_done"); registercommand("css_weapon_mount_done");
 	// Existing independent projection, not a scale hack or a change to world FOV.
@@ -672,6 +677,7 @@ void() WP_Frame =
 	}
 	mdl = WP_Model(w);
 	legacy = WP_LegacyGun(w);
+	if (w == FS_WEAPON_USP || w == FS_WEAPON_GLOCK) wp_lastpistol = w;
 	if (!strcmp(mdl, "") || VM_Cvar("cl_viewweapon") <= 0 ||
 	    (!VM_IsMirroring() && (!LT_StatsAreMine() || getstatf(STAT_FS_SPEC))) ||
 	    rec_gh_on || rec_wt_on || rw_on)
@@ -835,6 +841,8 @@ void() WP_Frame =
 	wp_ent.angles = '0 0 0';
 	wp_ent.effects = WP_EF_NOGUNBOB;
 	WP_Motion();
+	if (legacy || (w == FS_WEAPON_KNIFE && KCAT_Knife() > 0))
+		wp_ent.origin += [cvar("viewmodel_offset_y"), (VM_Cvar("cl_viewweapon_left") ? 1 : -1) * cvar("viewmodel_offset_x"), cvar("viewmodel_offset_z")];
 	// USP-S silencer: hidden by a skin rule (WPU_Apply; CSQC ents carry no .body) once unsilenced,
 	// but kept while the detach clip unscrews it.
 	wp_hidesilencer = FALSE;
@@ -1082,6 +1090,16 @@ float() WP_Command =
 		print(sprintf("weapon: view %v render-angles %v input-angles %v\n", getproperty(VF_ORIGIN), getproperty(VF_ANGLES), getproperty(VF_CL_VIEWANGLES)));
 		return TRUE;
 	}
+	// CS weapon slots: 1 the scout, 2 a pistol (again: the other one), 3 the knife.
+	if (!strcmp(cmd, "slot1")) { localcmd("scout\n"); return TRUE; }
+	if (!strcmp(cmd, "slot2"))
+	{
+		if (wp_weapon == FS_WEAPON_USP) localcmd("glock\n");
+		else if (wp_weapon == FS_WEAPON_GLOCK || wp_lastpistol != FS_WEAPON_GLOCK) localcmd("usp\n");
+		else localcmd("glock\n");
+		return TRUE;
+	}
+	if (!strcmp(cmd, "slot3")) { localcmd("knife\n"); return TRUE; }
 	giving = !strcmp(cmd, "give");
 	if (!strcmp(cmd, "knife") || !strcmp(cmd, "usp") || !strcmp(cmd, "scout") || !strcmp(cmd, "glock"))
 	{

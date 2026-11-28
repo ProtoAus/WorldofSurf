@@ -42,7 +42,8 @@ def main():
     assert 'if (!strcmp(cmd, "drop")) { WP_Drop(); return TRUE; }' in wp
     assert '"Drop", tsz, FALSE)) WP_Drop();' in ui
     assert 'KCAT_ApplyChoice(kind);\n\tWP_EquipKnife();' in wp
-    assert 'cvar_set("cl_knife_finish", ftos(i));\n\t\t\tWP_EquipKnife();' in ui
+    # P1862: a knife finish picked in the workshop equips the knife.
+    assert 'if (model > 0 && model < PKC_USP) WP_EquipKnife();' in ui
     assert 'WP_CancelKnifeChoice();\n\tif (w == FS_WEAPON_KNIFE)' in wp
     assert 'WP_CompleteKnifeChoice(stof(argv(1)), stoi(argv(2)));' in wp
     assert wp.count('knife_mount_done %g %i') == 3

@@ -2,11 +2,11 @@
 
 ## P1862 CS:GO weapon workshop (branch wshop-p1862; local games only until lobby progs ship)
 
-- In a local game (`map surf_beginner`), type `usp`, `glock`, `scout` with CS:S installed but not in `fs_load`: each gun should appear after a moment, and `fs_loadlist` should still not list CS:S.
-- Open `weapon_workshop` (or bind **Weapon workshop** in Keys). Loadout: set USP, Glock and Scout to CS:GO, press Equip on each; draw, idle, fire (and the USP-S silencer on right click) and Inspect should play with the gun in your hands, not floating in front of them.
-- Loadout skin row: Gloves (pick a Glove family under Hands first), USP-S, Glock, SSG 08: choose finishes, drag Wear float and Pattern seed. Knife finish: Butterfly, Marble Fade / Case Hardened / Fade / Crimson Web, Stock vs Custom placement.
-- Compare against CS:GO Legacy (Workshop Workbench or a market screenshot at the same seed and float): placement per seed is meant to match; colour, gloss and how chips grow with wear are approximations. Say what looks off.
-- Mouse-drag the sliders and the finish list on the desktop GPU (only software EGL was tested), and say if a gun sits oddly on screen at your FOV.
+- In a local game (`map surf_beginner`), type `usp`, `glock`, `scout` with CS:S installed but not in `fs_load`: each gun should appear after a moment, and `fs_loadlist` should still not list CS:S. Bind slot1/slot2/slot3 in Keys and switch with them.
+- Open `weapon_workshop`. Loadout: clicking CS:S / CS:GO on a gun row or a skin tab equips that gun. Draw, idle, fire, right-click silencer (USP-S) and Inspect should play in your hands. View: try CS:GO, Classic, Close and Tune, and say which default sits best.
+- Skins: walk from a bright spot into shade with a painted gun: it should darken like the hands. Look at the SSG 08 with Azure Glyph, Bloodshot, Acid Fade (scope should stay stock black) and Blue Spruce (scope painted). Knife patina finishes (Blue Steel, Stained, Case Hardened, USP-S Stainless) should be steel-coloured, not white.
+- Compare against CS:GO Legacy (Workshop Workbench or a market screenshot at the same seed and float): placement per seed is meant to match; airbrush/spray fades (Acid Fade, Fade) and how chips grow with wear are approximations, say what looks off.
+- Mouse-drag the sliders and the finish list on the desktop GPU (only software EGL was tested), and note any hitch the first time a finish is shown (each new finish style compiles a shader once).
 
 ## P1851 post-finish reset and disconnect
 

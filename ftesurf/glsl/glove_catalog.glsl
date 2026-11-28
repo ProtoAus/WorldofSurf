@@ -92,7 +92,11 @@ void main()
 	tangent_detail += (texture2D(s_t6, glove_uv).xyz * 2.0 - 1.0) * 1.5;
 #endif
 	n = normalize(n + 0.2 * (tangent_detail.x * glove_s + tangent_detail.y * glove_t));
-	vec3 light = clamp(e_light_ambient + max(0.0, dot(n, e_light_dir)) * e_light_mul, 0.65, 1.2);
+	// Lit like defaultskin (the bare hands beside it): ambient plus directional, shade side softened.
+	float d = dot(n, e_light_dir);
+	if (d < 0.0)
+		d *= 13.0 / 44.0;
+	vec3 light = (e_light_ambient + d * e_light_mul) * e_colourident.rgb;
 	vec3 colour = mix(paint / 255.0, paint * (0.62 / 255.0) + vec3(0.08, 0.055, 0.033), worn);
 	gl_FragColor = fog4(vec4(colour * mix(0.64, 1.25, detail) * mix(0.42, 1.0, ao.r) * light, 1.0));
 }

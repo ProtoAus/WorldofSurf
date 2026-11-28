@@ -109,10 +109,13 @@ float(float w) WPU_GunModel =
 };
 // The workshop replaced the classic WOS knife presets (P1862): carry a saved one over to
 // its real CS:GO kit once. Spectated setups still draw the classic finish they synced.
+// Once per install: the account restores cl_knife_finish on every map, so later loads leave it.
 void() WPU_MigrateClassic =
 {
 	local float style;
+	if (cvar("cl_wshop_classicmoved")) return;
 	style = floor(cvar("cl_knife_finish"));
+	cvar_set("cl_wshop_classicmoved", "1");
 	if (style < 1 || style > 3) return;
 	if (!cvar("cl_wshop_mode"))
 	{
@@ -127,6 +130,7 @@ void() WPU_Apply =
 	local float kind, style, key, isolated, mode, pistol, model;
 	local int kit;
 	local string pattern, name, data, rules, base, program, scope, previous;
+	local vector kitflags;
 	kind = KCAT_Knife();
 	if (!VM_IsMirroring()) WPU_MigrateClassic();
 	style = VM_IsMirroring() ? bound(0, floor(VM_Cvar("cl_knife_finish")), 3) : 0;
@@ -175,7 +179,9 @@ void() WPU_Apply =
 		else if (pistol == FS_WEAPON_SCOUT)
 		{
 			// Two customized materials: the rifle and its scope (glass m2 stays stock).
-			scope = PK_Shader(0, kit, mode, "snip_ssg08", "snip_ssg08_scope");
+			// only_first_material kits leave the scope stock, as CS:GO does.
+			kitflags = PKC_Flags(kit);
+			scope = PK_Shader(0, kitflags_y ? 0i : kit, mode, "snip_ssg08", "snip_ssg08_scope");
 			name = PK_Shader(0, kit, mode, "snip_ssg08", "snip_ssg08");
 			data = "studio:ssg08_model.smd:l0:m0|clamped1::l0:m0";
 		}
@@ -336,6 +342,39 @@ void(float value) WPU_KitX = { cvar_set("cl_wshop_x", ftos(value)); };
 void(float value) WPU_KitY = { cvar_set("cl_wshop_y", ftos(value)); };
 void(float value) WPU_KitTint = { cvar_set("cl_wshop_tint", ftos(value)); };
 
+// CS:GO's viewmodel presets (viewmodel_presetpos 1 desktop, 3 classic, 2 couch): fov, right, forward, up.
+float wpu_tune;
+vector(float preset) WPU_ViewValues =
+{
+	if (preset == 1) return '2.5 0 -1.5';
+	if (preset == 2) return '0 0 0';
+	return '1 1 -1';
+};
+float(float preset) WPU_ViewFovPreset = { return preset == 1 ? 68 : preset == 2 ? 54 : 60; };
+float() WPU_ViewPreset =
+{
+	local float i;
+	local vector v;
+	for (i = 0; i < 3; i += 1)
+	{
+		v = WPU_ViewValues(i);
+		if (cvar("viewmodel_offset_x") == v_x && cvar("viewmodel_offset_y") == v_y && cvar("viewmodel_offset_z") == v_z &&
+		    cvar("r_viewmodel_fov_csgo") == WPU_ViewFovPreset(i)) return i;
+	}
+	return -1;
+};
+void(float preset) WPU_SetView =
+{
+	local vector v;
+	v = WPU_ViewValues(preset);
+	cvar_set("viewmodel_offset_x", ftos(v_x)); cvar_set("viewmodel_offset_y", ftos(v_y)); cvar_set("viewmodel_offset_z", ftos(v_z));
+	cvar_set("r_viewmodel_fov_csgo", ftos(WPU_ViewFovPreset(preset)));
+};
+void(float value) WPU_ViewFov = { cvar_set("r_viewmodel_fov_csgo", ftos(floor(value))); };
+void(float value) WPU_ViewX = { cvar_set("viewmodel_offset_x", ftos(floor(value * 10 + 0.5) / 10)); };
+void(float value) WPU_ViewY = { cvar_set("viewmodel_offset_y", ftos(floor(value * 10 + 0.5) / 10)); };
+void(float value) WPU_ViewZ = { cvar_set("viewmodel_offset_z", ftos(floor(value * 10 + 0.5) / 10)); };
+
 // One item's finish list: Original first, then the kits that fit this model, 8 a page.
 // Returns TRUE while open (the caller draws nothing under it).
 float(float model, int selected, vector at, float width, float row, float tsz) WPU_KitPicker =
@@ -367,6 +406,8 @@ float(float model, int selected, vector at, float width, float row, float tsz) W
 			{
 				PKC_Select(i, model);
 				if (i && cvar("fs_legacy_viewmodels") != 1) WP_MountKnifeContent(-1);
+				if (model > 0 && model < PKC_USP) WP_EquipKnife();   // a knife finish shows on the knife
+				else if (model >= PKC_USP) localcmd(model == PKC_USP ? "usp\n" : model == PKC_GLOCK ? "glock\n" : "scout\n");
 				wpu_pickopen = FALSE;
 			}
 		}
@@ -398,7 +439,7 @@ void(float slot) WPU_Equip =
 	if (slot == 1) localcmd("usp\n");
 	else if (slot == 2) localcmd("glock\n");
 	else if (slot == 3) localcmd("scout\n");
-	else if (wp_weapon != FS_WEAPON_KNIFE && !WP_LegacyGun(wp_weapon)) WP_EquipKnife();
+	else if (slot < 0 || (wp_weapon != FS_WEAPON_KNIFE && !WP_LegacyGun(wp_weapon))) WP_EquipKnife();
 };
 
 // Finish, wear float (the kit's own range) and seed for one item, then Random / Inspect / Equip.
@@ -413,9 +454,12 @@ float(float model, float slot, vector at, float width, float row, float tsz) WPU
 	if (WPU_KitPicker(model, kit, at, width, row, tsz)) return at_y + tsz * 14.3;
 	at_y += tsz * 2.5;
 	allowed = PKC_Wear(kit); a = allowed_x; b = allowed_y;
-	WPU_Slider("wpu_item_wear", "Wear float", at, width, bound(a, cvar(PK_ItemCvar(model, "wear")), b), [a, b, (b - a) * 1000], WPU_ItemWear, tsz);
-	at_y += tsz * 2.25;
-	WPU_Slider("wpu_item_seed", "Pattern seed", at, width, bound(0, floor(cvar(PK_ItemCvar(model, "seed"))), 1000), '0 1000 1000', WPU_ItemSeed, tsz);
+	WPU_Slider(sprintf("wpu_wear_%g", model), "Wear float", at, width, bound(0, cvar(PK_ItemCvar(model, "wear")), 1), '0 1 1000', WPU_ItemWear, tsz);
+	at_y += tsz * 1.9;
+	if (kit)
+		sui_text(at + [tsz * 7, 0, 0], [tsz * 0.75, tsz * 0.75], sprintf("CS:GO range for this finish: %.2f - %.2f", a, b), SUI_THEME_MUTED, 1, 0);
+	at_y += tsz * 1.2;
+	WPU_Slider(sprintf("wpu_seed_%g", model), "Pattern seed", at, width, bound(0, floor(cvar(PK_ItemCvar(model, "seed"))), 1000), '0 1000 1000', WPU_ItemSeed, tsz);
 	at_y += tsz * 2.4;
 	btn = [(width - 12) / 3, row, 0];
 	if (WPU_ChoiceChip("wpu_item_random", at, btn, "Random seed", tsz, FALSE)) WPU_ItemSeed(floor(random() * 1001));
@@ -434,13 +478,13 @@ void(vector scr) WPU_Draw =
 	wpu_frames = wpu_frames + 1;
 	pop = '0 0 0';
 	sc = max(0.5, ui_cv_scale);
-	while (sc > 0.5 && (Font_Px(8 * sc) * 38 > scr_x - 12 || Font_Px(8 * sc) * 44 > scr_y - 12)) sc = sc - 0.5;
+	while (sc > 0.5 && (Font_Px(8 * sc) * 38 > scr_x - 12 || Font_Px(8 * sc) * 47 > scr_y - 12)) sc = sc - 0.5;
 	oldfont = drawfont;
 	Font_Set(ui_font_ui);
 	tsz = Font_Px(8 * sc); ttl = Font_Px(10 * sc); hint = Font_Px(6 * sc);
 	wpu_tsz = tsz;
 	pad = tsz; row = ceil(tsz * 1.8);
-	size = [min(scr_x - 8, tsz * 38), min(scr_y - 8, tsz * 44), 0];
+	size = [min(scr_x - 8, tsz * 38), min(scr_y - 8, tsz * 47), 0];
 	pos = [cvar("hud_knife_x") * scr_x, cvar("hud_knife_y") * scr_y, 0];
 	if (wpu_drag) pos = [wpu_mx, wpu_my, 0] - wpu_offset;
 	pos_x = bound(4, pos_x, max(4, scr_x - size_x - 4));
@@ -494,27 +538,51 @@ void(vector scr) WPU_Draw =
 			text = i == 1 ? "USP" : i == 2 ? "Glock" : "Scout";
 			sui_text(at + [0, (row - tsz) * 0.5, 0], [tsz, tsz], text, SUI_THEME_DIM, 1, 0);
 			if (WPU_ChoiceChip(sprintf("wpu_gun%g_css", i), at + [tsz * 7, 0, 0], [(box_x - 6) / 2, row, 0], "CS:S", tsz, !selected))
+			{
 				cvar_set("cl_wshop_guns", itos((int)cvar("cl_wshop_guns") & ~(int)option));
+				WPU_Equip(i);
+			}
 			text = i == 1 ? "CS:GO USP-S" : i == 2 ? "CS:GO Glock-18" : "CS:GO SSG 08";
 			if (WPU_ChoiceChip(sprintf("wpu_gun%g_go", i), at + [tsz * 7 + (box_x + 6) / 2, 0, 0], [(box_x - 6) / 2, row, 0], text, tsz, selected))
 			{
 				cvar_set("cl_wshop_guns", itos((int)cvar("cl_wshop_guns") | (int)option));
 				if (cvar("fs_legacy_viewmodels") != 1) WP_MountKnifeContent(-1);
 				wpu_slot = i; wpu_pickopen = FALSE;
+				WPU_Equip(i);
 			}
 			at_y += tsz * 2.3;
 		}
-		at_y += tsz * 0.5;
+		sui_text(at + [0, (row - tsz) * 0.5, 0], [tsz, tsz], "View", SUI_THEME_DIM, 1, 0);
+		for (i = 0; i < 4; i += 1)
+		{
+			text = i == 0 ? "CS:GO" : i == 1 ? "Classic" : i == 2 ? "Close" : "Tune";
+			if (WPU_ChoiceChip(sprintf("wpu_view%g", i), at + [tsz * 7 + i * (box_x + 6) / 4, 0, 0], [(box_x - 18) / 4, row, 0], text, tsz,
+			    i == 3 ? wpu_tune : WPU_ViewPreset() == i))
+			{
+				if (i == 3) { wpu_tune = !wpu_tune; wpu_pickopen = FALSE; }
+				else WPU_SetView(i);
+			}
+		}
+		at_y += tsz * 2.9;
 		sui_text(at + [0, (row - tsz) * 0.5, 0], [tsz, tsz], "Skin", SUI_THEME_TEXT, 1, 0);
 		for (i = 0; i < 4; i += 1)
 		{
 			text = i == 0 ? "Gloves" : i == 1 ? "USP-S" : i == 2 ? "Glock" : "SSG 08";
 			if (WPU_ChoiceChip(sprintf("wpu_slot%g", i), at + [tsz * 7 + i * (box_x + 6) / 4, 0, 0], [(box_x - 18) / 4, row, 0], text, tsz, wpu_slot == i))
-				{ wpu_slot = i; wpu_pickopen = FALSE; }
+				{ wpu_slot = i; wpu_pickopen = wpu_tune = FALSE; if (i) WPU_Equip(i); }
 		}
 		at_y += tsz * 2.6;
 		option = WPU_SlotWeapon(wpu_slot);
-		if (wpu_slot && !((int)cvar("cl_wshop_guns") & (int)option))
+		if (wpu_tune)
+		{
+			// CS:GO models only; CS:S keeps its own placement.
+			WPU_Slider("wpu_vm_fov", "View FOV", at, width, bound(50, cvar("r_viewmodel_fov_csgo"), 90), '50 90 40', WPU_ViewFov, tsz); at_y += tsz * 2.25;
+			WPU_Slider("wpu_vm_x", "Right", at, width, bound(-3, cvar("viewmodel_offset_x"), 3), '-3 3 60', WPU_ViewX, tsz); at_y += tsz * 2.25;
+			WPU_Slider("wpu_vm_y", "Forward", at, width, bound(-3, cvar("viewmodel_offset_y"), 3), '-3 3 60', WPU_ViewY, tsz); at_y += tsz * 2.25;
+			WPU_Slider("wpu_vm_z", "Up", at, width, bound(-3, cvar("viewmodel_offset_z"), 3), '-3 3 60', WPU_ViewZ, tsz); at_y += tsz * 2.25;
+			sui_text(at, [hint, hint], "Console: viewmodel_offset_x/y/z, r_viewmodel_fov_csgo.", SUI_THEME_MUTED, 1, 0);
+		}
+		else if (wpu_slot && !((int)cvar("cl_wshop_guns") & (int)option))
 			sui_text(at, [hint, hint], "Pick CS:GO for this gun above to give it a CS:GO finish.", SUI_THEME_MUTED, 1, 0);
 		else if (!wpu_slot && (arms < 0 || !PKC_Count(-arms)))
 			sui_text(at, [hint, hint], "Finishes are for CS:GO gloves: pick a Glove family under Hands.", SUI_THEME_MUTED, 1, 0);
@@ -538,7 +606,7 @@ void(vector scr) WPU_Draw =
 				    i == 1 ? "Stock placement" : "Custom placement", tsz, style && cvar("cl_wshop_mode") == i))
 					if (style) cvar_set("cl_wshop_mode", ftos(i));
 			at_y += tsz * 2.5;
-			at_y = WPU_FinishPanel(kind, 0, at, width, row, tsz);
+			at_y = WPU_FinishPanel(kind, -1, at, width, row, tsz);
 			if (!wpu_pickopen && style && cvar("cl_wshop_mode") == 2)
 			{
 				WPU_Slider("wpu_kit_scale", "Scale x", at, width, bound(0.25,cvar("cl_wshop_scale"),4), '0.25 4 75', WPU_KitScale, tsz); at_y += tsz * 2.25;
@@ -560,8 +628,9 @@ void(vector scr) WPU_Draw =
 		}
 	}
 	at = pos + [pad, size_y - pad - row - hint * 1.8, 0];
-	if (Profile_Chip("wpu_account_save", at, [(width - 6) / 2, row, 0], "Save to account", tsz, FALSE)) VM_ProfileAction("save");
-	if (Profile_Chip("wpu_account_reload", at + [(width + 6) / 2, 0, 0], [(width - 6) / 2, row, 0], "Reload account", tsz, FALSE)) VM_ProfileAction("reload");
+	if (Profile_Chip("wpu_account_save", at, [(width - 12) / 3, row, 0], "Save to account", tsz, FALSE)) VM_ProfileAction("save");
+	if (Profile_Chip("wpu_account_reload", at + [(width + 6) / 3, 0, 0], [(width - 12) / 3, row, 0], "Reload account", tsz, FALSE)) VM_ProfileAction("reload");
+	if (Profile_Chip("wpu_drop", at + [(width + 6) * 2 / 3, 0, 0], [(width - 12) / 3, row, 0], "Drop", tsz, FALSE)) WP_Drop();
 	sui_text(at + [0, row + hint * 0.5, 0], [hint, hint], VM_Status(), SUI_THEME_MUTED, 1, 0);
 	// Last in this bracket: the open list owns hit-tests over covered controls.
 	if (wpu_drop)

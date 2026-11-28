@@ -15,9 +15,28 @@ float wkit_mode, wkit_kind, wkit_avail, wkit_pistol, wkit_primarymodel, wkit_sil
 int pk_rand_idum, pk_rand_iy, *pk_rand_iv, pk_wplace_kit, pk_gplace_kit;
 float pk_wplace_seed, pk_gplace_seed;
 vector pk_wstate, pk_gstate;
-int pkc_count, *pkc_ids, *pkc_index, *pkc_bits;
+int pkc_count, *pkc_ids, *pkc_index, *pkc_bits, pkm_count;
 string *pkc_meta;
+string *pkm_meta;
 void() PKC_Data;
+#define PKM_LIMIT 64i
+
+// Per customized material (generated): key, "uvscale objscale wearscale envtint", exponent map.
+void(string key, string scales, string exponent) PKM_Add =
+{
+	if (pkm_count >= PKM_LIMIT) return;
+	pkm_meta[pkm_count * 3i] = key;
+	pkm_meta[pkm_count * 3i + 1i] = scales;
+	pkm_meta[pkm_count * 3i + 2i] = exponent;
+	pkm_count += 1i;
+};
+int(string key) PKM_Find =
+{
+	local int i;
+	for (i = 0i; i < pkm_count; i += 1i)
+		if (!strcmp(pkm_meta[i * 3i], key)) return i;
+	return -1i;
+};
 
 void(int id, int compatibility, string label, string files, string info) PKC_Add =
 {
@@ -41,7 +60,9 @@ void() PK_Register =
 	pkc_meta = (string*)memalloc((PKC_LIMIT + 1i) * 12i);
 	memfill8((void*)pkc_index, 0i, PKC_IDS * 4i);
 	pk_rand_iv = (int*)memalloc(32i * 4i);
+	pkm_meta = (string*)memalloc(PKM_LIMIT * 3i * 4i);
 	PKC_Data();
+	pk_wstate = pk_gstate = '-1 -1 -1';   // cl_*kit_state outlive the map; force the first write
 	registercvar("cl_wshop_mode", "0", CVAR_ARCHIVE);
 	registercvar("cl_wshop_kit", "413", CVAR_ARCHIVE);
 	registercvar("cl_wshop_seed", "1", CVAR_ARCHIVE);
@@ -54,6 +75,7 @@ void() PK_Register =
 	registercvar("cl_wshop_scoutseed", "1", CVAR_ARCHIVE);
 	registercvar("cl_wshop_gloveseed", "1", CVAR_ARCHIVE);
 	registercvar("cl_wshop_scoutkit", "0", CVAR_ARCHIVE);
+	registercvar("cl_wshop_classicmoved", "0", CVAR_ARCHIVE);
 	registercvar("cl_wshop_gunfinish", "1", CVAR_ARCHIVE);
 	registercvar("cl_wshop_uspkit", "318", CVAR_ARCHIVE);
 	registercvar("cl_wshop_glockkit", "1119", CVAR_ARCHIVE);
@@ -113,6 +135,13 @@ string(int index, int field) PKC_Get =
 	if (!pkc_meta || index <= 0i || index > pkc_count) return "";
 	return pkc_meta[index * 3i + field];
 };
+// info[9]: ignore_weapon_size_scale, only_first_material, normal map in files[1].
+vector(int index) PKC_Flags =
+{
+	if (!index) return '0 0 0';
+	if (tokenizebyseparator(PKC_Get(index, PKC_INFO), "|") < 10) return '0 0 0';
+	return stov(argv(9));
+};
 vector(int index) PKC_Wear =
 {
 	if (!index) return '0 1 0.15';
@@ -133,6 +162,10 @@ int(float model) PKC_Selected =
 {
 	local float id;
 	local int index;
+	// A switched-off finish reads as Original, whatever kit id is still stored.
+	if (model < 0 && cvar("cl_wshop_sporty") <= 0) return 0i;
+	if (model >= PKC_USP && cvar("cl_wshop_gunfinish") <= 0) return 0i;
+	if (model > 0 && model < PKC_USP && !cvar("cl_wshop_mode")) return 0i;
 	id = cvar(PK_ItemCvar(model, "kit"));
 	if (model > 0 && model < PKC_USP)
 	{
@@ -246,17 +279,20 @@ void(int index, float glove, float seed) PK_Place =
 };
 
 // Knife: kind is its catalog row, stem "". Gun: one material, dir/stem e.g. snip_ssg08/snip_ssg08_scope.
+// kit 0 / mode 0 draws the stock material through the same program (NOPAINT): stock gloss and cubemap.
 string(float kind, int kit, float mode, string dir, string stem) PK_Shader =
 {
-	local string name, base, mask, pattern, customized, ao, posmap, surface, data;
-	local vector style;
-	local float ready, gun;
+	local string name, base, mask, pattern, customized, ao, posmap, surface, data, key, exponent, normal;
+	local vector style, flags, scales;
+	local float ready, gun, paint;
+	local int material;
 	wkit_avail = FALSE;
 	if (cvar("fs_legacy_viewmodels") != 1) return "";
 	gun = strcmp(stem, "") != 0;
 	if (gun)
 	{
-		customized = strcat(PK_ALIAS, "customization/", dir, "/", stem);
+		key = strcat("customization/", dir, "/", stem);
+		customized = strcat(PK_ALIAS, key);
 		base = strcat(PK_ALIAS, "v_models/", dir, "/", stem, ".vtf");
 		mask = strcat(customized, "_masks.vtf");
 	}
@@ -266,32 +302,47 @@ string(float kind, int kit, float mode, string dir, string stem) PK_Shader =
 		base = PK_Alias(KCAT_Get(kind, KCAT_BASE));
 		mask = PK_Alias(KCAT_Get(kind, KCAT_MASK));
 		customized = substring(mask, 0, strlen(mask) - strlen("_masks.vtf"));
+		key = substring(customized, strlen(PK_ALIAS), -1);
 	}
 	ao = strcat(customized, "_ao.vtf");
 	posmap = strcat(customized, "_pos.vtf");
 	surface = strcat(customized, "_surface.vtf");
-	pattern = PK_Asset(PKC_Get(kit, PKC_FILES));
+	paint = mode && kit;
+	flags = PKC_Flags(kit);
+	tokenizebyseparator(PKC_Get(kit, PKC_FILES), "|");
+	pattern = paint ? PK_Asset(argv(0)) : "$whiteimage";
+	normal = (paint && flags_z) ? PK_Asset(argv(1)) : "$whiteimage";
+	material = PKM_Find(key);
+	scales = material >= 0i ? stov(pkm_meta[material * 3i + 1i]) : '1 1 1';
+	exponent = material >= 0i ? PK_Asset(pkm_meta[material * 3i + 2i]) : "$whiteimage";
+	if (material >= 0i)
+	{
+		tokenizebyseparator(pkm_meta[material * 3i + 1i], " ");
+		data = argv(3);   // stock $envmaptint
+	}
+	else data = "0.1";
 	if (!PK_Has(base)) return "";
-	// QC does not short-circuit: probe the kit's files only when a kit is on.
+	// QC does not short-circuit: probe the material's files only once the base exists.
 	ready = FALSE;
-	if (mode && kit)
-		if (PK_Has(mask) && PK_Has(ao) && PK_Has(posmap) && PK_Has(surface) && PK_Has(pattern))
-			if (PK_Has(PK_SHARED "paint_wear.vtf") && PK_Has(PK_SHARED "gun_grunge.vtf"))
-				ready = TRUE;
-	if (!ready)
+	if (PK_Has(mask) && PK_Has(ao) && PK_Has(posmap) && PK_Has(surface) && PK_Has(pattern) && PK_Has(normal))
+		if (PK_Has(PK_SHARED "paint_wear.vtf") && PK_Has(PK_SHARED "gun_grunge.vtf") && PK_Has(exponent))
+			ready = TRUE;
+	if (!ready || (!paint && !gun))
 	{
 		if (!gun) return "";
 		name = strcat("ftesurf/kit_unpainted_", stem);
 		data = sprintf("{\nprogram defaultskin\n{ map %s }\n}\n", base);
 		return shaderforname(name, data) > 0 ? name : "";
 	}
-	PKC_Uniforms(kit, FALSE);
-	style = stov(cvar_string("cl_wkit_opts4"));
-	name = sprintf("ftesurf/kit_%g_%s_%i_%g", kind, stem, pkc_ids[kit], mode);
-	data = strcat(sprintf("{\nprogram weapon_catalog#STYLE=%g#EDIT=%g\n{ map %s }\n{ map %s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n",
-		style_x, mode == 2, base, pattern, mask, ao),
-		sprintf("{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%spaint_wear.vtf }\n{ map $nosrgb:%sgun_grunge.vtf }\n}\n",
-		posmap, surface, PK_SHARED, PK_SHARED));
+	if (paint) PKC_Uniforms(kit, FALSE);
+	style = paint ? stov(cvar_string("cl_wkit_opts4")) : '0 0 0';
+	name = sprintf("ftesurf/kit_%g_%s_%i_%g", kind, stem, paint ? pkc_ids[kit] : 0i, mode);
+	data = strcat(sprintf("{\nprogram weapon_catalog#STYLE=%g#EDIT=%g#UVS=%g#WEARS=%g#ENV=%s#NORMAL=%g%s\n",
+		style_x, mode == 2, flags_x ? 1 : scales_x, scales_z, data, flags_z, paint ? "" : "#NOPAINT"),
+		sprintf("{ map %s }\n{ map %s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n",
+		base, pattern, mask, ao, posmap, surface),
+		sprintf("{ map $nosrgb:%spaint_wear.vtf }\n{ map $nosrgb:%sgun_grunge.vtf }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n{ map $reflectcube }\n}\n",
+		PK_SHARED, PK_SHARED, exponent, normal));
 	wkit_avail = shaderforname(name, data) > 0;
 	return wkit_avail ? name : "";
 };
