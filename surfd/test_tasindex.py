@@ -450,7 +450,10 @@ class TasIndex(unittest.TestCase):
         self.set_state(rid, 'shown')
         self.assertEqual(self.sync()['added'], 0)                               # shown again: still rejected
         self.assertEqual(self.board('surf_z'), [(ROU, 'RecName', 16500, keep)])
-        self.assertEqual((self.sync(withdraw=True)['unreps'], self.tasreps(), self.copies()), (1, [], []))
+        self.assertEqual(self.sync(withdraw=True)['unreps'], 0)                 # a rollback keeps the reject
+        self.assertEqual(([r[0] for r in self.tasreps()], len(self.copies())), ([rep], 1))
+        self.assertEqual(self.sync()['added'], 0)
+        self.assertEqual(self.board('surf_z'), [(ROU, 'RecName', 16500, keep)])
 
     def test_a_lost_or_corrupt_copy_is_repaired(self):
         body = self.rec('surf_z', 1000)
@@ -531,6 +534,68 @@ class TasIndex(unittest.TestCase):
         T.sync(self.store, self.db, log=logged.append, tasup_dir=S.TASUP_DIR)
         self.assertEqual(sorted((p, rep > 0) for p, _, _, rep in self.board('surf_z')), [(ROU, False), (LEX, True)])
         self.assertTrue(any(line.startswith('copy skipped') for line in logged), logged)
+
+    def test_the_header_scan_is_the_clients(self):
+        head = 'FTESURF-REC 5\nmap surf_z\ntrack 0\n'
+        cases = [(head + 'begin\n1\n', True), (head.replace('\n', '\r\n') + 'begin\r\n', True),
+                 (head + '\nbegin\n', False),                       # a blank line ends the client's scan
+                 (head + '\r\nbegin\n', False),                     # so does a CRLF blank line
+                 (head + '  begin  \n', True), ('begin', True), ('', False), (head + 'beginx\n', False),
+                 ('note\n' * 63 + 'begin\n', True), ('note\n' * 64 + 'begin\n', False),
+                 ('note\n' * 56 + 'x' * 40000 + '\nbegin\n', False),  # one long line uses up ten reads
+                 ('note\n' * 52 + 'x' * 40000 + '\nbegin\n', True)]
+        for text, want in cases:
+            self.assertEqual(T.game_finds_begin(text.encode()), want, repr(text[:60]))
+        self.upload(ROU, 'surf_z', 0, 1000, body=(head + '\nbegin\n1\n').encode())
+        self.sync()
+        self.assertEqual(self.board('surf_z'), [(ROU, 'Rounin', 15000, 0)])
+
+    def test_an_old_named_copy_is_never_swept_and_dry_runs_never_sweep(self):
+        body = self.rec('surf_z', 1000)
+        self.upload(ROU, 'surf_z', 0, 1000, body=body)
+        self.sync()
+        rep = self.board('surf_z')[0][3]
+        os.utime(Path(S.TASUP_DIR) / self.copies()[0], (1, 1))
+        self.sync()
+        self.assertEqual(self.fetch(rep), (200, body))
+        orphan = Path(S.TASUP_DIR) / 'surf_q' / 'main' / ('tasup-7-%s.rec' % ('a' * 16))
+        orphan.parent.mkdir(parents=True)
+        orphan.write_bytes(b'x')
+        os.utime(orphan, (1, 1))
+        self.sync(dry_run=True)
+        self.assertTrue(orphan.exists())
+        self.sync(withdraw=True, dry_run=True)
+        self.assertTrue(orphan.exists())
+
+    def test_the_sweep_survives_unreadable_dirs_and_leaves_symlinks(self):
+        self.upload(ROU, 'surf_z', 0, 1000, body=self.rec('surf_z', 1000))
+        self.sync()
+        outside = HOME / 'outside' / 'main'
+        outside.mkdir(parents=True, exist_ok=True)
+        target = outside / ('tasup-7-%s.rec' % ('a' * 16))
+        target.write_bytes(b'x')
+        os.utime(target, (1, 1))
+        os.symlink(HOME / 'outside', Path(S.TASUP_DIR) / 'surf_link')
+        locked = Path(S.TASUP_DIR) / 'surf_locked'
+        locked.mkdir()
+        locked.chmod(0)
+        logged = []
+        try:
+            T.sync(self.store, self.db, log=logged.append, tasup_dir=S.TASUP_DIR, withdraw=True)
+        finally:
+            locked.chmod(0o755)
+            (Path(S.TASUP_DIR) / 'surf_link').unlink()
+        self.assertTrue(target.exists())
+        if os.geteuid() != 0:
+            self.assertTrue(any(line.startswith('sweep failed') for line in logged), logged)
+
+    def test_a_copy_that_cannot_be_made_is_logged_once(self):
+        self.upload(ROU, 'surf_z', 0, 1000, body=self.rec('surf_z', 1000), stored=b'tampered')
+        first, second = [], []
+        T.sync(self.store, self.db, log=first.append, tasup_dir=S.TASUP_DIR)
+        T.sync(self.store, self.db, log=second.append, tasup_dir=S.TASUP_DIR)
+        self.assertEqual(([x for x in first if x.startswith('copy')], second),
+                         (['copy refused surf_z/0 tasup-1: the stored file is not its sha256'], []))
 
     def test_cli_quiet(self):
         self.upload(ROU, 'surf_z', 0, 1000)

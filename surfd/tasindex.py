@@ -14,15 +14,19 @@ store has ever held, read by primary key; the write lock is taken only when some
 surfd.db for strays (before the lock); --withdraw takes every upload row off (rollback). surfd is not imported: its
 connect() migrates, and this runs beside whichever generation is live.
 P1870: the row's rep is a replays row of kind 'tasup' naming a copy of the upload's .rec under --tasup-dir (surfd's
-TASUP_DIR), so the game's click-to-watch works. Copies are made and checked against the upload's sha256 before the
-write lock; a row whose copy failed is filed with rep 0 as before. A 'tasup' replays row no board row names is deleted
-with its file (so --withdraw removes them all). Needs a surfd that serves kind 'tasup': deploy after that generation.
+TASUP_DIR), so the game's click-to-watch works. Copies are made (or repaired) and checked against the upload's sha256
+before the write lock; a row whose copy cannot be made, or whose header the game would not read, has rep 0. A
+'tasup' replays row no board row names is deleted with its copy, except a rejected one (its reject keys on the id; the
+upload stays off the board); unnamed copies are swept after an hour. --withdraw removes all but rejected rows. Needs a
+surfd that serves kind 'tasup': deploy after that generation, and roll back with this version's --withdraw first
+(an older tasindex does not recognise rows with a rep).
 """
 import argparse
 import hashlib
 import os
 import re
 import sqlite3
+import stat
 import sys
 import time
 
@@ -32,7 +36,7 @@ NODE, RUNID, RUNID_RE = 'tasup', 'tasup-%d', re.compile(r'^tasup-[0-9]+$')
 KIND, LEAF = 'tasup', 'tasup-%d-%s.rec'          # surfd's replays.kind and _TASLEAF_OK: id, sha256[:16]
 LEAF_RE = re.compile(r'^tasup-[1-9][0-9]{0,9}-[0-9a-f]{16}\.rec$')
 ORPHAN_AGE = 3600           # s; a copy no replays row names, older than this, is swept (a pass that lost its slot)
-HEAD_MAX = 64               # cl_online.qc OR_HEADMAX: the game reads this many lines looking for `begin`
+HEAD_MAX, LINE_MAX = 64, 4095   # cl_online.qc OR_HEADMAX fgets calls look for `begin`; PF_fgets keeps 4095 bytes
 WARN = ('copy ', 'unlink failed', 'sweep failed')      # printed even with --quiet
 RATE = 66.6667              # what lobby rows store for the game's tick; tasupd.TICK is 0.015
 MAX_TRACK = 99              # tasupd.MAX_TRACK
@@ -47,9 +51,9 @@ RCOLS = ('map', 'map_dir', 'track', 'leg', 'leaf', 'tier', 'style', 'player', 'n
          'flags', 'node', 'submitted', 'bytes', 'runid', 'bound', 'sha', 'sha_at', 'kind')
 REP_UPSERT = ('INSERT INTO replays (%s) VALUES (%s) ON CONFLICT(map, track, leg, leaf) DO UPDATE SET name = excluded.name'
               % (', '.join(RCOLS), ','.join('?' * len(RCOLS))))
-UNNAMED_ANY = ("SELECT p.id, p.map_dir, p.track, p.leaf FROM replays p WHERE p.kind = 'tasup'"
-               ' AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.replay_id = p.id)')
-UNNAMED = UNNAMED_ANY + ' AND NOT ' + REJECTED_SQL      # a rejected copy's row stays: the reject keys on its id
+# A 'tasup' row no board row names; a rejected one stays (even on --withdraw): the reject keys on its id.
+UNNAMED = ("SELECT p.id, p.map_dir, p.track, p.leaf FROM replays p WHERE p.kind = 'tasup'"
+           ' AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.replay_id = p.id) AND NOT ' + REJECTED_SQL)
 
 
 def connect(path, readonly=False):
@@ -86,6 +90,33 @@ def sha_file(path):
         return hashlib.sha256(f.read()).hexdigest()
 
 
+def game_finds_begin(data):
+    """cl_online.qc Online_RecName's header scan, so a copy the game cannot store gets no rep: HEAD_MAX calls of
+    PF_fgets (pr_bgcmd.c, FILE_READ): each reads to the next \\n dropping \\r, keeps at most LINE_MAX bytes (the byte
+    that meets the cap is consumed, not kept); an empty line or the end ends the scan (`!l`), a first word `begin`
+    succeeds. Splits on ASCII whitespace where tokenize takes every byte <= ' ': the gap only refuses."""
+    pos, end = 0, len(data)
+    for _ in range(HEAD_MAX):
+        if pos >= end:
+            return False
+        line = bytearray()
+        while pos < end:
+            c = data[pos]
+            pos += 1
+            if c == 10:
+                break
+            if c == 13:
+                continue
+            if len(line) + (2 if c == 0 else 1) > LINE_MAX:
+                break
+            line += b'\xc0\x80' if c == 0 else bytes((c,))
+        if not line:
+            return False
+        if line.split()[:1] == [b'begin']:
+            return True
+    return False
+
+
 def has_copy(tasup_dir, key, up):
     try:
         return sha_file(copy_path(tasup_dir, key, up)) == up[3]
@@ -93,33 +124,30 @@ def has_copy(tasup_dir, key, up):
         return False
 
 
-def copy_rec(store, tasup_dir, key, up, log, write=True):
+def copy_rec(store, tasup_dir, key, up, write=True):
     """Put the upload's .rec at copy_path, checked against its sha256 (write=False: only check it could be).
-    -> True when it is there."""
+    -> (True, '') when it is there, else (False, why): logged by sync only when it changes a row."""
     if has_copy(tasup_dir, key, up):
-        return True
+        return True, ''
     dst = copy_path(tasup_dir, key, up)
+    what = '%s/%d tasup-%d' % (key[0], key[1], up[0])
     try:
         with open(rec_path(store, up[3]), 'rb') as f:
             data = f.read()
         if hashlib.sha256(data).hexdigest() != up[3]:
-            log('copy refused %s/%d tasup-%d: the stored file is not its sha256' % (key[0], key[1], up[0]))
-            return False
-        if not any(line.split()[:1] == [b'begin'] for line in data.split(b'\n', HEAD_MAX)[:HEAD_MAX]):
-            log('copy skipped %s/%d tasup-%d: no begin in the first %d lines, the game could not read it'
-                % (key[0], key[1], up[0], HEAD_MAX))
-            return False
+            return False, 'copy refused %s: the stored file is not its sha256' % what
+        if not game_finds_begin(data):
+            return False, 'copy skipped %s: the game would not find its begin line' % what
         if not write:
-            return True
+            return True, ''
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         tmp = dst + '.part'
         with open(tmp, 'wb') as f:
             f.write(data)
         os.replace(tmp, dst)
-        return True
+        return True, ''
     except OSError as e:
-        log('copy failed %s/%d tasup-%d: %s' % (key[0], key[1], up[0], e))
-        return False
+        return False, 'copy failed %s: %s' % (what, e)
 
 
 def read_store(store):
@@ -211,7 +239,7 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, 
     if withdraw:
         best, full = {}, True
     n = dict(added=0, updated=0, removed=0, refilled=0, kept_lobby=0, skipped=0, reps=0, unreps=0)
-    copied = {}                             # upload id -> its copy is in place (made before the lock)
+    copied, whys = {}, {}                   # upload id -> its copy is in place (made before the lock); why not
     gone = []                               # copies to unlink once the deletes are committed
     db = connect(surfd_db)
     try:
@@ -238,7 +266,7 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, 
 
         def copy_once(key, up):
             if up[0] not in copied:
-                copied[up[0]] = copy_rec(store, tasup_dir, key, up, log, write=not dry_run)
+                copied[up[0]], whys[up[0]] = copy_rec(store, tasup_dir, key, up, write=not dry_run)
             return copied[up[0]]
 
         def copy_known(key, up):            # under the lock: no copying, only what pass 1 made or a check
@@ -252,8 +280,7 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, 
                     n[a] += 1
             if any(a not in ('kept_lobby', 'skipped') for a, _ in acts):
                 todo.append(key)
-        unnamed = UNNAMED_ANY if withdraw else UNNAMED
-        if not todo and db.execute(unnamed + ' LIMIT 1').fetchone() is None:
+        if not todo and db.execute(UNNAMED + ' LIMIT 1').fetchone() is None:
             if not dry_run:
                 sweep_copies(db, tasup_dir, log, 0 if withdraw else ORPHAN_AGE)
             return n
@@ -274,7 +301,9 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, 
                 n[a] += 1
                 what = '' if not isinstance(arg, dict) else ' ' + (arg['runid'] or 'rep %d' % arg['replay_id'])
                 log('%s %s/%d %s%s' % ((a,) + key + (what,)))
-        for r in db.execute(unnamed).fetchall():           # a copy no board row names any more
+                if a in ('added', 'updated') and arg['replay_id'] == 0 and whys.get(best[key][0]):
+                    log(whys[best[key][0]])     # once: the pass that files the row without its replay
+        for r in db.execute(UNNAMED).fetchall():           # a copy no board row names any more
             db.execute('DELETE FROM replays WHERE id = ?', (r['id'],))
             gone.append(os.path.join(tasup_dir, r['map_dir'], leg_dir(r['track']), r['leaf']))
             n['unreps'] += 1
@@ -304,20 +333,33 @@ def sweep_copies(db, tasup_dir, log, min_age):
     named = {(r['map_dir'], leg_dir(r['track']), r['leaf'])
              for r in db.execute("SELECT map_dir, track, leaf FROM replays WHERE kind = 'tasup'")}
     now = time.time()
-    try:
-        maps = os.listdir(tasup_dir)
-    except FileNotFoundError:
-        return
-    for mp in maps:
-        for lg in (os.listdir(os.path.join(tasup_dir, mp)) if os.path.isdir(os.path.join(tasup_dir, mp)) else []):
+
+    def entries(d, want):                   # names of real (not symlinked) dirs or files in d; errors logged
+        try:
+            names = os.listdir(d)
+        except FileNotFoundError:
+            return []
+        except OSError as e:
+            log('sweep failed %s: %s' % (d, e))
+            return []
+        out = []
+        for name in names:
+            try:
+                if want(os.lstat(os.path.join(d, name)).st_mode):
+                    out.append(name)
+            except OSError:
+                pass
+        return out
+    for mp in entries(tasup_dir, stat.S_ISDIR):
+        for lg in entries(os.path.join(tasup_dir, mp), stat.S_ISDIR):
             d = os.path.join(tasup_dir, mp, lg)
-            for leaf in (os.listdir(d) if os.path.isdir(d) else []):
+            for leaf in entries(d, stat.S_ISREG):
                 base = leaf[:-5] if leaf.endswith('.part') else leaf
-                path = os.path.join(d, leaf)
-                if not LEAF_RE.match(base) or ((mp, lg, leaf) in named) or not os.path.isfile(path):
+                if not LEAF_RE.match(base) or (mp, lg, leaf) in named:
                     continue
+                path = os.path.join(d, leaf)
                 try:
-                    if now - os.path.getmtime(path) >= min_age:
+                    if now - os.lstat(path).st_mtime >= min_age:
                         os.unlink(path)
                         log('swept %s/%s/%s' % (mp, lg, leaf))
                 except OSError as e:
