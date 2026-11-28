@@ -94,8 +94,10 @@ def game_finds_begin(data):
     """cl_online.qc Online_RecName's header scan, so a copy the game cannot store gets no rep: HEAD_MAX calls of
     PF_fgets (pr_bgcmd.c, FILE_READ): each reads to the next \\n dropping \\r, keeps at most LINE_MAX bytes (the byte
     that meets the cap is consumed, not kept); an empty line or the end ends the scan (`!l`); a first word `begin`
-    succeeds when the last `FTESURF-REC <ver>` before it read >= 1 (stof). A NUL refuses (Online_ReplayStore's fputs
-    would cut there). ASCII splitting and a decimal-only stof can only refuse more than tokenize/stof."""
+    succeeds when the last `FTESURF-REC <ver>` before it read >= 1 (stof = atof). A NUL refuses (Online_ReplayStore's
+    fputs would cut there). tokenize (qctokenize: quotes, {}()[]':,; and every byte <= ' ' split) is not replayed:
+    a line it could read as FTESURF-REC or begin while a plain split does not, or any \\" (its C-string escapes),
+    refuses the file instead. Fuzzed against a C model of PF_fgets/COM_StringParse: no file accepted that it fails."""
     if b'\x00' in data:
         return False
     pos, end, ver = 0, len(data), 0.0
@@ -115,11 +117,17 @@ def game_finds_begin(data):
             line.append(c)
         if not line:
             return False
+        if b'\\"' in line:                   # tokenize's C-string escapes (COM_ParseCString): not replayed
+            return False
         words = line.split()
+        bare = line.lstrip(bytes(range(33)) + b'"\'\\')
+        for kw in (b'FTESURF-REC', b'begin'):
+            if bare.startswith(kw) and not (words[:1] == [kw] and line[:1] in (b' ', b'\t', kw[:1])):
+                return False
         if words[:1] == [b'begin']:
             return ver >= 1
         if len(words) >= 2 and words[0] == b'FTESURF-REC':
-            num = re.match(rb'[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)', words[1])
+            num = re.match(rb'[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?', words[1])
             ver = float(num.group()) if num else 0.0
     return False
 
