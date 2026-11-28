@@ -17746,13 +17746,10 @@ measured evidence, not implied by preparing a feed.
   uses `RESTRICT_LOCAL`.
 - fteqcc parses `x = a && b` as `(x = a) && b`: assignment binds tighter than
   `&&` and `||` (measured: `t = !first && FALSE` gave 1). Wrap the whole
-  right-hand side, `x = (a && b);`, as the tree mostly does. Still unwrapped in
-  committed code, left for a decision because fixing them changes behaviour:
-  `snapang` in trigger_teleport_touch (sv_entities.qc) and its mirror in
-  TG_FireTeleport (cl_triggers.qc) -- the keep-angles flag is ignored on both
-  sides; `probe`/`hit` in TG_ChainStart and Trig_ConsoleCommand (cl_triggers.qc);
-  `lpd_active` in Portal_LoadForMap; `onpanel` in Ev_InputEvent; `vote_on` in
-  Vote_Frame; `vbsp_retrigger` in SV_UpdateMovementServerInfo.
+  right-hand side, `x = (a && b);`. Patch 1890 (28 Nov) wrapped the last three
+  (cl_gamemode/cl_gfx hover, cl_sun's vbsp_skyroom); a statement scan of src/
+  then found none unwrapped. The earlier list here (snapang, probe/hit,
+  lpd_active, onpanel, vote_on, vbsp_retrigger) had been wrapped before that.
 - **A QC INTEGER LITERAL IS A FLOAT UNLESS IT CARRIES AN `i` SUFFIX, AND AN `int`
   LOCAL ABSORBS ONE WITH NO WARNING.** Measured in both VMs (Patch 496): with
   `local int x`, `x = 2144999 * 1000 + 952` stores **2144999936** and

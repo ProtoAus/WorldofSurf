@@ -21,6 +21,10 @@
 
 ## next
 
+### P1890 Menu highlights and the sky room sun
+- The Movement mode list and the Graphics menu's buttons light up only under the pointer; before, every row and button looked highlighted all the time.
+- With the 3D sky room turned off, the sun is no longer hidden by sky room scenery you cannot see.
+
 ### P1870 Watch uploaded TAS runs
 - Uploaded TAS runs on the in-game TAS board can be watched now: click the run, as with any other record.
 

@@ -969,7 +969,7 @@ float(string id, vector pos, vector sz, float rad, string label, float tsz, floa
 	local float hot, tw;
 
 	sui_action_element(pos, sz, id, sui_noop);
-	hot = live && sui_is_hovered(id);
+	hot = (live && sui_is_hovered(id));
 	if (hot)
 		sui_style_box(pos, sz, rad, on ? SUI_THEME_SELECTED : SUI_THEME_HOVER, SUI_THEME_EDGE_HI, 1);
 	else
