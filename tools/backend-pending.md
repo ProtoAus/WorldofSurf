@@ -14,12 +14,23 @@ surf_sandtrap2 main rep 87439, Proto bonus 4 rep 87440; copies in /srv/nvme/surf
 bytes = the store's sha256; /api/board rows carry the reps. ROLLBACK ORDER: 39294036's tasindex --withdraw FIRST, then repoint
 the unit at d8c49533 (an older tasindex ignores rows with a rep; gen1857 surfd cannot serve 'tasup').
 
+## 28 Nov 2026: gen1859 (worldofsurf-62) -- P1868 + the P1867/P1865/P1869 readers + P1862 viewmodel, waiting for Lex's Root
+Kit FTESurf-private/worktrees/gen1859-20261128-62 at REF de682bac (PIN 0c8c8aaa, owner-install.sh b5ad0557), STAGED inert
+12:29Z, preview PASS, independent kit review running; DB backup surfd.db.bak-pre1859-20261128T122753Z (sha 31629df5).
+- P1868 (main e494aab4..114bdd07): receipts.ticks (additive, receipts_v8 at startup); the sweep stores svticks; admin top-10,
+  the run page and NOEV attach a receipt only to the finish it is for (-1/-2 as before). 3 review rounds x 2 lenses.
+- Readers hand-installed at step 6: rcptcheck (P1867 4c341454 + P1869), reccheck + hidcheck (P1865 51ddf7e7 + P1869
+  de682bac: non-finite/out-of-range journal views can no longer stop or empty the journal check; a raising check is BLIND).
+- P1862 (worldofsurf-28): surfd/viewmodel.py limits() hands 32-63.
+- After LIVE: export receipts, then --reread-receipts (expect the 6 P1867 FAULTs -> VALID; 3 top-10 rows read 'other
+  finish'). P1865's writer (lobby engine + game QC, switch off; client) lands on main after this, deploys after LIVE.
+
 ## 28 Nov 2026 UTC: generation 1858 LIVE since 11:27:19Z -- P1864 + P1870's surfd half (worldofsurf-62)
 Lex Root 10:59:44Z (backup .owner-backup-p1864-_kdexbfm; proposal conf ca1aaed8, observe 159c5ad9, policy a6da89e7, probe
 50a8a3b7 unchanged). PIN a501e834, REF 2cb308fd, independent token CLEAR (REV 02475b24). run_window launched 11:24:15Z,
 ACTUAL_TRANSITION_RETURNED 11:27:19Z; primary 5180d72f, manifest 836ffda8; surfd up 11:26:23Z. POSTFLIGHT PASS: readers
-unchanged (rcptcheck 32c88865, reccheck 651abe91, recsim b5890190), native df333e50, crontab, 56 tables, routes. Pending:
---mapwatch-only after 12:23Z, --mapnew-only after the next :28/:58. Live from source 9b5d96fe: P1864 (heartbeat 503 +
+unchanged (rcptcheck 32c88865, reccheck 651abe91, recsim b5890190), native df333e50, crontab, 56 tables, routes. mapnew PASS 11:31Z,
+mapwatch PASS 12:26Z. Live from source 9b5d96fe: P1864 (heartbeat 503 +
 Retry-After on a held write lock; /api/run 10 s, /api/tournaments/game 8 s) and P1870's surfd half ('tasup' replays).
 Told worldofsurf-33: it repoints tasindex (P1870's other half). Rollback after that: tasindex --withdraw FIRST.
 
