@@ -1123,14 +1123,12 @@ def check_hid(path, verbose=False, *, data=None, angle_authority=None):
                     r.fault("line %d: non-finite view observation; angle/counts "
                             "comparisons unavailable, not an angle accusation"
                             % (lineno + 1))
-                elif abs(view[4]) > V_PITCH_MAX or abs(view[5]) > V_YAW_MAX:
-                    # P1869: the yaw tolerance grows with |yaw| (at ~1e8, 20 deg no-count turns read clean) and a
-                    # pitch past the clamp gate turns accusations into unresolved frames. Unusable, not a fault
-                    # (review 2: a local server's maxpitch may pass 90, and the journal does not record it).
-                    if "v" not in bad_observers:
-                        r.note("line %d: view angle out of range (pitch %g, yaw %g); angle/counts comparisons "
-                               "unavailable" % (lineno + 1, view[4], view[5]))
+                elif abs(view[5]) > V_YAW_MAX:
+                    # P1869: the yaw tolerance grows with |yaw| (at ~1e8, 20 deg no-count turns read clean);
+                    # CL_ClampPitch keeps an honest yaw under 360. A fault, so it can never hide one (review 3).
                     bad_observers.add("v")
+                    r.fault("line %d: view yaw out of range (%g); angle/counts comparisons unavailable, not an "
+                            "angle accusation" % (lineno + 1, view[5]))
                 # Patch 312: close the window this 'v' ends. The expected raw is
                 # the 'd' record if the frame had one and the v's own delta if it
                 # did not -- a missing 'd' IS the claim that they are equal.
@@ -2791,6 +2789,8 @@ def angle_server_row(words):
 
 # P1869: 271 stored journals, 8.5M 'v' rows (28 Nov): |yaw| <= 360 (CL_ClampPitch normalises it), |pitch| <= 89.
 # 720 keeps the |yaw| x 2^-22 tolerance under 2e-4 deg a frame (review 2: 3600 allowed ~0.8 deg/s of free drift).
+# A pitch past 90 may be honest (a local server's maxpitch; the journal does not record it): that frame's pitch is
+# not judged, counted as clamp, and nothing else changes (review 3: marking the stream unusable erased other faults).
 V_YAW_MAX = 720.0
 V_PITCH_MAX = 90.0
 
@@ -3397,7 +3397,8 @@ def check_identity(r, head, views, controller=False, unavailable=False,
                 continue
             bp = baseline[0] if baseline else p[4]
             pred = kpt * c[2] + c[6]
-            if pred > PITCH_ENV - bp or pred < -PITCH_ENV - bp:
+            if (pred > PITCH_ENV - bp or pred < -PITCH_ENV - bp
+                    or abs(bp) > V_PITCH_MAX or abs(c[4]) > V_PITCH_MAX):
                 p_abst += 1     # the clamp may have truncated it: not governed
                 p_excl["clamp"] = p_excl.get("clamp", 0) + 1
                 continue

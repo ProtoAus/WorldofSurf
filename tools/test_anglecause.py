@@ -392,19 +392,42 @@ class OutOfRangeTests(unittest.TestCase):
     """P1869 review 1: a huge finite yaw widened the identity tolerance (|yaw| x 2^-22) until no-count turns passed;
     a pitch past the clamp gate turned accusations into unresolved frames; a huge angle overflowed _short_span."""
 
-    def test_out_of_range_view_is_unusable_not_clean_and_not_a_fault(self):
-        text, scope = fixture()
+    def _with_view(self, text, field, value):
         lines = text.splitlines()
         idx = max(i for i, line in enumerate(lines) if line.startswith("v "))
-        for field, value, bad in ((6, "720.500000", True), (6, "-1e8", True), (5, "95.000000", True),
-                                  (5, "-90.500000", True), (6, "359.999786", False), (5, "89.000000", False)):
-            tok = lines[idx].split(" ")
-            tok[field] = value
-            report = read("\n".join(lines[:idx] + [" ".join(tok)] + lines[idx + 1:]) + "\n", scope)
-            self.assertEqual(any("view angle out of range" in n for n in report.notes), bad, (value, report.notes))
-            self.assertFalse(any("out of range" in f for f in report.faults), report.faults)
-            if bad:
-                self.assertEqual(report.info.get("identity_blind"), "unusable view observation", report.info)
+        tok = lines[idx].split(" ")
+        tok[field] = value
+        return "\n".join(lines[:idx] + [" ".join(tok)] + lines[idx + 1:]) + "\n"
+
+    def test_out_of_range_yaw_faults_honest_range_does_not(self):
+        text, scope = fixture()
+        for value, bad in (("720.500000", True), ("-1e8", True), ("359.999786", False), ("-720.000000", False)):
+            report = read(self._with_view(text, 6, value), scope)
+            self.assertEqual(any("view yaw out of range" in f for f in report.faults), bad, (value, report.faults))
+
+    def test_out_of_range_pitch_is_one_unjudged_frame_never_a_stream_kill(self):
+        text, scope = fixture()
+        for value in ("95.000000", "-90.500000", "200.000000"):
+            report = read(self._with_view(text, 5, value), scope)
+            self.assertFalse(report.faults, report.faults)
+            self.assertNotEqual(report.info.get("identity_blind"), "unusable view observation", report.info)
+        # review 3: one out-of-range line must not erase a fault the journal already carries
+        def assisted(extra_pitch=None):
+            j = Journal(p293=True)
+            yaw = 0.0
+            for i in range(50):
+                j.frame(3000 + i)
+                j.mouse(5, 0)
+                yaw += j.k * (5 if i < 40 else 7)       # test_hidcheck case_mutated_delta's assist
+                j.view(5, 0, 10.0, yaw)
+            if extra_pitch is not None:
+                j.frame(3050)
+                j.view(0, 0, extra_pitch, yaw)
+            return hidcheck.check_hid("_assisted.hid", data=j.end().encode())
+        self.assertTrue(any("YAW IDENTITY BROKEN" in f for f in assisted().faults), "control: the assist faults")
+        for pitch in (91.0, 200.0, -95.0):
+            report = assisted(pitch)
+            self.assertTrue(any("YAW IDENTITY BROKEN" in f for f in report.faults), (pitch, report.faults))
 
     def test_short_span_never_raises(self):
         self.assertFalse(hidcheck._short_span([1e305, 2e305], 0))
