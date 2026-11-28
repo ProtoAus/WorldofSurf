@@ -715,7 +715,7 @@ def join_journal_authority(r, rcptcheck, *, discover_rec=False):
     # Eligibility hint only; the existing reader still owns every codec/join.
     operations = (line.split() for line in lines[begin + 1:]
                   if line.startswith(b"angleop "))
-    if not any(len(fields) == 15 and fields[8:11] != fields[11:14]
+    if not any(len(fields) in (15, 16) and fields[8:11] != fields[11:14]   # P1865: a delta adds its packet
                for fields in operations):
         return
     auxiliary = copy.deepcopy(r)

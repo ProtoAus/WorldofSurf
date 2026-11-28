@@ -80,7 +80,7 @@ EXP_RE = re.compile(r"^[+-]?\d+(\.\d+)?[eE][+-]?\d+$")
 # columns (record -> token indices, keyword at 0) and still a fault in every
 # other one: integers, and the fixed-point sample/angle columns.  v8 and older
 # keep the blanket rule.
-EXP_OK_V9 = {"savejoin": set(range(3, 61)), "angleop": {4, 8}, "in": {3}, "warp": set(range(5, 11)), "ride": {4, 5, 6},
+EXP_OK_V9 = {"savejoin": set(range(3, 61)), "angleop": {4, 8, 9, 10}, "angleack": {4, 7}, "in": {3}, "warp": set(range(5, 11)), "ride": {4, 5, 6},   # P1865: angleop/angleack hex words
              "seed": set(range(1, 7)), "portal": set(range(4, 10)),
              "inend": {2}, "pause": {2}, "session": {3},     # Patch 364: <carry>
              "spec": set(range(4, 11)),                      # Patch 382: <carry> <o> <v>
@@ -817,7 +817,7 @@ def prove_input_cadence(lines, head):
     # These records do not alter the consumed fine clock. Unknown context is
     # unavailable, never permission to fit a new origin to visual timestamps.
     inert = {"zseed", "cseq", "pm", "pe", "mc", "portal", "warp", "ride",
-             "angleop", "nonce", "cp", "board", "prof", "plat", "pad", "clk", "split"}
+             "angleop", "angleack", "nonce", "cp", "board", "prof", "plat", "pad", "clk", "split"}
     lifecycle = {"seed", "in", "savejoin", "pause", "resume", "retry",
                  "session", "clockend", "inend", "end"}
     startlag_seen = False
@@ -1088,6 +1088,9 @@ def _check_rec(r, path, verbose=False, *, data=None):
                 lines[i] != "anglecause " + hvalue.strip()):
             r.fault("duplicate/noncanonical anglecause declaration")
             head[parts[0]] = "invalid"
+        elif parts[0] in ("angleop", "angleack"):
+            # P1865: as the native verifier (refused) and the held ledger (malformed) settle it
+            r.fault("line %d: angle operation outside body" % (i + 1))
         else:
             head[parts[0]] = hvalue
         if parts[0] not in allowed:
@@ -1607,6 +1610,7 @@ def _check_rec(r, path, verbose=False, *, data=None):
     open_pause = None       # the pause no session has answered yet
     renonces = []           # Patch 416: body `nonce` records (lineno, mt, hex)
     angle_ops, angle_lastop = {}, {}
+    angle_acks_ignored = 0      # P1865: well-formed angleack rows that license nothing
     cur_horizon = in_start
     in_paused = 0           # `in` rows / samples inside a pause (reported once)
     # Patch 382: spectate windows.
@@ -2359,6 +2363,34 @@ def _check_rec(r, path, verbose=False, *, data=None):
                 angle_lastop[operation["nonce"]] = operation["opid"]
             except (ValueError, ImportError, AttributeError) as exc:
                 r.fault("line %d: %s" % (lineno + 1, exc))
+        elif kind == "angleack":
+            # P1865: the first command acknowledging a delta's packet, tied to its operation once. Only its shape
+            # can fault. One that names no delta of the active nonce (an orphan, an ABS operation, another nonce),
+            # comes before its operation, repeats, or sits in a pause or spec window licenses nothing: the native
+            # verifier and the held ledger accept the same rows, and a repeat voids the operation's ack.
+            try:
+                if head.get("anglecause") != "1":
+                    raise ValueError("angleack requires anglecause 1")
+                if trailer_at is not None:
+                    raise ValueError("angleack after the trailer")
+                if lines[lineno] != " ".join(tok):
+                    raise ValueError("noncanonical physical angleack row")
+                import hidcheck
+                ack = hidcheck.angle_ack_row(tok)
+            except (ValueError, ImportError, AttributeError) as exc:
+                r.fault("line %d: %s" % (lineno + 1, exc))
+            else:
+                active_nonce = renonces[-1][2] if renonces else nonce
+                operation = angle_ops.get((ack["nonce"], ack["opid"]))
+                if (open_pause is not None or spec_open is not None or ack["nonce"] != active_nonce
+                        or operation is None or operation.get("wirefmt") != "qwdel2n"):
+                    angle_acks_ignored += 1
+                elif "ack" in operation or operation.get("ack_void"):
+                    operation.pop("ack", None)
+                    operation["ack_void"] = True
+                    angle_acks_ignored += 1
+                else:
+                    operation["ack"] = {"cmdseq": ack["cmdseq"], "angles": ack["angles"]}
         elif kind == "nonce" and ver >= 10:
             # Patch 416: a SECOND client was handed this run -- a Multi-Session
             # resume, which can be another machine days later and never saw the
@@ -3980,6 +4012,7 @@ def _check_rec(r, path, verbose=False, *, data=None):
     if head.get("anglecause") == "1":
         r.angle_ops = angle_ops if not r.faults else {}
         r.info["anglecause_operations"] = len(angle_ops) if not r.faults else None
+        r.info["anglecause_acks_ignored"] = angle_acks_ignored if not r.faults else None
     return r
 
 

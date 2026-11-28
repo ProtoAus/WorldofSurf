@@ -1312,7 +1312,7 @@ def case_delayed_journal_angle_authority():
     import json
     if TOOLS not in sys.path:
         sys.path.insert(0, TOOLS)
-    from test_anglecause import fixture, rec_bytes, wire
+    from test_anglecause import DJ, fixture, rec_bytes, wire
     from test_reccheck import view_for
 
     nonce = "d6c6820bca16750c77166d96dcf02787"  # make_receipt's synthetic signer
@@ -1322,14 +1322,24 @@ def case_delayed_journal_angle_authority():
     original_rec, _row = rec_bytes()
     rec = original_rec.decode().replace("0" * 32, nonce).replace("20260914-000000-0", rid)
     view = ("\n".join(view_for(rec.splitlines())) + "\n").encode()
+    # P1865: a delta's journal line carries its packet (16 words); the late read must still fetch REC custody. A
+    # delta is never accounted on client labels, so the late result stays BLIND.
+    delta_rec = rec_bytes("qwdel2n")[0].decode().replace("0" * 32, nonce).replace("20260914-000000-0", rid)
+    dj = DJ(start=(0.0, 0.0))
+    dj.frame(n=3)
+    drow, draw = dj.server(seq=77)
+    dj.apply(drow, draw, packet=77)
+    dj.frame(n=2)
+    delta_hid = dj.j.end().replace("0" * 32, nonce).encode()
     for kind in ("supported", "missing", "wrong-operation", "wrong-nonce",
-                 "unreadable", "prior-fault", "key-change", "no-operation", "no-op"):
+                 "unreadable", "prior-fault", "key-change", "no-operation", "no-op", "delta"):
         surfd, sweep, _runs = fresh()
         sweep.TOOLS = TOOLS
         conn = surfd.connect()
         now = int(time.time())
         age = now - 2 * surfd.EVIDENCE_SETTLE
-        payload = hid
+        payload = delta_hid if kind == "delta" else hid
+        krec = delta_rec if kind == "delta" else rec
         if kind == "no-operation":
             payload = "\n".join(line for line in hid.decode().splitlines()
                                 if not line.startswith("angleop ")).encode() + b"\n"
@@ -1338,7 +1348,7 @@ def case_delayed_journal_angle_authority():
             payload = no_op.replace("0" * 32, nonce).encode()
         rp, _pub = make_receipt(surfd.EVIDENCE_DIR, rid, age=age, hid=payload, view=view)
         os.remove(rp[:-5] + ".hid")
-        initial_rec = rec.replace(nonce, "1" * 32) if kind == "prior-fault" else rec
+        initial_rec = rec.replace(nonce, "1" * 32) if kind == "prior-fault" else krec
         rc = with_rec(surfd, sweep, rid, initial_rec)
         recpath = os.path.join(rc.GAME, "data", "evidence", "bhop_eazy", rid + ".rec")
         try:
@@ -1350,7 +1360,7 @@ def case_delayed_journal_angle_authority():
             with open(rp[:-5] + ".hid", "wb") as fh:
                 fh.write(payload)
             # Optional authority changes after the original observation.
-            changed = rec
+            changed = krec
             if kind == "wrong-operation":
                 changed = rec.replace(wire(), wire(pose=(31, 80, 0)))
             elif kind == "wrong-nonce":

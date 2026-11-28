@@ -72,6 +72,7 @@ Usage:
 """
 
 import argparse
+import bisect
 import glob
 import io
 import math
@@ -1146,6 +1147,8 @@ def check_hid(path, verbose=False, *, data=None, angle_authority=None):
                 r.fault("line %d: 'f' has an unusable clock or non-numeric field" % (lineno + 1))
                 continue
             seqs.append(seq)
+            if angle_trace is not None:
+                angle_trace.frames.append((lineno + 1, seq))
             if first_f is None:
                 first_f = abst
             last_f = abst
@@ -2349,9 +2352,12 @@ def check_hid(path, verbose=False, *, data=None, angle_authority=None):
         scope = angle_authority or {}
         angle_bases, angle_unbound = angle_trace.resolve(
             r, views, scope.get("operations", {}), scope.get("nonce"))
+    snaps = {}
     check_identity(r, idhead, views, controller=controller,
                    unavailable="v" in bad_observers,
-                   angle_bases=angle_bases, angle_unbound=angle_unbound)
+                   angle_bases=angle_bases, angle_unbound=angle_unbound, snaps=snaps)
+    if angle_trace is not None:
+        angle_trace.count_predicted(r, views, snaps)
     # Patch 312, and ABOVE the same bail-out for the same reason -- plus its own:
     # the join is the one check whose most interesting subject is a file with
     # counts that reached no view at all.
@@ -2688,17 +2694,91 @@ def angle_wire(wirefmt, wirehex):
     return tuple(pose)
 
 
+def angle_delta(wirefmt, wirehex):
+    """P1865: svcfte_setangledelta (85) with three angle16, the form FTE clients get for most server
+    angle sets (PEXT2_SETANGLEDELTA). The client adds each float32 delta to its float32 view."""
+    if wirefmt != "qwdel2n":
+        raise ValueError("unsupported angle-operation wire format")
+    wire = _angle_hex(wirehex, 7)
+    if wire[0] != 85:
+        raise ValueError("angle-operation wire is not a QW setangledelta")
+    return tuple(_f32(v * (360.0 / 65536)) for v in struct.unpack("<hhh", wire[1:]))
+
+
+def angle_operation(wirefmt, wirehex):
+    """('abs', pose) or ('delta', delta); anything else is unsupported."""
+    if wirefmt == "qwdel2n":
+        return "delta", angle_delta(wirefmt, wirehex)
+    return "abs", angle_wire(wirefmt, wirehex)
+
+
+def _f32(value):
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+ANGLE_DELTA_RANGE = 1000000.0   # AC_DeltaInRange: outside it the engine sends the old way and writes no row
+
+
+def delta_wire(target, lastcmd):
+    """The bytes SV_SendFixAngle sends (AC_DeltaWire): float32 newa = target - SHORT2ANGLE(lastcmd), then
+    MSG_WriteAngle16's float32 rounding, little-endian. None outside AC_DeltaInRange (no license, never a fault)."""
+    if not all(math.isfinite(t) and abs(t) <= ANGLE_DELTA_RANGE for t in target):
+        return None
+    out = [85]
+    for t, l in zip(target, lastcmd):
+        newa = _f32(t - l * (360.0 / 65536))
+        scaled = _f32(newa * _f32(65536.0 / 360.0))
+        v = int(_f32(scaled + 0.5)) if newa >= 0 else int(_f32(scaled - 0.5))
+        v &= 65535
+        out += [v & 255, v >> 8]
+    return bytes(out).hex()
+
+
+def _short_span(angles, short):
+    """P136 sends a lerp of two neighbouring frames' views (cl_input.c:2161-2165) and ANGLE2SHORT truncates, so a
+    command's short lies within one unit of the truncated span of the views it could have been resampled from;
+    the journal prints views to 1e-6 deg. Taken modulo 65536 (yaw wraps)."""
+    if not angles or not all(math.isfinite(a) for a in angles):
+        return False
+    ds = [((int(a * 65536 / 360.0) - short + 32768) & 0xffff) - 32768 for a in angles]
+    return min(ds) - 1 <= 0 <= max(ds) + 1
+
+
+def angle_ack_row(words):
+    """P1865 REC row: angleack <pk> <mt> <row> <nonce> <opid> <cmdseq> <angles s16x3 hex>."""
+    if len(words) != 8 or words[0] != "angleack":
+        raise ValueError("angleack needs pk mt row nonce opid cmdseq angles")
+    tuple(_angle_uint(w, 32) for w in words[1:4])     # AC_U32, as the native readers take pk/mt/row
+    _angle_hex(words[4], 16)
+    return {"nonce": words[4], "opid": _angle_uint(words[5], positive=True),
+            "cmdseq": _angle_uint(words[6], 32), "angles": struct.unpack(">hhh", _angle_hex(words[7], 6))}
+
+
 def angle_server_row(words):
-    """Shared strict REC schema; authority comes from server artifact custody."""
-    if len(words) != 9 or words[0] != "angleop":
-        raise ValueError("angleop needs pk mt row nonce opid basis wirefmt wirehex")
-    context = tuple(_angle_uint(w, 31) for w in words[1:4])
+    """Shared strict REC schema; authority comes from server artifact custody. P1865: a qwdel2n row adds the
+    server's target (float32 bits), the lastcmd angles it subtracted (shorts) and the outgoing packet sequence."""
+    delta = len(words) > 7 and words[7] == "qwdel2n"
+    if len(words) != (13 if delta else 9) or words[0] != "angleop":
+        raise ValueError("angleop needs pk mt row nonce opid basis wirefmt wirehex"
+                         + (" target lastcmd lastseq seq" if delta else ""))
+    context = tuple(_angle_uint(w, 32) for w in words[1:4])   # AC_U32 (P1865 codec #5: was 31 bits here only)
     _angle_hex(words[4], 16)
     opid = _angle_uint(words[5], positive=True)
     basis = _angle_uint(words[6], 32)
-    angle_wire(words[7], words[8])
-    return {"context": context, "nonce": words[4], "opid": opid,
-            "basis": basis, "wirefmt": words[7], "wirehex": words[8]}
+    angle_operation(words[7], words[8])
+    row = {"context": context, "nonce": words[4], "opid": opid,
+           "basis": basis, "wirefmt": words[7], "wirehex": words[8]}
+    if delta:
+        row["target"] = _angle_pose([words[9][i:i + 8] for i in (0, 8, 16)]) if len(words[9]) == 24 else \
+            _angle_pose(["x"])
+        raw = _angle_hex(words[10], 6)
+        row["lastcmd"] = struct.unpack(">hhh", raw)
+        row["lastseq"] = _angle_uint(words[11], 32)
+        row["seq"] = _angle_uint(words[12], 32)
+        # A wire that is not target minus lastcmd, or a target outside the engine's range, licenses nothing; the
+        # native verifier accepts the row's shape, so neither is a schema fault here.
+        row["consistent"] = delta_wire(row["target"], row["lastcmd"]) == words[8]
+    return row
 
 
 class AngleCauseTrace:
@@ -2718,18 +2798,22 @@ class AngleCauseTrace:
         self.lastop = {}
         self.lastend = 0
         self.bad = False
+        self.frames = []          # P1865: (line, cl.movesequence) of every `f` record
+        self.predicted_candidates = []
 
     def capture(self, words, line, views):
         if len(words) < 2 or words[1] != "0":
             raise ValueError("angle annotation requires canonical serialization dt0")
         kind = words[0]
         if kind == "angleop":
-            if len(words) != 15:
-                raise ValueError("angleop needs source, disposition, two poses and interval")
+            delta = len(words) > 5 and words[5] == "qwdel2n"
+            if len(words) != (16 if delta else 15):
+                raise ValueError("angleop needs source, disposition, two poses and interval"
+                                 + (" and packet" if delta else ""))
             _angle_hex(words[2], 16)
             opid = _angle_uint(words[3], positive=True)
             basis = _angle_uint(words[4], 32)
-            angle_wire(words[5], words[6])
+            angle_operation(words[5], words[6])
             if words[7] not in {"direct", "predicted", "consumed", "interleaved"}:
                 raise ValueError("unknown angle-operation disposition")
             pre, post = _angle_pose(words[8:11]), _angle_pose(words[11:14])
@@ -2744,7 +2828,8 @@ class AngleCauseTrace:
             self.operations.append({"nonce": words[2], "opid": opid, "basis": basis,
                                     "wirefmt": words[5], "wirehex": words[6],
                                     "disposition": words[7], "pre": pre, "post": post,
-                                    "interval": serial, "line": line, "views": views})
+                                    "interval": serial, "line": line, "views": views,
+                                    "packet": _angle_uint(words[15], 32) if delta else None})
             return
         serial = _angle_uint(words[2], positive=True) if len(words) >= 3 else 0
         if kind == "anglebaseline":
@@ -2761,12 +2846,91 @@ class AngleCauseTrace:
             self.ends[serial] = (pose, ordinal, line, views)
             self.lastend = serial
 
+    # P1865 round 3: THE ENGINE'S REAL ORDER. CL_Frame parses packets first (an angle operation lands there), then
+    # IN_Commands writes `f <cl.movesequence>` only on a frame that drained input (in_generic.c:1764-1779), then
+    # CL_SendCmd accumulates the view, writes `v` if it moved, and on a send CLQW_SendCmd numbers the command from the
+    # netchan (cl_input.c:3040) and cl.movesequence is incremented straight after (cl_input.c:3750). So a label is
+    # the command the frame is BUILDING: frames labelled k build command k, sent before the first `f` labelled > k.
+    # (Measured on a real turning client: the server's lastcmd 881 is the view of the last frame labelled 881, and
+    # ack command 882 lies between the views of the frames labelled 882.) Its angle is P136's resample `cmdlag`
+    # behind the send, a lerp of two neighbouring frames (cl_input.c:2161-2165), so it is held to the span of views
+    # it could have come from, never to one view. P396 turns the sample history with an operation, so views before
+    # one inside the window count rotated as well.
+    #
+    # THESE CHECKS LICENSE NOTHING. The labels are the client's own and a client can write any it likes, so a delta
+    # is never accounted on them: a frame whose operations are all server-matched but include a delta is HELD
+    # (unresolved, as before P1865) and counted, and "framed" says only that the labels it carries agree. Accounting
+    # waits for a full ordered join of every REC command to the frame that built it (see the P1865 design note).
+    DELTA_SPAN = 3      # a command window wider than this many commands (sparse `f`) is unknown, never agreement
+
+    def _labels(self):
+        if getattr(self, "_label_index", None) is None:
+            lines = [l for l, _ in self.frames]
+            seqs = [q for _, q in self.frames]
+            self._label_index = (lines, seqs, all(a <= b for a, b in zip(seqs, seqs[1:])))
+        return self._label_index
+
+    def _command_window(self, seq):
+        """(the first `f` line labelled > seq -- command seq went out before it -- or None, and the (line, label) of
+        the last `f` labelled < seq before it, a frame of an earlier command whose view P136 may lerp from, or None)."""
+        lines, seqs, monotone = self._labels()
+        if not monotone:
+            return None, None
+        i = bisect.bisect_right(seqs, seq)
+        hi = lines[i] if i < len(lines) else None
+        j = bisect.bisect_left(seqs, seq, 0, i) - 1
+        return hi, ((lines[j], seqs[j]) if j >= 0 else None)
+
+    def _span(self, views, vlines, lo, hi, rotate=None):
+        a, b = bisect.bisect_left(vlines, lo), bisect.bisect_left(vlines, hi)
+        out = []
+        for v in views[max(a - 1, 0):b]:      # the view in effect at lo, then every view before hi
+            out.append((v[4], v[5]))
+            if rotate is not None and v[0] < rotate[0]:
+                out.append((v[4] + rotate[1][0], v[5] + rotate[1][1]))
+        return out
+
+    def _quiet(self, op, lo, hi):
+        return not any(lo < o["line"] < hi for o in self.operations if o is not op)
+
+    def delta_framed(self, op, server, views, vlines, current):
+        """True when the client's labels agree with the server's lastcmd (steering) and ack (banking), False when
+        they contradict them, None when they cannot bound the commands. Never a license (see above)."""
+        ack = server.get("ack")
+        s, line = server["lastseq"], op["line"]
+        # Steering: command lastseq was sent before the operation arrived.
+        hi, lo = self._command_window(s)
+        hi = line if hi is None or hi > line else hi
+        if lo is None or lo[0] >= hi or lo[1] < s - self.DELTA_SPAN or not self._quiet(op, lo[0], hi):
+            steering = None
+        else:
+            span = self._span(views, vlines, lo[0], hi)
+            steering = all(_short_span([a[i] for a in span], server["lastcmd"][i]) for i in (0, 1))
+        if steering is False:
+            return False
+        if ack is None:
+            return None
+        c = ack["cmdseq"]
+        hi, lo = self._command_window(c)
+        if c <= s or (hi is not None and (line > hi or current[0] > hi)):
+            return False     # applied after the command that acknowledged its packet was built
+        if hi is None or lo is None or lo[1] < c - self.DELTA_SPAN or not self._quiet(op, lo[0], hi):
+            return None
+        rot = tuple(math.remainder(b - a, 360.0) for a, b in zip(op["pre"][:2], op["post"][:2]))
+        span = self._span(views, vlines, lo[0], hi, rotate=(line, rot))
+        banking = all(_short_span([a[i] for a in span], ack["angles"][i]) for i in (0, 1))
+        return banking and steering
+
     def resolve(self, r, views, authority, nonce):
         bases, unbound, accounted = {}, set(), 0
         faults_before = len(r.faults)
         r.info["anglecause_operations"] = len(self.operations)
         r.info["anglecause_intervals"] = len(self.ends)
         assigned = set()
+        nondirect = set()
+        held = framed = 0
+        vlines = [v[0] for v in views]
+        self.predicted_candidates = []
         by_interval = {}
         for op in self.operations:
             by_interval.setdefault(op["interval"], []).append(op)
@@ -2803,44 +2967,120 @@ class AngleCauseTrace:
             cursor = (previous[4], previous[5], 0.0)
             valid = close(ep, (current[4], current[5], 0.0), printed=True)
             count = 0
+            deltas, all_bound, predicted = [], True, []
             for op in by_interval.get(serial, []):
+                kind, value = angle_operation(op["wirefmt"], op["wirehex"])
+                # P1865: a delta lands where the client's own float32 add puts it, from its observed pre.
+                target = value if kind == "abs" else tuple(_f32(d + p) for d, p in zip(value, op["pre"]))
                 server = authority.get((op["nonce"], op["opid"]))
                 bound = (server is not None and op["nonce"] == nonce
                          and all(server[k] == op[k] for k in
                                  ("nonce", "opid", "basis", "wirefmt", "wirehex")))
+                if bound and kind == "delta":
+                    # custody: the server's own row, consistent, for the packet the client parsed it from
+                    bound = op["packet"] == server.get("seq") and bool(server.get("consistent"))
+                    if bound:
+                        deltas.append((op, server))
+                if not bound:
+                    all_bound = False
+                elif op["disposition"] == "predicted":
+                    predicted.append((op, kind, value))
+                elif op["disposition"] != "direct":
+                    nondirect.add(current[0])
                 valid = (valid and previous[0] < op["line"] < current[0]
                          and op["views"] == ordinal - 1 and bound
                          and op["disposition"] == "direct"
                          and close(op["pre"], cursor, printed=(count == 0))
-                         and op["post"] == angle_wire(op["wirefmt"], op["wirehex"])
+                         and op["post"] == target
                          and op["pre"][2] == 0 and op["post"][2] == 0)
                 cursor = op["post"]
                 count += 1
             valid = valid and base[0][2] == 0 and close(base[0], cursor, printed=not count)
-            if valid:
+            if valid and not deltas:
                 bases[current[0]] = (base[0][0], base[0][1], previous[0])
                 accounted += count
-            else:
-                unbound.add(current[0])
+                continue
+            unbound.add(current[0])
+            if valid:
+                held += 1   # every operation server-matched, but a delta: never accounted on client labels
+                if all(self.delta_framed(op, server, views, vlines, current) for op, server in deltas):
+                    framed += 1
+            elif all_bound and predicted:
+                self.predicted_candidates.append((current[0], predicted))
         if set(self.baselines) != set(self.ends):
             r.fault("unpaired angle baseline/end annotation")
         r.info["anglecause_accounted_operations"] = accounted
         r.info["anglecause_accounted_frames"] = len(bases)
         r.info["anglecause_unbound_frames"] = len(unbound)
+        # P1865: server-matched frames held back because they carry a delta, and those whose labels agree
+        r.info["anglecause_delta_held_frames"] = held
+        r.info["anglecause_delta_framed_frames"] = framed
+        r.info["anglecause_predicted_frames"] = 0   # settled by count_predicted once the identity has run
+        r.info["anglecause_unapplied_frames"] = len(unbound & nondirect)   # consumed by CSQC or interleaved
         complete = not self.bad and len(r.faults) == faults_before
         r.info["anglecause_observations_complete"] = complete
         if not complete:
             bases = {}
             unbound = {v[0] for v in views[1:]}
+            self.predicted_candidates = []
             for key in ("anglecause_operations", "anglecause_intervals",
                         "anglecause_accounted_operations", "anglecause_accounted_frames",
-                        "anglecause_unbound_frames"):
+                        "anglecause_unbound_frames", "anglecause_delta_held_frames",
+                        "anglecause_delta_framed_frames", "anglecause_predicted_frames",
+                        "anglecause_unapplied_frames"):
                 r.info[key] = None
         return bases, unbound
 
+    # P1865 round 3: "predicted" is the client's own word (CSQC_PredictAngleCorrect changed the delta), so a frame is
+    # counted as predicted only when the operation then moved the view by almost nothing AND an earlier frame, after
+    # the previous operation, snapped by about what the operation carried: for a delta its wired value, for ABS the
+    # way to its target from the view before the snap. Each snap backs one operation.
+    PRED_CORRECTION = 0.05      # deg the client may still apply after its own snap
+    PRED_WINDOW = 4096          # views searched back, never past the previous operation
+
+    def count_predicted(self, r, views, snaps):
+        if r.info.get("anglecause_observations_complete") is not True:
+            return
+        vlines = [v[0] for v in views]
+        used, count = set(), 0
+
+        def near(res, exp):
+            return all(res[i] is not None and abs(math.remainder(res[i] - exp[i], 360.0)) <= max(0.5, 0.05 * abs(exp[i]))
+                       for i in (0, 1))
+
+        for _frame, ops in self.predicted_candidates:
+            ok = True
+            for op, kind, value in ops:
+                if not all(abs(math.remainder(op["post"][i] - op["pre"][i], 360.0)) <= self.PRED_CORRECTION
+                           for i in (0, 1)):
+                    ok = False
+                    break
+                prior = max((o["line"] for o in self.operations if o["line"] < op["line"]), default=0)
+                k = bisect.bisect_left(vlines, op["line"])
+                found = None
+                for idx in range(k - 1, max(k - self.PRED_WINDOW, 1) - 1, -1):
+                    v = views[idx]
+                    if v[0] <= prior:
+                        break
+                    res = snaps.get(v[0])
+                    if res is None or v[0] in used:
+                        continue
+                    p = views[idx - 1]
+                    exp = value[:2] if kind == "delta" else (math.remainder(value[0] - p[4], 360.0),
+                                                             math.remainder(value[1] - p[5], 360.0))
+                    if near(res, exp):
+                        found = v[0]
+                        break
+                if found is None:
+                    ok = False
+                    break
+                used.add(found)
+            count += ok
+        r.info["anglecause_predicted_frames"] = count
+
 
 def check_identity(r, head, views, controller=False, unavailable=False,
-                   angle_bases=None, angle_unbound=None):
+                   angle_bases=None, angle_unbound=None, snaps=None):
     if not views:
         r.info["identity_blind"] = ("no view records to judge" if "sensitivity" in head
                                     else "pre-293 journal: no recorded angle identity")
@@ -3104,6 +3344,7 @@ def check_identity(r, head, views, controller=False, unavailable=False,
         consts(v)[1] and not consts(v)[2] for v in gov_pitch[1:])
 
     pviolations = []
+    presid, yresid = {}, {}     # P1865: what a broken frame's counts do not explain, per axis
     pghost = []         # pitch moved with nothing recorded behind it
     p_judged = set()    # lines whose pitch was compared, held or not
     p_abst = 0          # clamp or constants: counted, never judged
@@ -3148,6 +3389,7 @@ def check_identity(r, head, views, controller=False, unavailable=False,
                 dpitch += 360.0
             err = abs(dpitch - pred)
             if err > pitch_eps(bp, c[4]) + abs(pred) * 1e-6:
+                presid[c[0]] = dpitch - pred
                 if c[2] == 0 and c[6] == 0.0:
                     pghost.append((c[0], dpitch))
                 else:
@@ -3190,6 +3432,7 @@ def check_identity(r, head, views, controller=False, unavailable=False,
         pred = kyw * c[1] + kyaw
         err = abs(dyaw - pred)
         if err > yaw_eps(by, c[5]) + abs(pred) * 1e-6:
+            yresid[c[0]] = dyaw - pred
             if c[1] == 0 and kyaw == 0.0:
                 ghost.append((c[0], dyaw))
             else:
@@ -3205,6 +3448,10 @@ def check_identity(r, head, views, controller=False, unavailable=False,
     # per-axis counts stay raw, as the engine's counters count them.
     yb = set(v[0] for v in violations) | set(v[0] for v in ghost)
     pb = set(v[0] for v in pviolations) | set(v[0] for v in pghost)
+    if snaps is not None:   # P1865: a judged axis that held explained everything; an unjudged one is unknown
+        for line in set(presid) | set(yresid):
+            snaps[line] = (presid.get(line, 0.0 if line in p_judged else None),
+                           yresid.get(line, 0.0 if line in y_judged else None))
     whole = yb & pb
     yaw_bad = [v for v in violations if have_kbd and v[0] not in pb
                and (not pitch_live or v[0] in p_judged)]
