@@ -27,7 +27,13 @@ It reads /srv/nvme/surfd/data/seasonflag.json (override SURFD_SEASONFLAG), writt
 ftesurf-seasonflag (tools/ftesurf-seasonflag.{service,timer}; release /srv/nvme/ftesurf-ops/seasonflag/<commit>/, cache and
 log beside it). The timer is outside the generation (not crontab) and can run before the card is live.
 
-## 27-28 Nov 2026 UTC: generation 1855 STAGED, waiting for Lex's Root install (worldofsurf-62; not live)
+## 28 Nov 2026 UTC: generation 1855 LIVE since 03:56:23Z (worldofsurf-62)
+Lex's Root install 03:20:41Z; primary fc0efb6b admitted 03:56:23Z (source pin e4bf27e0, reference f33f1577, token
+735b9078); POSTFLIGHT PASS (mapwatch graded after its next :23 run); P1845 badge backfill (tournament-tester x5);
+sims.yaw_agree/yaw_turning added by the first sweep. NEXT CURRENT = primary fc0efb6b: any kit must advance from gen1855.
+Still NOT live: the reader pins and P1856-P1859 (next generation, gen1857). KSF still stopped.
+Earlier staging record:
+### 27-28 Nov 2026 UTC: generation 1855 STAGED, waiting for Lex's Root install (worldofsurf-62; not live)
 Kit FTESurf-private/worktrees/gen1855-20261128-62 (RUNBOOK.md), advanced from gen1837 with genkit; Pi root
 /srv/nvme/agent-work/gen1855-20261128-62 (inert, both roles INITIALIZED CLOSED 19:40Z). Ships main 9ee36b2b's 13 changed
 surfd members: P1838 surfd half, P1845 (mapper access + badges), site defaults 466fd394/23e2f3ae, P1850, P1855. No added
