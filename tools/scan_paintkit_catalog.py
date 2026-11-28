@@ -271,7 +271,8 @@ def build(directory):
                 continue
             values = base | kit
             files = [pattern]
-            normal = pattern_path(pack, kit.get('normal'), style) if values.get('use_normal', '0') != '0' else None
+            normal = (pattern_path(pack, kit.get('normal'), style) if values.get('use_normal', '0') != '0' and style not in (1, 4)
+                      else None)
             if normal:
                 files.append(normal)
             # info[9]: CS:GO kit flags -- ignore_weapon_size_scale, only_first_material (later
@@ -306,7 +307,7 @@ def build(directory):
             continue
         params = params.get('insert', {}) if shader == 'patch' else params
         params = {k.lower(): v for k, v in params.items() if isinstance(v, str)}
-        wear_scale = re.search(r'scale\s+([0-9.]+)', params.get('$weartexturetransform', '')) or None
+        wear_scale = re.search(r'scale\s+([0-9]*\.?[0-9]+)', params.get('$weartexturetransform', ''))
         scales = (number(params, '$previewweaponuvscale', 1, (.01, 16)), number(params, '$previewweaponobjscale', 1, (.01, 16)),
                   float(wear_scale.group(1)) if wear_scale else 1)
         exp = vtf(pack, params.get('$exptexture')) if params.get('$exptexture') else None

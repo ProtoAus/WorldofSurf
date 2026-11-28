@@ -284,7 +284,7 @@ string(float kind, int kit, float mode, string dir, string stem) PK_Shader =
 {
 	local string name, base, mask, pattern, customized, ao, posmap, surface, data, key, exponent, normal;
 	local vector style, flags, scales;
-	local float ready, gun, paint;
+	local float ready, gun, paint, envtint;
 	local int material;
 	wkit_avail = FALSE;
 	if (cvar("fs_legacy_viewmodels") != 1) return "";
@@ -307,20 +307,22 @@ string(float kind, int kit, float mode, string dir, string stem) PK_Shader =
 	ao = strcat(customized, "_ao.vtf");
 	posmap = strcat(customized, "_pos.vtf");
 	surface = strcat(customized, "_surface.vtf");
-	paint = mode && kit;
+	paint = (mode && kit);   // QC binds && below assignment
 	flags = PKC_Flags(kit);
 	tokenizebyseparator(PKC_Get(kit, PKC_FILES), "|");
 	pattern = paint ? PK_Asset(argv(0)) : "$whiteimage";
 	normal = (paint && flags_z) ? PK_Asset(argv(1)) : "$whiteimage";
 	material = PKM_Find(key);
-	scales = material >= 0i ? stov(pkm_meta[material * 3i + 1i]) : '1 1 1';
-	exponent = material >= 0i ? PK_Asset(pkm_meta[material * 3i + 2i]) : "$whiteimage";
+	scales = '1 1 1';
+	exponent = "$whiteimage";
+	envtint = 0.1;
 	if (material >= 0i)
 	{
+		scales = stov(pkm_meta[material * 3i + 1i]);
+		exponent = PK_Asset(pkm_meta[material * 3i + 2i]);
 		tokenizebyseparator(pkm_meta[material * 3i + 1i], " ");
-		data = argv(3);   // stock $envmaptint
+		envtint = stof(argv(3));   // stock $envmaptint
 	}
-	else data = "0.1";
 	if (!PK_Has(base)) return "";
 	// QC does not short-circuit: probe the material's files only once the base exists.
 	ready = FALSE;
@@ -337,8 +339,8 @@ string(float kind, int kit, float mode, string dir, string stem) PK_Shader =
 	if (paint) PKC_Uniforms(kit, FALSE);
 	style = paint ? stov(cvar_string("cl_wkit_opts4")) : '0 0 0';
 	name = sprintf("ftesurf/kit_%g_%s_%i_%g", kind, stem, paint ? pkc_ids[kit] : 0i, mode);
-	data = strcat(sprintf("{\nprogram weapon_catalog#STYLE=%g#EDIT=%g#UVS=%g#WEARS=%g#ENV=%s#NORMAL=%g%s\n",
-		style_x, mode == 2, flags_x ? 1 : scales_x, scales_z, data, flags_z, paint ? "" : "#NOPAINT"),
+	data = strcat(sprintf("{\nprogram weapon_catalog#STYLE=%g#EDIT=%g#UVS=%.4f#WEARS=%.4f#ENV=%.4f#NORMAL=%g%s\n",
+		style_x, mode == 2, flags_x ? 1 : scales_x, scales_z, envtint, flags_z, paint ? "" : "#NOPAINT"),
 		sprintf("{ map %s }\n{ map %s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n",
 		base, pattern, mask, ao, posmap, surface),
 		sprintf("{ map $nosrgb:%spaint_wear.vtf }\n{ map $nosrgb:%sgun_grunge.vtf }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n{ map $reflectcube }\n}\n",

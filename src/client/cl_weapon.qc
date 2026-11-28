@@ -83,8 +83,8 @@ void() WP_Register =
 	registercvar("cl_weapon_muzzleflash", "1", CVAR_ARCHIVE);
 	registercvar("cl_knife_model", "0", CVAR_ARCHIVE);
 	registercvar("cl_knife_equipped", "-1", CVAR_ARCHIVE);
-	registercvar("cl_wshop_guns", "0", CVAR_ARCHIVE);
-	// CS:GO's own names and desktop defaults (right, forward, up); CS:GO models only.
+	registercvar("cl_wshop_guns", "0", CVAR_ARCHIVE);   // CS:GO model per gun: FS_WEAPON_USP|SCOUT|GLOCK bits
+	// viewmodel_offset_*: CS:GO's own names and desktop defaults (right, forward, up); CS:GO models only.
 	registercvar("viewmodel_offset_x", "1", CVAR_ARCHIVE);
 	registercvar("viewmodel_offset_y", "1", CVAR_ARCHIVE);
 	registercvar("viewmodel_offset_z", "-1", CVAR_ARCHIVE);
@@ -394,7 +394,7 @@ void() WP_Muzzle =
 
 void() WP_FlashFrame =
 {
-	local vector pos, right, forward, up;
+	local vector right, forward, up;
 	if (cltime >= wp_flashuntil || wp_muzzletag <= 0) return;
 	if (!wp_flashent)
 	{
@@ -405,11 +405,10 @@ void() WP_FlashFrame =
 	}
 	forward = v_forward; right = v_right; up = v_up;
 	makevectors(wp_ent.angles);
-	pos = v_right; // reflect about the animated entity's own side axis
 	wp_flashent.origin = gettaginfo(wp_ent, wp_muzzletag);
 	wp_flashent.origin = wp_flashent.origin + v_forward * wp_muzzleorg_x - v_right * wp_muzzleorg_y + v_up * wp_muzzleorg_z;
-	if ((int)wp_ent.renderflags & RF_XFLIP)
-		wp_flashent.origin = wp_flashent.origin - 2 * ((wp_flashent.origin - wp_ent.origin) * pos) * pos;
+	if ((int)wp_ent.renderflags & RF_XFLIP)   // as the projection flip: about the view's centre, not the offset gun
+		wp_flashent.origin_y = -wp_flashent.origin_y;
 	v_forward = forward; v_right = right; v_up = up;
 	wp_flashent.angles = [0, 0, wp_flashroll];
 	wp_flashent.renderflags = RF_VIEWMODEL | RF_DEPTHHACK | RF_NOSHADOW;
@@ -842,7 +841,7 @@ void() WP_Frame =
 	wp_ent.effects = WP_EF_NOGUNBOB;
 	WP_Motion();
 	if (legacy || (w == FS_WEAPON_KNIFE && KCAT_Knife() > 0))
-		wp_ent.origin += [cvar("viewmodel_offset_y"), (VM_Cvar("cl_viewweapon_left") ? 1 : -1) * cvar("viewmodel_offset_x"), cvar("viewmodel_offset_z")];
+		wp_ent.origin += [cvar("viewmodel_offset_y"), -cvar("viewmodel_offset_x"), cvar("viewmodel_offset_z")];   // RF_XFLIP mirrors it for the left hand
 	// USP-S silencer: hidden by a skin rule (WPU_Apply; CSQC ents carry no .body) once unsilenced,
 	// but kept while the detach clip unscrews it.
 	wp_hidesilencer = FALSE;

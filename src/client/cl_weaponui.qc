@@ -442,7 +442,7 @@ void(float slot) WPU_Equip =
 	else if (slot < 0 || (wp_weapon != FS_WEAPON_KNIFE && !WP_LegacyGun(wp_weapon))) WP_EquipKnife();
 };
 
-// Finish, wear float (the kit's own range) and seed for one item, then Random / Inspect / Equip.
+// Finish, wear float (0-1, the kit's CS:GO range shown under it) and seed for one item, then Random / Inspect / Equip.
 // Returns the y below it.
 float(float model, float slot, vector at, float width, float row, float tsz) WPU_FinishPanel =
 {

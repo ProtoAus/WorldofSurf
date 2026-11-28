@@ -84,7 +84,7 @@ void main()
 		paint = mix(pattern_palette(cvar_cl_gkit_opts4.x, paint), pattern_palette(cvar_cl_gkit_opts4.y, paint), p.r);
 		paint = mix(mix(paint, pattern_palette(cvar_cl_gkit_opts4.z, paint), p.g), pattern_palette(cvar_cl_gkit_opts7.y, paint), p.b);
 	}
-	float wear = clamp(cvar_cl_gkit_state.x, cvar_cl_gkit_opts0.x, cvar_cl_gkit_opts0.y);
+	float wear = clamp(cvar_cl_gkit_state.x, 0.0, 1.0);
 	float worn = smoothstep(0.58, 0.94, 0.50 * grunge.r + 0.26 * ao.g + 0.65 * wear);
 	vec3 n = normalize(glove_normal);
 	vec3 tangent_detail = texture2D(s_t5, detail_uv).xyz * 2.0 - 1.0;

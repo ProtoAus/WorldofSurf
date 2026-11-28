@@ -87,13 +87,13 @@ string(float i) KC_Def =
 	if (i == 34) return "chat|Chat|messagemode|chat_open||Game|chat";
 	if (i == 35) return "console|Console|toggleconsole||`|Game|console";
 	if (i == 36) return "menu|Main menu|togglemenu||ESCAPE|Game|menu";
-	if (i == 37) return "journal|Patch notes|ui_journal|ui_updates|F2|Game|notes";
+	if (i == 37) return "journal|Patch notes|ui_journal|ui_updates|F2|Menus|notes";   // P1862: listed under Menus
 	if (i == 38) return "screenshot|Screenshot|screenshot||F9|Game|screenshot";
 	if (i == 39) return "fullscreen|Fullscreen|fullscreen_toggle|vid_toggle|F11|Game|fullscreen";
 	if (i == 40) return "jumpduck|Jump + duck|+jumpduck|||Movement|jump+duck";   // P1796: listed after Duck (KC_Order)
-	if (i == 41) return "workshop|Weapon workshop|weapon_workshop|knife_menu||Game|weapon kits";
+	if (i == 41) return "workshop|Weapon workshop|weapon_workshop|knife_menu||Menus|weapon kits";
 	if (i == 42) return "slot1|Scout (slot 1)|slot1|||Game|weapon primary";
-	if (i == 43) return "slot2|Pistol (slot 2, again swaps USP/Glock)|slot2|||Game|weapon pistol";
+	if (i == 43) return "slot2|Pistol (slot 2)|slot2|||Game|weapon pistol usp glock swap";
 	if (i == 44) return "slot3|Knife (slot 3)|slot3|||Game|weapon knife";
 	if (i == 45) return "inspect|Inspect weapon|inspect|||Game|weapon look";
 	if (i == 46) return "drop|Drop weapon|drop|||Game|weapon";
@@ -102,19 +102,23 @@ string(float i) KC_Def =
 
 // P1400: the order both tabs list the rows in, three columns from KC_COL1 and KC_COL2. Row 13
 // keeps its id and index (the hint strip and old binds read them) but is listed with the tools.
-// P1796: row 40 (Jump + duck) is listed after Duck; the rest move down one.
-#define KC_COL1 14
-#define KC_COL2 27
+// P1796: row 40 (Jump + duck) is listed after Duck. P1862: the workshop (41) and Patch notes (37)
+// windows end the Menus column; the weapon rows (42-46) end Game. Columns are up to 20 lines.
+#define KC_COL1 16
+#define KC_COL2 29
 float(float n) KC_Order =
 {
 	if (n < 6) return n;
 	if (n == 6) return 40;
-	if (n >= 41) return n;   // the workshop and weapon rows keep table order
-	n = n - 1;
-	if (n < 13) return n;
-	if (n < 28) return n + 1;
-	if (n == 28) return 13;
-	return n;
+	if (n < 14) return n - 1;              // walk, turning, HUD, graphics, keys, player
+	if (n == 14) return 41;
+	if (n == 15) return 37;
+	if (n < 29) return n - 2;              // saves and the run (14-26)
+	if (n < 31) return n - 2;              // report, surf view (27, 28)
+	if (n == 31) return 13;
+	if (n < 40) return n - 3;              // entity inspector ... main menu (29-36)
+	if (n < 42) return n - 2;              // screenshot, fullscreen (38, 39)
+	return n;                              // weapon rows (42-46)
 };
 
 string(float i, float f) KC_F = { return Gfx_Field(KC_Def(i), f, "|"); };
@@ -178,7 +182,7 @@ vector kc_hl_scr;
 #define KC_KB_U     24          // a key unit, in panel units
 #define KC_KB_UH    6.25        // the drawing's height in key units (26.5 wide)
 #define KC_KB_PW    652         // the tab's panel: 8 + 26.5 * 24 + 8
-#define KC_KB_PH    386
+#define KC_KB_PH    420
 #define KC_KB_COLW  130         // three action columns, then the info column
 #define KC_KB_LABW  64
 #define KC_KB_INFW  210
@@ -2306,7 +2310,7 @@ void(vector scr) KC_DrawKeys =
 		y = y + rh;
 	}
 
-	o = [p_x + pad, top + 172 * sc, 0];
+	o = [p_x + pad, top + 206 * sc, 0];   // below the 18-row action columns (P1862)
 	for (i = 0; i < kc_kb_n; i = i + 1)
 		KC_Cap(i, o, u, sc);
 	y = o_y + KC_KB_UH * u + 4 * sc;
@@ -2385,7 +2389,7 @@ void(vector scr) KC_Draw =
 
 	sc = ui_cv_scale;
 	if (sc <= 0) sc = 2;
-	fit = min(scr_x * 0.96 / 568, scr_y * 0.96 / 288);   // P1400: three columns (568 wide)
+	fit = min(scr_x * 0.96 / 568, scr_y * 0.96 / 314);   // P1400: three columns (568 wide); P1862: 20 lines
 	if (sc > fit)
 		sc = max(1, floor(fit * 2) / 2);
 
@@ -2396,7 +2400,7 @@ void(vector scr) KC_Draw =
 	colw  = labw + 2 * chipw + 6 * sc + 12 * sc;
 	gap   = 12 * sc;
 	panw  = pad * 2 + colw * 3 + gap * 2;
-	panh  = 6 * sc + 18 * sc + 18 * rh + 4 * sc + rh + 2 * sc + 4 * sc + 10 * sc + 6 * sc;
+	panh  = 6 * sc + 18 * sc + 20 * rh + 4 * sc + rh + 2 * sc + 4 * sc + 10 * sc + 6 * sc;
 	p = [floor((scr_x - panw) * 0.5), floor((scr_y - panh) * 0.5), 0];
 
 	sui_begin(scr_x, scr_y);
@@ -2426,7 +2430,7 @@ void(vector scr) KC_Draw =
 	y = y + rh;
 	KC_Slider(2, [c1_x, y, 0], labw, colw, rh, sc);
 
-	y = y0 + 18 * rh + 4 * sc;
+	y = y0 + 20 * rh + 4 * sc;
 	sui_fill([p_x + pad, y - 2 * sc, 0], [panw - pad * 2, 1, 0], SUI_THEME_EDGE_HI, 0.7, 0);
 	bw = 64 * sc;
 	if (KC_Button("kc_reset", [p_x + pad, y, 0], [bw, rh, 0],

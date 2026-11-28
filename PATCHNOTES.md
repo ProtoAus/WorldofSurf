@@ -27,8 +27,8 @@
 - Knife finish: real CS:GO finishes for your knife with wear float and pattern seed placed like in CS:GO, plus Custom placement to move, turn, scale and tint the pattern.
 - The CS:GO USP-S, Glock-18 and SSG 08 play their CS:GO draw, idle, fire and inspect animations in your hands. The USP-S silencer comes off and goes back on.
 - Finishes are lit by the map like the hands, reflect the nearest map cubemap, and use CS:GO's per-weapon scale, scope rules and normal maps. Wear goes from 0 to 1.
-- View presets (CS:GO, Classic, Close) and sliders move the CS:GO weapons on screen: viewmodel_offset_x/y/z and r_viewmodel_fov_csgo.
-- New key binds: slot1 (scout), slot2 (pistol, press again to swap USP and Glock), slot3 (knife), inspect and drop.
+- View presets (CS:GO, Classic, Close) and sliders move the CS:GO weapons on screen: viewmodel_offset_x/y/z and r_viewmodel_fov_csgo. Left-handed weapons mirror the same offset.
+- New key binds: slot1 (scout), slot2 (pistol, press again to swap USP and Glock), slot3 (knife), inspect and drop, under Game in Keys. Weapon workshop and Patch notes moved to Menus so every row fits.
 - Finishes and models are read from your own CS:GO Legacy install. The old Fade, Web and Marble knife looks are replaced by the real finishes; a saved one carries over.
 - 13 more CS:GO faction arms under Hands.
 
