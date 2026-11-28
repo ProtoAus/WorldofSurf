@@ -21,6 +21,9 @@
 
 ## next
 
+### P1863 Saving while a load is still opening
+- In a recorded run, saving right after a load while the save-lock is still held is now refused with a message (let go and move first). Such a save used to break the run's recording when it was loaded later. Loading an old save made that way now cancels the run ("the save's recording could not be restored") instead of leaving a recording the anti-cheat check rejects.
+
 ### P1861 CS:GO gloves
 - Choosing a CS:GO glove or hand style in the knife menu no longer risks crashing the game.
 

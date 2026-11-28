@@ -2091,6 +2091,29 @@ float(entity e, float rows) SL_StateSnapshotValid =
 
 // Commit only prepared rows. Callers retain ownership of the buffer.
 float sl_aprwd;                  // P1750 review: the row SV_SaveApplyStateRows last applied was a rewound one
+// P1863: the kept prefix ends inside a pause a native `savejoin` opened (no `session` since). A stream keeps no buffer
+// to scan, only the prefix's open pause (rs_pend): that also voids a rare same-packet save in an unpinned window.
+float(entity e) SL_RewindInSavejoin =
+{
+	local float i;
+	local string l;
+
+	if (!e.rec_rec_sesspend)
+		return FALSE;
+	if (e.rec_rec_buf < 1)
+		return e.rec_rec_stream;
+	// Back to the open `pause` only (nothing is written while parked): the writer puts `savejoin` right before it.
+	for (i = e.rec_rec_lines - 1; i >= 0; i = i - 1)
+	{
+		l = bufstr_get(e.rec_rec_buf, i);
+		if (substring(l, 0, 8) == "session ")
+			return FALSE;
+		if (substring(l, 0, 6) == "pause ")
+			return i > 0 && substring(bufstr_get(e.rec_rec_buf, i - 1), 0, 9) == "savejoin ";
+	}
+	return FALSE;
+};
+
 float(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
 {
 	local string k, snapshot;
@@ -2890,6 +2913,10 @@ float(entity e, float id, float retry, float rows) SV_SaveApplyStateRows =
 		if (e.rec_rec_sesspend || e.rec_rec_in < 1 || e.rec_rec_infz || !e.rec_rec_pinned || e.rec_rec_inmt < 0)
 			rewindok = FALSE;
 	}
+	// P1863: a save taken before a native load's session (older builds allowed it) cuts inside that load's open
+	// pause; its bare `resume` there faults (savejoin requires a new session). Same void as above.
+	if (rewindok && !retry && !strlen(snapshot) && SL_RewindInSavejoin(e))
+		rewindok = FALSE;
 	if (rewindok)
 	{
 		// Patch 426: a kept abandon THIS load held (the Patch 360 discard above)
@@ -4025,6 +4052,15 @@ void(entity e) SV_SaveLocCreate =
 		sprint(e, PRINT_HIGH, "^3save: turn the ghost off first\n");
 		return;
 	}
+	// P1863: nor before a native load's restored epoch opens (P1827: release and an admitted move). Such a save's
+	// prefix ends inside that load's open `pause`, and loading it later writes a `resume` reccheck faults (27 Nov:
+	// 15 segmented runs). The ring skips the window too (SV_RewindSample).
+	if (SV_RecLive(e))
+	if (e.rec_sl_seedwait && e.rec_rec_sesspend)
+	{
+		sprint(e, PRINT_HIGH, "^3save: the load is still opening -- let go of the save-lock and move first\n");
+		return;
+	}
 
 	blk  = SL_Blk(e);
 	base = SL_Base(blk);
@@ -4281,6 +4317,8 @@ void(entity e) SV_RewindSample =
 	e.rw_st = st;
 	if (st != TS_RUNNING || e.rec_sl_hold || e.rec_wt_hold)
 		return;
+	if (e.rec_sl_seedwait && e.rec_rec_sesspend && SV_RecLive(e))
+		return;                     // P1863: see SV_SaveLocCreate
 	t = SV_TimerTicks(e);
 	if (t < e.rw_last)
 	{
@@ -4439,6 +4477,7 @@ void(entity e) SV_RewindTASHead =
 	local float b, t;
 
 	if (e.run_t_state != TS_RUNNING) return;
+	if (e.rec_sl_seedwait && e.rec_rec_sesspend && SV_RecLive(e)) return;     // P1863: see SV_SaveLocCreate
 	t = SV_TimerTicks(e);
 	m = rw_slot[num_for_edict(e)];
 	if (m && e.rw_n > 0)
