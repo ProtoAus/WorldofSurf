@@ -30,6 +30,10 @@ entity sun_probe;               // the trace's mask: brush glass (WINDOW) shows 
 float  sun_seen;                // the last visibility printed: -1 none yet
 float  sun_traced, sun_target, sun_tracedsky;   // P1804: the last nine-ray answer, kept while the eye stays put
 vector sun_tracedeye;
+float  sun_rayok[9];            // P1881: each ray's last answer, 1 = it reaches the sky
+float  sun_raynext;             // P1881: the ray traced next
+float  sun_raycarry;            // P1881: rays owed at nine every 1/60 s
+float  sun_rayfresh;            // P1881: rays traced from this eye since it last moved
 
 string(string m) Sun_Shader =
 {
@@ -572,6 +576,7 @@ void() Sun_Draw =
 {
 	local vector eye, fwd, se, rt, up, d, fov;
 	local float dot, ga, target, i, sky, sksc;
+	local float moved, n, k;        // P1881
 
 	if (!sun_have || !cvar("vbsp_sun"))
 		return;
@@ -609,11 +614,35 @@ void() Sun_Draw =
 		sun_traced = FALSE;
 		return;                 // well off screen
 	}
-	sky = (vbsp_skyroom_have && cvar("vbsp_skyroom"));
-	if (sun_traced && vlen(eye - sun_tracedeye) < 0.5 && sky == sun_tracedsky)
+	sky = (vbsp_skyroom_have && cvar("vbsp_skyroom"));	// P1890: = binds tighter than &&
+	/*
+	  P1881: the nine rays (and nine more through the 3D sky) are 32768-unit traces through the whole map, and every
+	  frame the eye moved traced all of them again: 0.34 ms a frame of csprogs on bhop_canals' route. They are now
+	  traced again at 60 a second each, round the nine in turn -- at 170 fps three or four a frame, so each answer is
+	  at most 1/60 s old, under the 50 ms fade below that already spreads any change over three of those. A first
+	  look, a 3D sky switched, or an eye 64 units from the last trace traces all nine at once; an eye that stops
+	  finishes the nine from where it stands, so a still view has exactly P1804's answer.
+	*/
+	moved = !(sun_traced && vlen(eye - sun_tracedeye) < 0.5 && sky == sun_tracedsky);
+	if (!moved && sun_rayfresh >= 9)
 		target = sun_target;
 	else
 	{
+		if (!moved)
+			n = 9 - sun_rayfresh;           // a still eye: the rest of the nine, now
+		else if (!sun_traced || sky != sun_tracedsky || vlen(eye - sun_tracedeye) >= 64)
+		{
+			n = 9;
+			sun_raycarry = 0;
+			sun_rayfresh = 0;
+		}
+		else
+		{
+			sun_raycarry = sun_raycarry + 9 * min(clframetime * 60, 1);
+			n = min(9, floor(sun_raycarry));
+			sun_raycarry = sun_raycarry - n;
+			sun_rayfresh = 0;
+		}
 		se = eye;
 		if (sky)
 		{
@@ -624,24 +653,30 @@ void() Sun_Draw =
 		if (rt == '0 0 0')
 			rt = '1 0 0';
 		up = normalize(crossproduct(rt, sun_dir));
-		target = 0;
-		for (i = 0; i < 9; i = i + 1)
+		for (k = 0; k < n; k = k + 1)
 		{
+			i = sun_raynext;
+			sun_raynext = (i >= 8) ? 0 : i + 1;
+			sun_rayok[i] = 0;
 			d = sun_dir;
 			if (i)
 				d = normalize(sun_dir + (rt * cos(i * 45 * M_PI / 180) + up * sin(i * 45 * M_PI / 180)) * (sun_size * 0.5 / 100));
 			traceline(eye, eye + d * 32768, MOVE_NOMONSTERS, sun_probe);
 			// SURF_SKY does not come through a VBSP trace; the side's name does (cl_emit.qc's rain).
-			if (trace_fraction < 1 && substring(strtolower(trace_surfacename), 0, 4) != "sky/")
+			if (trace_fraction < 1 && strncasecmp(trace_surfacename, "sky/", 4) != 0)
 				continue;
 			if (sky)
 			{
 				traceline(se, se + d * 32768, MOVE_NOMONSTERS, sun_probe);
-				if (trace_fraction < 1 && substring(strtolower(trace_surfacename), 0, 4) != "sky/")
+				if (trace_fraction < 1 && strncasecmp(trace_surfacename, "sky/", 4) != 0)
 					continue;
 			}
-			target = target + 1 / 9;
+			sun_rayok[i] = 1;
 		}
+		sun_rayfresh = sun_rayfresh + n;
+		target = 0;
+		for (i = 0; i < 9; i = i + 1)
+			target = target + sun_rayok[i] / 9;
 		target = (target > 0.99) ? 1 : target;
 		sun_traced = TRUE;
 		sun_tracedeye = eye;
