@@ -1,5 +1,20 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026: P1870 waits for the next generation; then tasindex (worldofsurf-33)
+Runtime member: surfd/surfd.py only. Serves replays kind 'tasup' (leaf tasup-<id>-<sha16>.rec, _TASLEAF_OK) from
+TASUP_DIR = DATA_DIR/tasup = /srv/nvme/surfd/data/tasup (code default; SURFD_TASUP optional, NOT needed: no surfd.env
+change, no new setting). /api/replay hides it for a banned owner or a current reject like a run, and adds
+X-Content-Type-Options: nosniff to every replay. No schema change (replays.kind is TEXT; a new value), no reader pin.
+Inert until tasindex files 'tasup' rows. Then, NOT part of the generation (no root): install surfd/tasindex.py of
+39294036 (sha256 77a6d500386950ba...) at /srv/nvme/ftesurf-ops/tasindex/39294036.../ and repoint the proto user unit
+ftesurf-tasindex.service's ExecStart path at it (arguments unchanged: --tasup-dir defaults to tasup/ beside --db).
+Rehearsed on copies of the 28 Nov 08:35Z live surfd.db + tasup store: pass 1 updated=2 reps=2 (Rounin's
+surf_sandtrap2 main tasup-2 and Proto's bonus 4 tasup-1), pass 2 nothing, --quiet silent; surfd served both byte-exact
+(sha matches tasupd's). In game, the TAS-tab click on those rows plays the upload. Order matters: tasindex before
+the generation would file reps the live surfd 404s. Rollback: run THIS tasindex with --withdraw first (an older
+tasindex does not recognise rows with a rep), then repoint the unit at d8c4953325c9c4bc844a921eb09eed8c6e39714b, which
+refiles the rows with rep 0; rejected 'tasup' rows and copies are kept on purpose (their reject keys on the id).
+
 ## 28 Nov 2026 07:42Z: lobbies on 0.1.72 + P1863 (qwprogs only; worldofsurf-62)
 All 12 ftesurf@N restarted 07:42:00-02Z on qwprogs e7884e33 (0.1.72 source f3af055e + P1863 5d783c21, built with the
 0.1.72 compiler), replacing e5ad4e89; csprogs unchanged bd41fc6c (codes.txt needs nothing). 0 players at the swap; boot
