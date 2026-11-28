@@ -93,9 +93,12 @@ def sha_file(path):
 def game_finds_begin(data):
     """cl_online.qc Online_RecName's header scan, so a copy the game cannot store gets no rep: HEAD_MAX calls of
     PF_fgets (pr_bgcmd.c, FILE_READ): each reads to the next \\n dropping \\r, keeps at most LINE_MAX bytes (the byte
-    that meets the cap is consumed, not kept); an empty line or the end ends the scan (`!l`), a first word `begin`
-    succeeds. Splits on ASCII whitespace where tokenize takes every byte <= ' ': the gap only refuses."""
-    pos, end = 0, len(data)
+    that meets the cap is consumed, not kept); an empty line or the end ends the scan (`!l`); a first word `begin`
+    succeeds when the last `FTESURF-REC <ver>` before it read >= 1 (stof). A NUL refuses (Online_ReplayStore's fputs
+    would cut there). ASCII splitting and a decimal-only stof can only refuse more than tokenize/stof."""
+    if b'\x00' in data:
+        return False
+    pos, end, ver = 0, len(data), 0.0
     for _ in range(HEAD_MAX):
         if pos >= end:
             return False
@@ -107,13 +110,17 @@ def game_finds_begin(data):
                 break
             if c == 13:
                 continue
-            if len(line) + (2 if c == 0 else 1) > LINE_MAX:
+            if len(line) >= LINE_MAX:
                 break
-            line += b'\xc0\x80' if c == 0 else bytes((c,))
+            line.append(c)
         if not line:
             return False
-        if line.split()[:1] == [b'begin']:
-            return True
+        words = line.split()
+        if words[:1] == [b'begin']:
+            return ver >= 1
+        if len(words) >= 2 and words[0] == b'FTESURF-REC':
+            num = re.match(rb'[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)', words[1])
+            ver = float(num.group()) if num else 0.0
     return False
 
 
@@ -231,14 +238,16 @@ def plan(db, key, up, name, banned=False, withdraw=False, rep_ok=lambda key, up:
     return out
 
 
-def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, tasup_dir=None):
-    """One pass. -> {'added', 'updated', 'removed', 'refilled', 'kept_lobby', 'skipped', 'reps', 'unreps'} counts."""
+def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, tasup_dir=None, warn_all=False):
+    """One pass. -> {'added', 'updated', 'removed', 'refilled', 'kept_lobby', 'skipped', 'reps', 'unreps', 'norep'}
+    counts (norep: filed rows whose copy could not be made). A copy problem is logged on the pass that files its row
+    without the replay, or on every pass with warn_all (a run without --quiet)."""
     if tasup_dir is None:
         tasup_dir = default_tasup_dir(surfd_db)
     best, keys = read_store(store)
     if withdraw:
         best, full = {}, True
-    n = dict(added=0, updated=0, removed=0, refilled=0, kept_lobby=0, skipped=0, reps=0, unreps=0)
+    n = dict(added=0, updated=0, removed=0, refilled=0, kept_lobby=0, skipped=0, reps=0, unreps=0, norep=0)
     copied, whys = {}, {}                   # upload id -> its copy is in place (made before the lock); why not
     gone = []                               # copies to unlink once the deletes are committed
     db = connect(surfd_db)
@@ -267,6 +276,10 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, 
         def copy_once(key, up):
             if up[0] not in copied:
                 copied[up[0]], whys[up[0]] = copy_rec(store, tasup_dir, key, up, write=not dry_run)
+                if whys[up[0]]:
+                    n['norep'] += 1
+                    if warn_all:
+                        log(whys[up[0]])
             return copied[up[0]]
 
         def copy_known(key, up):            # under the lock: no copying, only what pass 1 made or a check
@@ -301,7 +314,7 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, 
                 n[a] += 1
                 what = '' if not isinstance(arg, dict) else ' ' + (arg['runid'] or 'rep %d' % arg['replay_id'])
                 log('%s %s/%d %s%s' % ((a,) + key + (what,)))
-                if a in ('added', 'updated') and arg['replay_id'] == 0 and whys.get(best[key][0]):
+                if a in ('added', 'updated') and arg['replay_id'] == 0 and whys.get(best[key][0]) and not warn_all:
                     log(whys[best[key][0]])     # once: the pass that files the row without its replay
         for r in db.execute(UNNAMED).fetchall():           # a copy no board row names any more
             db.execute('DELETE FROM replays WHERE id = ?', (r['id'],))
@@ -390,7 +403,8 @@ def main(argv=None):
     ap.add_argument('--quiet', action='store_true', help='print only the totals line, and only when something changed')
     a = ap.parse_args(argv)
     n = sync(a.store, a.db, a.dry_run, a.full, a.withdraw,
-             log=(lambda s: print(s) if s.startswith(WARN) else None) if a.quiet else print, tasup_dir=a.tasup_dir)
+             log=(lambda s: print(s) if s.startswith(WARN) else None) if a.quiet else print, tasup_dir=a.tasup_dir,
+             warn_all=not a.quiet)
     if not a.quiet or any(n[k] for k in ('added', 'updated', 'removed', 'refilled', 'reps', 'unreps')):
         print('%s tasindex%s: %s' % (time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), ' (dry run)' if a.dry_run else '',
                                     ' '.join('%s=%d' % kv for kv in n.items())))

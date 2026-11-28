@@ -150,7 +150,7 @@ class TasIndex(unittest.TestCase):
         self.assertEqual((n['added'], n['removed']), (1, 0))
         self.assertEqual(self.board('surf_sandtrap2'), [(ROU, 'Rounin', 48165, 0)])
         self.assertEqual(self.sync(), dict(added=0, updated=0, removed=0, refilled=0, kept_lobby=0, skipped=0, reps=0,
-                                           unreps=0))
+                                           unreps=0, norep=1))
 
     def test_dry_run_writes_nothing(self):
         self.upload(ROU, 'surf_sandtrap2', 0, 3211)
@@ -536,14 +536,20 @@ class TasIndex(unittest.TestCase):
         self.assertTrue(any(line.startswith('copy skipped') for line in logged), logged)
 
     def test_the_header_scan_is_the_clients(self):
-        head = 'FTESURF-REC 5\nmap surf_z\ntrack 0\n'
+        head, v = 'FTESURF-REC 5\nmap surf_z\ntrack 0\n', 'FTESURF-REC 5\n'
         cases = [(head + 'begin\n1\n', True), (head.replace('\n', '\r\n') + 'begin\r\n', True),
                  (head + '\nbegin\n', False),                       # a blank line ends the client's scan
                  (head + '\r\nbegin\n', False),                     # so does a CRLF blank line
-                 (head + '  begin  \n', True), ('begin', True), ('', False), (head + 'beginx\n', False),
-                 ('note\n' * 63 + 'begin\n', True), ('note\n' * 64 + 'begin\n', False),
-                 ('note\n' * 56 + 'x' * 40000 + '\nbegin\n', False),  # one long line uses up ten reads
-                 ('note\n' * 52 + 'x' * 40000 + '\nbegin\n', True)]
+                 (head + '  begin  \n', True), ('', False), (head + 'beginx\n', False),
+                 (v + 'note\n' * 62 + 'begin\n', True), (v + 'note\n' * 63 + 'begin\n', False),
+                 (v + 'note\n' * 55 + 'x' * 40000 + '\nbegin\n', False),  # one long line uses up ten reads
+                 (v + 'note\n' * 51 + 'x' * 40000 + '\nbegin\n', True),
+                 (v + 'x' * 4095 + '\nbegin\n', True),             # fits one read exactly
+                 (v + 'x' * 4096 + '\nbegin\n', False),            # the cap byte is dropped; the next read is ""
+                 ('begin', False), ('FTESURF-REC 0\nbegin\n', False), ('FTESURF-REC v5\nbegin\n', False),
+                 ('FTESURF-REC\nbegin\n', False), ('begin\nFTESURF-REC 5\n', False), ('FTESURF-REC 1\nbegin', True),
+                 ('FTESURF-REC 1.5x\nbegin\n', True), ('FTESURF-REC 5\nFTESURF-REC 0\nbegin\n', False),
+                 (v + 'note a\x00b\nbegin\n', False)]
         for text, want in cases:
             self.assertEqual(T.game_finds_begin(text.encode()), want, repr(text[:60]))
         self.upload(ROU, 'surf_z', 0, 1000, body=(head + '\nbegin\n1\n').encode())
@@ -588,6 +594,19 @@ class TasIndex(unittest.TestCase):
         self.assertTrue(target.exists())
         if os.geteuid() != 0:
             self.assertTrue(any(line.startswith('sweep failed') for line in logged), logged)
+
+    def test_a_standing_rep0_row_whose_copy_fails_shows_without_quiet(self):
+        import contextlib
+        import io
+        self.upload(ROU, 'surf_z', 0, 1000, body=self.rec('surf_z', 1000), stored=b'tampered')
+        self.sync()                                         # filed with rep 0 (as P1806 filed every row)
+        for quiet, want in ((True, False), (False, True), (False, True)):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                T.main(['--store', str(self.store), '--db', str(self.db), '--tasup-dir', S.TASUP_DIR]
+                       + (['--quiet'] if quiet else []))
+            self.assertEqual('copy refused surf_z/0' in out.getvalue(), want, out.getvalue())
+            self.assertEqual('norep=1' in out.getvalue(), not quiet, out.getvalue())
 
     def test_a_copy_that_cannot_be_made_is_logged_once(self):
         self.upload(ROU, 'surf_z', 0, 1000, body=self.rec('surf_z', 1000), stored=b'tampered')
