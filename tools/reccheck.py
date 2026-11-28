@@ -4207,6 +4207,13 @@ ANG_CMD_STEP = 8         # ticks a move's own delay (its tick minus its command'
 ANG_CMD_DELAY = (-4, 1000)   # ticks that delay may be at all: a frame cannot show a clock past the move's own tick,
                          # nor a thousand behind (an NQ client's numbers jump 65536 per map change)
 ANG_CMD_REMOTE = 2       # P1856: median command delay (ticks) from which the clock-join rules defer, move by move
+# P1860: A MOVE THE COMMAND RULE CANNOT SEE MAY NOT HELP CLEAR A RUN.  A sidecar that leaves out the frames for the
+# ticks it lies about leaves those moves uncovered, which at under the tick rate is normal, so the one-frame rule's
+# 75% floor let it lie on about a quarter of a run and keep a tight OK.  Every move of a numbered run has a command,
+# and an honest client draws every command (fleet, 28 Nov: 39 runs, frameless median 0.44%, max 3.30%).  Above this
+# share of in-run moves with no number (`cseq -1`, a jump past 2^24) or no frame of their own command, the run is
+# never tight: BLIND, never a fault.
+ANG_CMD_FRAMELESS = 5.0
 
 
 def _onseg(x, a, b):
@@ -4229,24 +4236,30 @@ def _owngroup(g, pos):
 def command_rule(mts, yaws, pits, cmds, instart, endtick, gw, frames):
     """P1613 -> dict: comparable, joined, exact, between, bad, unstep, worst; P1856: onpath (the joined move indices
     on their OWN command's drawn path -- its frames, or on to the next command's first frame -- held views excluded)
-    and delay (the run's median move-to-frame delay in ticks, which says whether the client was remote)."""
+    and delay (the run's median move-to-frame delay in ticks, which says whether the client was remote); P1860:
+    unnumbered, frameless."""
     bycmd = {}
     pos = {}
     for k, f in enumerate(frames):
         bycmd.setdefault(int(f[1]), []).append(f)
         pos[id(f)] = k
-    out = {"comparable": 0, "joined": 0, "exact": 0, "between": 0, "bad": 0, "unstep": 0, "worst": 0.0}
+    out = {"comparable": 0, "joined": 0, "exact": 0, "between": 0, "bad": 0, "unstep": 0, "worst": 0.0,
+           "unnumbered": 0, "frameless": 0}
     picked = []
     onpath = set()
     for i in range(len(mts)):
         raw = mts[i] - instart
         c = cmds[i]
-        if c < 1 or raw < 0 or (endtick is not None and raw > endtick) or \
+        if raw < 0 or (endtick is not None and raw > endtick) or \
                 (gw and any(a <= raw and (b is None or raw <= b) for a, b in gw)):
+            continue
+        if c < 1:
+            out["unnumbered"] += 1      # P1860: in the run, so it counts against ANG_CMD_FRAMELESS
             continue
         out["comparable"] += 1
         g = bycmd.get(c)
         if g is None:
+            out["frameless"] += 1
             continue
         y, pt = yaws[i], pits[i]
         if any(angdelta(y, f[4]) <= ANG_SOLO and angdelta(pt, f[3]) <= ANG_SOLO for f in g):
@@ -4639,10 +4652,11 @@ def angle_join(r, rec, frames):
         cjudged = cj >= ANG_CMD_MIN
         r.info["angle_cmd"] = ("%d of %d numbered moves joined to their own command's frames, %.2f%% on no drawn path "
                                "(worst %.2f deg; %.0f%% a frame, %.0f%% between frames; %d out of step with the "
-                               "frames' clock)%s"
+                               "frames' clock; %d unnumbered, %d with no frame)%s"
                                % (cj, cmd["comparable"], cbad, cmd["worst"],
                                   100.0 * cmd["exact"] / cj if cj else 0.0, 100.0 * cmd["between"] / cj if cj else 0.0,
-                                  cmd["unstep"], "" if cjudged else " -- NOT JUDGED"))
+                                  cmd["unstep"], cmd["unnumbered"], cmd["frameless"],
+                                  "" if cjudged else " -- NOT JUDGED"))
         if excused_solo or excused_sweep:
             r.info["angle_cmd"] += (" -- remote (delay %d): excused %d one-frame, %d sweep (P1856)"
                                     % (cmd["delay"], excused_solo, excused_sweep))
@@ -4676,7 +4690,11 @@ def angle_join(r, rec, frames):
     # run to CLEAR it.  Folding them together is what let a sidecar that padded
     # 55% of its ticks print the cleanest line the rule can produce.
     judged = tight and held >= ANG_SOLO_MIN
-    covered = judged and cover >= ANG_SOLO_COVER and not excused
+    # P1860 (see ANG_CMD_FRAMELESS): same denominator as the cover, the run's own in-run moves.
+    unseen = cmd["unnumbered"] + cmd["frameless"] if cmd is not None else 0
+    unseen_pc = 100.0 * unseen / comparable
+    blinded = unseen_pc > ANG_CMD_FRAMELESS
+    covered = judged and cover >= ANG_SOLO_COVER and not excused and not blinded
     if tight:
         # THE COVERAGE IS PRINTED FIRST AND ALWAYS, INCLUDING AT ZERO.  What
         # this rule examined is as much the answer as what it found, and the
@@ -4692,7 +4710,8 @@ def angle_join(r, rec, frames):
                                    % (excused_solo, sbad, len(solo), ANG_SOLO, cover) if excused_solo else "",
                                    "" if covered else
                                    (" -- NOT ENOUGH TO JUDGE" if not judged else
-                                    " -- EXCUSALS, NOT CLEARED" if excused
+                                    " -- EXCUSALS, NOT CLEARED" if excused else
+                                    " -- NOT CLEARED (P1860)" if blinded and cover >= ANG_SOLO_COVER
                                     else " -- PARTIAL COVER")))
         if slag != lag:
             r.info["angle_solo"] += " -- one-frame join at %+d ticks" % lag
@@ -4728,6 +4747,9 @@ def angle_join(r, rec, frames):
         elif excused:
             why = ("%d one-frame and %d sweep disagreement(s) were excused by the command rule (P1856), which "
                    "cannot clear a run" % (excused_solo, excused_sweep))
+        elif blinded and cover >= ANG_SOLO_COVER:
+            why = ("%d of %d moves have no command number or no frame of their own command (%.1f%%), over the %g%% "
+                   "it allows (P1860)" % (unseen, comparable, unseen_pc, ANG_CMD_FRAMELESS))
         else:
             why = ("%d of %d moves held one rendered frame (%.0f%%), under the "
                    "%g%% it needs" % (len(solo), comparable, cover, ANG_SOLO_COVER))

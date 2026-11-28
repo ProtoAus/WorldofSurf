@@ -2690,6 +2690,77 @@ def split_cs(lines, every=3):
     return out, vv
 
 
+def case_angle_frameless_moves_cannot_clear():
+    """P1860.  A MOVE THE COMMAND RULE CANNOT SEE MAY NOT HELP CLEAR A RUN.  A sidecar that leaves out the frames for
+    the ticks it lies about leaves those moves uncovered -- normal under the tick rate -- so the one-frame rule's 75%
+    floor let it lie on a quarter of a run and keep a tight OK.  On a numbered run, moves with no number or no frame
+    of their own command are counted; over ANG_CMD_FRAMELESS the run is never tight (BLIND), and never a fault."""
+    import reccheck as _rc
+    L = build(sweep=600, packets=3000, cmdseq=1000)
+    rows = [l for l in L if l.startswith("in ")]
+    yaw = [float(l.split()[8]) for l in rows]
+
+    def lie(lines, moves, deg):
+        out, k = [], 0
+        for l in lines:
+            if l.startswith("in "):
+                if k in moves:
+                    p = l.split(" ")
+                    p[8] = "%.4f" % ((((yaw[k] + deg) + 180.0) % 360.0) - 180.0)
+                    l = " ".join(p)
+                k += 1
+            out.append(l)
+        return out
+
+    def drop(view, moves):
+        return view[:4] + [ln for ln in view[4:] if int(ln.split()[1]) - 1000 not in moves]
+
+    def verdict(rep):
+        return "FAULT" if rep.faults else ("OK" if rep.info.get("angle_rule") == "tight" else "BLIND")
+
+    v = view_for(L)
+    n = len(v) - 4                       # one frame per in-run move
+    honest = report_inproc(L, v)
+    check(verdict(honest) == "OK" and "0 unnumbered, 0 with no frame" in honest.info.get("angle_cmd", ""),
+          "honest, one frame a move: tight OK, nothing unseen (%s)" % honest.info.get("angle_cmd", "")[-60:])
+    # The round-4 hole: 300 contiguous moves 30 deg off, their frames left out (cover stays near 88%).
+    blk = set(range(1500, 1800))
+    hole = report_inproc(lie(L, blk, 30.0), drop(v, blk))
+    check(verdict(hole) == "BLIND" and "NOT CLEARED (P1860)" in hole.info.get("angle_solo", ""),
+          "300 moves +30 deg with their frames left out: BLIND, not a clean OK (%s; %s)"
+          % (verdict(hole), hole.info.get("angle_solo", "")[-40:]))
+    check(any("(P1860)" in x for x in hole.notes), "...and the note says why (P1860)")
+    # The same lie behind a sequence jump: past 2^24 the recorder writes `cseq -1` and every later move is unnumbered.
+    ix = [i for i, l in enumerate(L) if l.startswith("in ")]
+    Lj = lie(L, blk, 30.0)
+    Lj = Lj[:ix[140]] + ["cseq -1"] + Lj[ix[140]:]
+    jump = report_inproc(Lj, drop(v, blk))
+    check(verdict(jump) == "BLIND" and "NOT CLEARED (P1860)" in jump.info.get("angle_solo", ""),
+          "the same lie after a sequence jump (`cseq -1` from move 140): unnumbered moves count too, BLIND (%s)"
+          % jump.info.get("angle_cmd", "")[-50:])
+    # A jump alone, no lie and every frame present: the run cannot be held to its commands, so it is not cleared.
+    jonly = report_inproc(L[:ix[140]] + ["cseq -1"] + L[ix[140]:], v)
+    check(verdict(jonly) == "BLIND", "a sequence jump alone: not cleared (%s)" % verdict(jonly))
+    # Honest frames missing, no lie: the cap, from both sides.
+    under = set(range(200, 200 + int(0.045 * n) * 20, 20))
+    over = set(range(200, 200 + int(0.055 * n) * 18, 18))
+    ru, ro = report_inproc(L, drop(v, under)), report_inproc(L, drop(v, over))
+    check(verdict(ru) == "OK", "%d of %d frames missing (4.5%%), no lie: still tight OK (%s)"
+          % (len(under), n, ru.info.get("angle_cmd", "")[-30:]))
+    check(verdict(ro) == "BLIND" and not ro.faults, "%d of %d frames missing (5.5%%), no lie: BLIND, not a fault"
+          % (len(over), n))
+    # The cap's stated limit: a lie on under 5% of moves with its frames left out still clears.
+    small = set(range(1500, 1500 + int(0.04 * n)))
+    rs = report_inproc(lie(L, small, 30.0), drop(v, small))
+    check(verdict(rs) == "OK", "the stated limit: %d moves (4%%) +30 deg with their frames left out still clear (%s)"
+          % (len(small), verdict(rs)))
+    # A recording without `cseq` is not touched: the round-4 shape there keeps main's verdict.
+    L0 = build(sweep=600, packets=3000)
+    r0 = report_inproc(lie(L0, blk, 30.0), drop(v, blk))
+    check(not r0.info.get("angle_cmd") and "(P1860)" not in r0.info.get("angle_solo", ""),
+          "a recording without `cseq`: no command rule, no P1860 (%s)" % verdict(r0))
+
+
 def case_angle_command_rule():
     """P1613.  THE COMMAND RULE: the recorder numbers each move's usercmd (`cseq`) and the .view stamps each frame
     with its usercmd (`cmdframe`), so each move is held against exactly its own command's frames -- no snapshot tick,
@@ -4772,6 +4843,7 @@ def main():
                case_angle_sweep_joins_at_the_named_offset,
                case_angle_command_rule,
                case_angle_command_excuses_a_remote_clients_clock_join,
+               case_angle_frameless_moves_cannot_clear,
                case_angle_sweep_offset_gate,
                case_angle_sweep_join_keeps_the_one_frame_fault,
                case_angle_sweep_join_is_v9_only,
