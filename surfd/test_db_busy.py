@@ -56,6 +56,7 @@ class DbBusy(unittest.TestCase):
         self.m = fresh(trusted='127.0.0.0/8')
         self.m.connect = functools.partial(self.m.connect, busy_timeout_ms=300)
         self.m.RUN_BUSY_MS = 1500
+        self.m.TOUR_BUSY_MS = 1500
         self.client = self.m.app.test_client()
         self.assertEqual(self.beat().status_code, 200)        # schema exists before any lock is held
         self.db = self.m.DB_PATH
@@ -100,12 +101,73 @@ class DbBusy(unittest.TestCase):
         self.assertLess(waited, 1.5 * 3 + 1.0)                 # bounded: each write waits at most RUN_BUSY_MS
         self.assertTrue(submit(self.m, runid='busy2')['stored'])
 
-    def test_lock_classifier_is_narrow(self):
-        self.assertTrue(self.m.db_locked(sqlite3.OperationalError('database is locked')))
-        self.assertTrue(self.m.db_locked(sqlite3.OperationalError('database table is locked')))
-        self.assertFalse(self.m.db_locked(sqlite3.OperationalError('disk I/O error')))
-        self.assertFalse(self.m.db_locked(sqlite3.OperationalError('no such table: lobbies')))
-        self.assertFalse(self.m.db_locked(sqlite3.IntegrityError('database is locked')))
+    def test_lock_classifier_reads_the_result_code(self):
+        def err(msg, code=None, cls=sqlite3.OperationalError):
+            e = cls(msg)
+            if code is not None:
+                e.sqlite_errorcode = code
+            return e
+        self.assertTrue(self.m.db_locked(err('database is locked', sqlite3.SQLITE_BUSY)))
+        self.assertTrue(self.m.db_locked(err('x', sqlite3.SQLITE_BUSY | 512)))           # BUSY_SNAPSHOT
+        self.assertFalse(self.m.db_locked(err('database table is locked', sqlite3.SQLITE_LOCKED)))  # code fault: 500
+        self.assertFalse(self.m.db_locked(err('database is locked', sqlite3.SQLITE_IOERR)))  # the code wins over text
+        self.assertTrue(self.m.db_locked(err('database is locked')))                     # no code: text
+        self.assertFalse(self.m.db_locked(err('disk I/O error')))
+        self.assertFalse(self.m.db_locked(err('database is locked', cls=sqlite3.IntegrityError)))
+        with HeldLock(self.db):                                                         # a real one carries code 5
+            c = sqlite3.connect(self.db, timeout=0)
+            try:
+                c.execute('BEGIN IMMEDIATE')
+            except sqlite3.OperationalError as exc:
+                real = exc
+            c.close()
+        self.assertTrue(self.m.db_locked(real), getattr(real, 'sqlite_errorcode', None))
+
+    def run_with_lock_after_identity(self, hold, ranked):
+        """The lock is taken after /api/run's identity step (inside story_facts) and held `hold` s."""
+        self.m.RANKED_LINKED = ranked
+        orig, held = self.m.story_facts, []
+
+        def facts(*a, **k):
+            h = HeldLock(self.db, hold=hold)
+            h.__enter__()
+            held.append(h)
+            return orig(*a, **k)
+        self.m.story_facts = facts
+        try:
+            return submit(self.m, runid='mid%g%d' % (hold, ranked))
+        finally:
+            self.m.story_facts = orig
+            for h in held:
+                h.__exit__(None, None, None)
+
+    def test_run_main_write_waits_for_a_lock_taken_after_identity(self):
+        for ranked in (False, True):
+            out = self.run_with_lock_after_identity(0.8, ranked)
+            self.assertIsInstance(out, dict, (ranked, out))
+            self.assertTrue(out['stored'], (ranked, out))
+
+    def test_run_main_write_past_its_bound_is_a_clear_503(self):
+        self.assertEqual(self.run_with_lock_after_identity(2.5, True), 'HTTP 503')
+
+    def test_run_busy_wait_ends_with_the_main_commit(self):
+        orig, seen = self.m.rank_of, []
+
+        def rank_of(db, *a, **k):
+            seen.append(db.execute('PRAGMA busy_timeout').fetchone()[0])
+            return orig(db, *a, **k)
+        self.m.rank_of = rank_of
+        try:
+            self.assertTrue(submit(self.m, runid='restore1')['stored'])
+        finally:
+            self.m.rank_of = orig
+        self.assertEqual(seen, [300])                          # the connection's own wait, not RUN_BUSY_MS
+
+    def test_tournament_state_waits_out_a_lock_shorter_than_its_bound(self):
+        with HeldLock(self.db, hold=0.8):
+            r = self.client.post('/api/tournaments/game', data={'key': 'testkey', 'node': 'p27510', 'op': 'state'},
+                                 environ_base={'REMOTE_ADDR': '127.0.0.1'})
+        self.assertNotEqual(r.get_json().get('status'), 'storage', r.get_json())
 
     def test_tournament_storage_busy_is_a_warning_and_a_retryable_reply(self):
         with HeldLock(self.db), self.assertLogs(self.m.log, level='WARNING') as logs:

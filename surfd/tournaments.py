@@ -178,6 +178,10 @@ def register(app, d):
         if not NODE.fullmatch(node):
             return response(reply(False, 'invalid', error='bad node'))
         db, now = d.get_db(), int(d.clock())
+        with d.busy_wait(db):
+            return _game(db, now, node, op, data)
+
+    def _game(db, now, node, op, data):
         try:
             with db:
                 db.execute('BEGIN IMMEDIATE')
@@ -290,8 +294,8 @@ def register(app, d):
         except rules.Refusal as exc:
             return response(reply(False, 'refused', current(db, node), str(exc)))
         except sqlite3.Error as exc:
-            if isinstance(exc, sqlite3.OperationalError) and 'locked' in str(exc).lower():
-                # P1864: a sweep held the write lock; the lobby resends the identical request on 'storage'.
+            if d.db_locked(exc):
+                # P1864: held past TOUR_BUSY_MS; the lobby resends the identical request on 'storage'.
                 d.log.warning('tournament storage busy (%s %s): %s', node, op, exc)
             else:
                 d.log.exception('tournament storage error')

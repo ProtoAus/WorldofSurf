@@ -31,6 +31,7 @@ import os
 import re
 import shlex
 import shutil
+import contextlib
 import sqlite3
 import stat
 import sys
@@ -2697,14 +2698,34 @@ def fail(code, message):
 
 # P1864: a sweep pass can hold the write lock past connect()'s 5 s busy wait (28 Nov 04:50:25Z and 06:05:24Z a lobby
 # heartbeat got 500). A heartbeat repeats within seconds, so it answers 503 at once rather than hold one of the four
-# request threads longer; a lobby never resends a run, so /api/run waits up to RUN_BUSY_MS before its 503.
+# request threads longer; a lobby never resends a run, so /api/run waits up to RUN_BUSY_MS before its 503; a
+# 'storage' reply during a live match aborts it (sv_tournament.qc tq_broken), so /api/tournaments/game waits up to
+# TOUR_BUSY_MS, under the lobby's TQ_HTTP_WAIT (10 s).
 RUN_BUSY_MS = 10000
+TOUR_BUSY_MS = 8000
 
 
 def db_locked(exc):
-    """True for SQLite's writer-contention error (locked/busy), not for a real storage fault."""
-    return isinstance(exc, sqlite3.OperationalError) and any(
-        w in str(exc).lower() for w in ("database is locked", "database is busy", "database table is locked"))
+    """True when another connection holds the write lock (SQLITE_BUSY, by primary result code as
+    simcheck._database_busy reads it). SQLITE_LOCKED is a conflict inside this connection, a code fault: a 500.
+    The message is read only when the code is unavailable."""
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    code = getattr(exc, "sqlite_errorcode", None)
+    if type(code) is int:
+        return code & 255 == sqlite3.SQLITE_BUSY
+    return "database is locked" in str(exc).lower()
+
+
+@contextlib.contextmanager
+def busy_wait(db, ms):
+    """This request connection waits up to `ms` for the write lock inside the block; its own wait comes back after."""
+    old = db.execute("PRAGMA busy_timeout").fetchone()[0]
+    db.execute("PRAGMA busy_timeout=%d" % ms)
+    try:
+        yield db
+    finally:
+        db.execute("PRAGMA busy_timeout=%d" % old)
 
 
 def busy(message):
@@ -2714,12 +2735,19 @@ def busy(message):
 
 
 def run_db():
-    """The request's connection with the run submit's longer busy wait (closed at teardown, so it ends here)."""
+    """The request's connection with the run submit's longer busy wait, until run_db_done()."""
     db = get_db()
-    if not g.get("run_busy"):
+    if "run_busy" not in g:
+        g.run_busy = db.execute("PRAGMA busy_timeout").fetchone()[0]
         db.execute("PRAGMA busy_timeout=%d" % RUN_BUSY_MS)
-        g.run_busy = True
     return db
+
+
+def run_db_done(db):
+    """Back to the connection's own wait for the writes after the run's commit (announce, late ban)."""
+    old = g.pop("run_busy", None)
+    if old is not None:
+        db.execute("PRAGMA busy_timeout=%d" % old)
 
 
 @app.post("/api/heartbeat")
@@ -4798,6 +4826,7 @@ def submit_run():
         log.exception("run db error from %s: %s", src, exc)
         return busy("database busy; retry") if db_locked(exc) else fail(500, "storage error")
     finally:
+        run_db_done(db)
         # A BAN COMMITTED BETWEEN THE IDENTITY READ AND THIS WRITE (Patch 633's
         # review: 7 of 40 with a large recording in flight) found nothing to
         # set aside, and the row landed after it.  After the commit, on every
@@ -9209,6 +9238,7 @@ accounts.register(app, types.SimpleNamespace(
 
 tournaments.register(app, types.SimpleNamespace(
     get_db=get_db, clock=lambda: time.time(), secret=lambda: SECRET,
+    db_locked=db_locked, busy_wait=lambda db: busy_wait(db, TOUR_BUSY_MS),
     setting=setting, game_json=game_json, log=log, lobby_ttl=LOBBY_TTL,
     assign_ttl=ASSIGN_TTL, map_index=map_index, zone_file_index=zone_file_index,
     map_tiers=map_tiers, maps_root=MAPS_DIR, variant_base=variant_base, momentum_catalogue=momentum_catalogue,
