@@ -163,6 +163,15 @@ class Remeasure(unittest.TestCase):
         self.step(2)
         self.assertEqual(simcheck.stale_count(self.conn, 2), (0, ''))
 
+    def test_the_backlog_counts_only_what_the_collector_would_remeasure(self):
+        # Review 5: a stale pair across legs, or a self-pair, is never re-measured, so it is no backlog.
+        self.conn.execute("INSERT INTO replays VALUES(4,'run','m',0,1,'4','','p')")
+        self.seed(1, 4, 'skip', 'unmodelled')
+        self.seed(2, 2, 'skip', 'unmodelled')
+        self.assertEqual(simcheck.stale_count(self.conn, 2), (0, ''))
+        self.seed(1, 2, 'skip', 'unmodelled')
+        self.assertEqual(simcheck.stale_count(self.conn, 2), (1, ''))
+
     def test_the_backlog_fits_its_allowance_at_live_size(self):
         # Review 4: 1,700 runs and 15,873 rows, 15,237 of them stale, overran a 1M-step allowance.
         self.conn.executemany('INSERT INTO replays VALUES(?,?,?,?,?,?,?,?)',

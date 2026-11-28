@@ -1393,7 +1393,7 @@ def _main_connected(conn, args):
                 print("sims pending: unavailable (SQL reads disabled)")
             if args.sims_sql_steps:
                 # P1859: same-leg run pairs whose only rows are older readers' skips, which the installed reader
-                # re-measures.  A manual diagnostic: ten times the pass allowance (review 4: 1.1M steps at live size).
+                # re-measures.  A manual diagnostic: ten times the pass allowance (0.9M steps at live size, 28 Nov).
                 try:
                     rs, why = simcheck._recsim(TOOLS)
                 except Exception as exc:
@@ -1408,8 +1408,8 @@ def _main_connected(conn, args):
                         k, why = simcheck.stale_count(conn, rev, 10 ** 6,
                                                       read_budget=simcheck.ReadBudget(conn, 10 * args.sims_sql_steps))
                         print("sims re-measure backlog: unavailable (%s)" % why if k is None else
-                              "sims re-measure backlog: %s%d pair(s) whose only rows are older readers' skips "
-                              "(reader revision %d)" % ("at least " if k == 10 ** 6 else "", k, rev))
+                              "sims re-measure backlog: %s%d pair(s) whose only rows are unmodelled/malformed/no-rows "
+                              "skips older readers made and this one has not tried (reader revision %d)" % ("at least " if k == 10 ** 6 else "", k, rev))
                     except simcheck.ReadLimit:
                         print("sims re-measure backlog: unavailable (SQL read limit)")
             # Summary gets an independent allowance; pending exhaustion is not
