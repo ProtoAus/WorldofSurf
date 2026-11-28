@@ -24,6 +24,8 @@
 ### P1861 CS:GO gloves
 - Choosing a CS:GO glove or hand style in the knife menu no longer risks crashing the game.
 
+## 0.1.72 2026-11-28
+
 ### P1854 Run uploads on Windows
 - Large run uploads over HTTPS no longer stall halfway on Windows, and an upload cut off by a dropped connection is retried.
 
