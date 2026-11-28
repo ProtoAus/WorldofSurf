@@ -260,8 +260,9 @@ for the next surfd generation.
 
 ## Still to build
 
-1. DONE by P1806 (below): shown uploads are rows of the boards' TAS tab. Left: their replays (rep 0 until surfd
-   serves a `tasup` replay kind -- a generation) and a link from such a row to its /tasup/run page.
+1. DONE by P1806 (below): shown uploads are rows of the boards' TAS tab. P1870: those rows carry a rep (replays kind
+   `tasup`, a copy of the upload's .rec under surfd's TASUP_DIR = data/tasup), so the game's click and the web board's
+   Watch/3D play it. Left: a link from such a row to its /tasup/run page.
 2. EXACT: native recordings with `in` rows re-simulated by pm_verify (sweep.py), shown with a
    "re-simulated" badge.
 3. tasplaus: map push volumes from the entity lump; stage legs (both HOLD today).

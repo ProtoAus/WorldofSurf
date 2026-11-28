@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""P1806: tasindex files tasupd's shown uploads as the TAS board's rows, read back through surfd's own /api/board."""
+"""P1806: tasindex files tasupd's shown uploads as the TAS board's rows, read back through surfd's own /api/board.
+P1870: those rows carry a rep surfd serves (kind 'tasup'), read back through /api/replay."""
+import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -27,6 +30,8 @@ class TasIndex(unittest.TestCase):
     def setUp(self):
         for p in HOME.glob('*.sqlite3*'):
             p.unlink()
+        for d in (HOME / 'recs', Path(S.TASUP_DIR)):
+            shutil.rmtree(d, ignore_errors=True)
         for p in HOME.glob('surfd.db*'):
             p.unlink()
         self.store, self.db = HOME / 'tasup.sqlite3', HOME / 'surfd.db'
@@ -41,13 +46,38 @@ class TasIndex(unittest.TestCase):
         S._rate.clear()
         self.client = S.app.test_client()
 
-    def upload(self, sid, mapname, track, ticks, state='shown', at=1795528494):
+    def upload(self, sid, mapname, track, ticks, state='shown', at=1795528494, body=None, stored=None):
+        """body: the .rec tasupd keeps (its sha256 names it); stored: other bytes at that path. None: no file."""
         self.n += 1
+        sha = hashlib.sha256(body).hexdigest() if body is not None else '%064x' % self.n
+        if body is not None:
+            path = Path(U.rec_path(self.store, sha))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(body if stored is None else stored)
         with sqlite3.connect(self.store) as s:
             cur = s.execute('INSERT INTO runs(sha, samples_sha, steamid, map, track, ticks, verdict, state, reasons, stats,'
                             " tool, size, uploaded_at, sig) VALUES (?, '', ?, ?, ?, ?, 'PASS', ?, '[]', '{}', 't', 1, ?, x'00')",
-                            ('%064x' % self.n, sid, mapname, track, ticks, state, at))
+                            (sha, sid, mapname, track, ticks, state, at))
             return cur.lastrowid
+
+    def rec(self, mapname, ticks, extra=''):
+        return ('FTESURF-REC 5\nmap %s\ntrack 0\ntickrate 0.015\nforeign test\nmoves recorded\nbegin\n%d%s\n'
+                % (mapname, ticks, extra)).encode()
+
+    def fetch(self, rep):
+        S._rate.clear()
+        r = self.client.get('/api/replay/%d' % rep)
+        out = r.status_code, r.get_data()
+        r.close()
+        return out
+
+    def copies(self):
+        return sorted(str(p.relative_to(S.TASUP_DIR)) for p in Path(S.TASUP_DIR).rglob('*') if p.is_file())
+
+    def tasreps(self):
+        with sqlite3.connect(self.db) as c:
+            return c.execute("SELECT id, map, track, player, runid, leaf, bytes, sha FROM replays WHERE kind = 'tasup'"
+                             ' ORDER BY id').fetchall()
 
     def set_state(self, rid, state):
         with sqlite3.connect(self.store) as s:
@@ -71,6 +101,7 @@ class TasIndex(unittest.TestCase):
             return rid
 
     def sync(self, **kw):
+        kw.setdefault('tasup_dir', S.TASUP_DIR)
         return T.sync(self.store, self.db, log=lambda s: None, **kw)
 
     def board(self, mapname, track=0):
@@ -93,6 +124,16 @@ class TasIndex(unittest.TestCase):
         with sqlite3.connect(self.db) as c:
             self.assertEqual(set(T.COLS) | {'momdemo'}, {r[1] for r in c.execute('PRAGMA table_info(runs)')})
         self.assertEqual(list(T.COLS), [w.strip() for w in S._UPSERT_RUN.split('(')[1].split(')')[0].split(',')])
+        with sqlite3.connect(self.db) as c:
+            self.assertLessEqual(set(T.RCOLS), {r[1] for r in c.execute('PRAGMA table_info(replays)')})
+        self.assertEqual(T.rec_path(self.store, 'ab' * 32), str(U.rec_path(self.store, 'ab' * 32)))
+        for track in (0, 1, 7):
+            self.assertEqual(T.leg_dir(track), S.leg_dir(track, 0))
+        leaf = T.LEAF % (2, 'f' * 16)
+        self.assertTrue(S._TASLEAF_OK.match(leaf))
+        self.assertFalse(S._LEAF_OK.match(leaf))             # never a lobby leaf: submit_run's leaf lookup
+        self.assertFalse(S._TASLEAF_OK.match('0003211_1234abcd_run.rec'))
+        self.assertEqual(T.default_tasup_dir(os.path.join(S.DATA_DIR, 'surfd.db')), S.TASUP_DIR)
 
     def test_shown_upload_reaches_the_board(self):
         self.upload(ROU, 'surf_sandtrap2', 0, 3211)
@@ -105,7 +146,8 @@ class TasIndex(unittest.TestCase):
         n = self.sync()
         self.assertEqual((n['added'], n['removed']), (1, 0))
         self.assertEqual(self.board('surf_sandtrap2'), [(ROU, 'Rounin', 48165, 0)])
-        self.assertEqual(self.sync(), dict(added=0, updated=0, removed=0, refilled=0, kept_lobby=0, skipped=0))
+        self.assertEqual(self.sync(), dict(added=0, updated=0, removed=0, refilled=0, kept_lobby=0, skipped=0, reps=0,
+                                           unreps=0))
 
     def test_dry_run_writes_nothing(self):
         self.upload(ROU, 'surf_sandtrap2', 0, 3211)
@@ -271,6 +313,123 @@ class TasIndex(unittest.TestCase):
         n = self.sync(withdraw=True)
         self.assertEqual((n['removed'], n['added']), (2, 0))
         self.assertEqual(self.rows(), [])
+
+    def test_upload_row_carries_a_replay_surfd_serves(self):
+        body = self.rec('surf_sandtrap2', 3211)
+        rid = self.upload(ROU, 'surf_sandtrap2', 0, 3211, body=body)
+        n = self.sync()
+        self.assertEqual((n['added'], n['reps']), (1, 1))
+        [(p, name, ms, rep)] = self.board('surf_sandtrap2')
+        self.assertEqual((p, name, ms), (ROU, 'Rounin', 48165))
+        self.assertGreater(rep, 0)
+        self.assertEqual(self.fetch(rep), (200, body))
+        sha = hashlib.sha256(body).hexdigest()
+        self.assertEqual(self.tasreps(), [(rep, 'surf_sandtrap2', 0, ROU, 'tasup-%d' % rid,
+                                           'tasup-%d-%s.rec' % (rid, sha[:16]), len(body), sha)])
+        self.assertEqual(self.sync()['reps'] + self.sync()['updated'], 0)        # settled: ours with a rep
+
+    def test_a_bonus_copy_and_the_cli_default_dir(self):
+        body = self.rec('surf_x', 900)
+        self.upload(ROU, 'surf_x', 3, 900, body=body)
+        self.assertEqual(T.main(['--store', str(self.store), '--db', str(self.db), '--tasup-dir', S.TASUP_DIR,
+                                 '--quiet']), 0)
+        self.assertEqual(self.copies(), ['surf_x/bonus_3/' + self.tasreps()[0][5]])
+        self.assertEqual(self.fetch(self.board('surf_x', 3)[0][3]), (200, body))
+
+    def test_a_row_filed_before_its_copy_gains_a_rep(self):
+        body = self.rec('surf_z', 1000)
+        rid = self.upload(ROU, 'surf_z', 0, 1000, body=body)
+        path = Path(U.rec_path(self.store, hashlib.sha256(body).hexdigest()))
+        path.rename(str(path) + '.away')                    # P1806's rows: filed with rep 0
+        self.assertEqual(self.sync()['reps'], 0)
+        self.assertEqual(self.board('surf_z'), [(ROU, 'Rounin', 15000, 0)])
+        self.assertEqual(self.sync()['updated'], 0)         # a copy that cannot be made changes nothing
+        Path(str(path) + '.away').rename(path)
+        n = self.sync()
+        self.assertEqual((n['updated'], n['reps'], n['added']), (1, 1, 0))
+        self.assertEqual(self.fetch(self.board('surf_z')[0][3]), (200, body))
+        self.assertEqual(self.rows()[0][5], 'tasup-%d' % rid)
+
+    def test_a_stored_file_that_is_not_its_sha_is_not_served(self):
+        self.upload(ROU, 'surf_z', 0, 1000, body=self.rec('surf_z', 1000), stored=b'something else')
+        logged = []
+        T.sync(self.store, self.db, log=logged.append, tasup_dir=S.TASUP_DIR)
+        self.assertEqual(self.board('surf_z'), [(ROU, 'Rounin', 15000, 0)])
+        self.assertEqual((self.copies(), self.tasreps()), ([], []))
+        self.assertTrue(any('not its sha256' in line for line in logged), logged)
+
+    def test_removed_and_replaced_uploads_take_their_copies(self):
+        a = self.upload(ROU, 'surf_x', 0, 900, body=self.rec('surf_x', 900))
+        self.sync()
+        old = self.board('surf_x')[0][3]
+        b_body = self.rec('surf_x', 800)
+        b = self.upload(ROU, 'surf_x', 0, 800, body=b_body)
+        n = self.sync()
+        self.assertEqual((n['removed'], n['added'], n['reps'], n['unreps']), (1, 1, 1, 1))
+        new = self.board('surf_x')[0][3]
+        self.assertNotEqual(new, old)
+        self.assertEqual((self.fetch(old)[0], self.fetch(new)), (404, (200, b_body)))
+        self.assertEqual(self.copies(), ['surf_x/main/tasup-%d-%s.rec' % (b, hashlib.sha256(b_body).hexdigest()[:16])])
+        self.set_state(b, 'removed')
+        self.set_state(a, 'removed')
+        n = self.sync()
+        self.assertEqual((n['removed'], n['unreps']), (1, 1))
+        self.assertEqual((self.rows(), self.tasreps(), self.copies(), self.fetch(new)[0]), ([], [], [], 404))
+
+    def test_a_lobby_upsert_over_the_row_frees_its_copy(self):
+        self.upload(LEX, 'surf_y', 0, 600, body=self.rec('surf_y', 600))
+        self.sync()
+        self.lobby(LEX, 'surf_y', 0, 550, at=1795600000)    # submit_run's upsert takes the row
+        n = self.sync()
+        self.assertEqual((n['kept_lobby'], n['unreps']), (1, 1))
+        self.assertEqual((self.tasreps(), self.copies()), ([], []))
+
+    def test_no_copy_for_an_upload_kept_off_the_board(self):
+        self.lobby(LEX, 'surf_y', 0, 500)
+        self.replay(ROU, 'surf_y', 0, 650)
+        self.upload(LEX, 'surf_y', 0, 600, body=self.rec('surf_y', 600))
+        self.upload(ROU, 'surf_y', 0, 600, body=self.rec('surf_y', 601))
+        self.assertEqual(self.sync()['kept_lobby'], 2)
+        self.assertEqual((self.copies(), self.tasreps()), ([], []))
+
+    def test_banned_or_rejected_copies_are_not_served(self):
+        self.upload(ROU, 'surf_z', 0, 1000, body=self.rec('surf_z', 1000))
+        self.sync()
+        rep = self.board('surf_z')[0][3]
+        with sqlite3.connect(self.db) as c:
+            c.execute('UPDATE accounts SET banned_at = 9 WHERE steamid = ?', (ROU,))
+            A.ban_rows(c, ROU, True, S.TIERS_IMPORTED)
+        self.sync()
+        self.assertEqual((self.fetch(rep)[0], len(self.tasreps())), (404, 1))   # parked row still names it: kept
+        with sqlite3.connect(self.db) as c:
+            c.execute('UPDATE accounts SET banned_at = 0 WHERE steamid = ?', (ROU,))
+            A.ban_rows(c, ROU, False, S.TIERS_IMPORTED)
+        self.assertEqual(self.sync()['reps'], 0)
+        self.assertEqual(self.fetch(rep)[0], 200)
+        with sqlite3.connect(self.db) as c:
+            c.execute("INSERT INTO reviews (replay_id, decision, at) VALUES (?, 'reject', ?)", (rep, 1795528495))
+        self.assertEqual(self.fetch(rep)[0], 404)
+
+    def test_a_lobby_row_pointing_at_a_lobby_replay_is_not_ours(self):
+        keep = self.replay(LEX, 'surf_y', 0, 700)
+        rid = self.upload(LEX, 'surf_y', 0, 600, body=self.rec('surf_y', 600))
+        with sqlite3.connect(self.db) as c:
+            c.execute(S._UPSERT_RUN, ('surf_y', 0, 0, 'community', 'tas', LEX, 'LobbyName', 700, 66.6667, 10500,
+                                      4718985, 'tasup', 'tasup-%d' % rid, 1795400000, keep, 0, 0, 0))
+        self.set_state(rid, 'removed')
+        self.sync(full=True)
+        self.assertEqual(self.board('surf_y'), [(LEX, 'LobbyName', 10500, keep)])
+
+    def test_dry_run_and_withdraw_with_copies(self):
+        self.upload(ROU, 'surf_z', 0, 1000, body=self.rec('surf_z', 1000))
+        n = self.sync(dry_run=True)
+        self.assertEqual((n['added'], n['reps']), (1, 1))
+        self.assertEqual((self.rows(), self.tasreps(), self.copies()), ([], [], []))
+        self.sync()
+        self.assertEqual(len(self.copies()), 1)
+        n = self.sync(withdraw=True)
+        self.assertEqual((n['removed'], n['unreps']), (1, 1))
+        self.assertEqual((self.rows(), self.tasreps(), self.copies()), ([], [], []))
 
     def test_cli_quiet(self):
         self.upload(ROU, 'surf_z', 0, 1000)

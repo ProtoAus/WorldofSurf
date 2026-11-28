@@ -36,9 +36,6 @@
   immutable caching still requires content-versioned URLs and atomic publication first.
 
 ## P1806 TAS uploads on the boards' TAS tab -- what it leaves (25 Nov, worldofsurf-8b)
-- An upload row has no replay (rep 0): the game cannot watch or race it from the board. Needs surfd to serve a
-  `tasup` replay kind (tasindex copies the .rec beside surfd's data and writes a replays row) -- a generation, and every
-  replays reader (sweep's verifier, PublicReplays, admin) checked for the new kind first.
 - A player who already holds a course's TAS slot with a lobby run (live, or set aside by surfd), or has an unrejected
   lobby recording of it, keeps it even when their upload is faster; the upload shows on /tasup/board only. (Also: an
   upload row standing over a slower lobby recording is not replaced by the player's next, faster upload -- the slot is

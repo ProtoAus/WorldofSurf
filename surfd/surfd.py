@@ -173,6 +173,9 @@ KSF_DIR = os.environ.get("SURFD_KSF_RUNS", os.path.join(DATA_DIR, "ksfruns"))
 MOMENTUM_DIR = os.environ.get(
     "SURFD_MOMENTUM",
     os.path.join(os.path.dirname(os.path.normpath(RUNS_DIR)), "momentum"))
+# P1870: tasindex's copies of tasupd uploads it files on the TAS board (kind 'tasup'), so their rows carry a rep.
+# tasindex derives the same default from --db; tasupd's own store keeps the original.
+TASUP_DIR = os.environ.get("SURFD_TASUP", os.path.join(DATA_DIR, "tasup"))
 EVIDENCE_SETTLE = 600    # s; a file with no `end` younger than this may be mid-write
 # P1699 (Lex, 21 Nov: "Show it with a 'no evidence' mark"): a WOS top-10 main-course or bonus run whose evidence never
 # arrived is marked on the boards. Runs before NOEV_SINCE are not judged (older rows predate receipts); a run is judged
@@ -2226,6 +2229,8 @@ _LEAF_OK = re.compile(
 # An evidence file's leaf: its runid (sv_timer.qc SV_RecOpen) + ".rec".
 # P1569: a shared save's copy (P1567) swaps the 'p' for the receiver's slot letter (SV_GiftRunId).
 _EVLEAF_OK = re.compile(r"^[0-9]{8}-[0-9]{6}-[0-9]{1,3}(?:-[A-Za-z][0-9]{1,5})?\.rec$")
+# P1870: tasindex's leaf, tasup-<upload id>-<first 16 of its sha256>.rec; never a _LEAF_OK name (submit_run's leaf lookup).
+_TASLEAF_OK = re.compile(r"^tasup-[1-9][0-9]{0,9}-[0-9a-f]{16}\.rec$")
 
 
 def clean_map(raw):
@@ -5092,16 +5097,17 @@ def replay_file(row):
     kind), "outside" (resolves outside its root) or "missing" (not a file).
     The one path check /api/replay, sweep.py and the admin share; submit_run
     validates names too, but the row outlives that.  A 'run' lives under
-    RUNS_DIR/<map_dir>/<leg dir>/, an 'evidence' row under KEEP_DIR/<map_dir>/.
+    RUNS_DIR/<map_dir>/<leg dir>/, an 'evidence' row under KEEP_DIR/<map_dir>/,
+    a 'tasup' (P1870) under TASUP_DIR/<map_dir>/<leg dir>/.
     """
     kind = row["kind"] if "kind" in row.keys() else "run"
     leaf, map_dir = row["leaf"] or "", row["map_dir"] or ""
     if kind == "evidence":
         ok, root, sub = _EVLEAF_OK.match(leaf), KEEP_DIR, (map_dir, leaf)
-    elif kind in ("run", "momentum", "ksf"):
+    elif kind in ("run", "momentum", "ksf", "tasup"):
         # Imported text uses the native archive leaf grammar, not its authority.
-        ok = _LEAF_OK.match(leaf)
-        root = {"run": RUNS_DIR, "momentum": MOMENTUM_DIR, "ksf": KSF_DIR}[kind]
+        ok = (_TASLEAF_OK if kind == "tasup" else _LEAF_OK).match(leaf)
+        root = {"run": RUNS_DIR, "momentum": MOMENTUM_DIR, "ksf": KSF_DIR, "tasup": TASUP_DIR}[kind]
         sub = (map_dir, leg_dir(row["track"], row["leg"]), leaf)
     else:
         return None, "name"
@@ -5534,8 +5540,9 @@ def replay(rid):
         # with its run: it is only ever served as the parent of stage rows, and
         # restage parks those once _run_rejected says so.  A run's own recording
         # answers to its own review alone -- its leg-0 row stands (restand) when
-        # an evidence copy is rejected.  Imports are another board's and stay.
-        hidden = row is not None and row["kind"] in ("run", "evidence") and (
+        # an evidence copy is rejected.  Imports are another board's and stay;
+        # a tasupd upload (P1870) is ours and answers to its review like a run.
+        hidden = row is not None and row["kind"] in ("run", "evidence", "tasup") and (
             row["rejected"] or (row["kind"] == "evidence" and row["runid"] not in ("", "-")
                                 and _run_rejected(db, (row["map"], row["track"],
                                                        row["player"], row["runid"]))))
@@ -5549,7 +5556,7 @@ def replay(rid):
     # stage rows (kind 'evidence') has no tier, and a sweep files more of
     # those after the ban.  An imported demo is another board's and stays.
     if row is None or (
-            row["owner_banned"] and row["kind"] in ("run", "evidence")):
+            row["owner_banned"] and row["kind"] in ("run", "evidence", "tasup")):
         return fail(404, "no such replay")
     if hidden:
         return fail(404, "no such replay")

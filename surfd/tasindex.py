@@ -1,10 +1,10 @@
 """P1806: uploaded TAS runs on the main board's TAS tab.
 
-  python3 tasindex.py --store <tasup.sqlite3> --db <surfd.db> [--dry-run] [--full] [--withdraw] [--quiet]
+  python3 tasindex.py --store <tasup.sqlite3> --db <surfd.db> [--tasup-dir DIR] [--dry-run] [--full] [--withdraw] [--quiet]
 
 tasupd (P1640) keeps uploads in its own store and showed them only on /tasup/board; the board's TAS tab (web and game)
 is surfd's community/tas rows. Each pass files a player's best shown upload on a course as one of those rows (node
-'tasup', runid 'tasup-<id>', TF_TAS, rep 0: surfd serves no tasupd file) -- only into an empty slot: a player with any
+'tasup', runid 'tasup-<id>', TF_TAS) -- only into an empty slot: a player with any
 TAS row of their own on that course (live or set aside by surfd), or an unrejected lobby recording of it, keeps it, and
 the upload stays on /tasup/board only.
 A row of ours whose upload is no longer the player's best shown one is taken out, and the slot refilled from the
@@ -13,8 +13,14 @@ whose row surfd set aside is not filed again. No state: the courses looked at ar
 store has ever held, read by primary key; the write lock is taken only when something changes. --full also scans
 surfd.db for strays (before the lock); --withdraw takes every upload row off (rollback). surfd is not imported: its
 connect() migrates, and this runs beside whichever generation is live.
+P1870: the row's rep is a replays row of kind 'tasup' naming a copy of the upload's .rec under --tasup-dir (surfd's
+TASUP_DIR), so the game's click-to-watch works. Copies are made and checked against the upload's sha256 before the
+write lock; a row whose copy failed is filed with rep 0 as before. A 'tasup' replays row no board row names is deleted
+with its file (so --withdraw removes them all). Needs a surfd that serves kind 'tasup': deploy after that generation.
 """
 import argparse
+import hashlib
+import os
 import re
 import sqlite3
 import sys
@@ -23,6 +29,7 @@ import time
 TF_TAS = 4194304            # surfd.TF_TAS
 TIER, STYLE = 'community', 'tas'   # surfd.TIER_COMMUNITY, STYLE_TAS: the TAS board's only tier
 NODE, RUNID, RUNID_RE = 'tasup', 'tasup-%d', re.compile(r'^tasup-[0-9]+$')
+KIND, LEAF = 'tasup', 'tasup-%d-%s.rec'          # surfd's replays.kind and _TASLEAF_OK: id, sha256[:16]
 RATE = 66.6667              # what lobby rows store for the game's tick; tasupd.TICK is 0.015
 MAX_TRACK = 99              # tasupd.MAX_TRACK
 MAPNAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$')   # surfd._MAPNAME_OK; clean_map also refuses '..'
@@ -32,6 +39,12 @@ COLS = ('map', 'track', 'leg', 'tier', 'style', 'player', 'name', 'ticks', 'tick
         'runid', 'submitted', 'replay_id', 'plat', 'pad', 'oldgame')   # surfd._UPSERT_RUN's (runs also has momdemo)
 UPSERT = ('INSERT INTO runs (%s) VALUES (%s) ON CONFLICT(map, track, leg, tier, style, player) DO UPDATE SET %s'
           % (', '.join(COLS), ','.join('?' * len(COLS)), ', '.join('%s = excluded.%s' % (c, c) for c in COLS[6:])))
+RCOLS = ('map', 'map_dir', 'track', 'leg', 'leaf', 'tier', 'style', 'player', 'name', 'ticks', 'tickrate', 'millis',
+         'flags', 'node', 'submitted', 'bytes', 'runid', 'bound', 'sha', 'sha_at', 'kind')
+REP_UPSERT = ('INSERT INTO replays (%s) VALUES (%s) ON CONFLICT(map, track, leg, leaf) DO UPDATE SET name = excluded.name'
+              % (', '.join(RCOLS), ','.join('?' * len(RCOLS))))
+UNNAMED = ("SELECT p.id, p.map_dir, p.track, p.leaf FROM replays p WHERE p.kind = 'tasup'"
+           ' AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.replay_id = p.id)')
 
 
 def connect(path, readonly=False):
@@ -44,11 +57,54 @@ def connect(path, readonly=False):
     return db
 
 
+def default_tasup_dir(surfd_db):
+    """surfd's TASUP_DIR: DATA_DIR/tasup, and surfd.db is DATA_DIR/surfd.db."""
+    return os.path.join(os.path.dirname(os.path.abspath(surfd_db)), 'tasup')
+
+
+def leg_dir(track):
+    """surfd.leg_dir(track, 0): tasupd uploads are whole courses."""
+    return 'main' if track <= 0 else 'bonus_%d' % track
+
+
+def rec_path(store, sha):
+    """tasupd.rec_path."""
+    return os.path.join(os.path.dirname(os.path.abspath(store)), 'recs', sha[:2], sha + '.rec')
+
+
+def copy_path(tasup_dir, key, up):
+    return os.path.join(tasup_dir, key[0], leg_dir(key[1]), LEAF % (up[0], up[3][:16]))
+
+
+def copy_rec(store, tasup_dir, key, up, log):
+    """Put the upload's .rec at copy_path, checked against its sha256. -> True when it is there."""
+    dst = copy_path(tasup_dir, key, up)
+    src = rec_path(store, up[3])
+    try:
+        if os.path.isfile(dst) and os.path.getsize(dst) == os.path.getsize(src):
+            return True
+        with open(src, 'rb') as f:
+            data = f.read()
+        if hashlib.sha256(data).hexdigest() != up[3]:
+            log('copy refused %s/%d tasup-%d: the stored file is not its sha256' % (key[0], key[1], up[0]))
+            return False
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        tmp = dst + '.part'
+        with open(tmp, 'wb') as f:
+            f.write(data)
+        os.replace(tmp, dst)
+        return True
+    except OSError as e:
+        log('copy failed %s/%d tasup-%d: %s' % (key[0], key[1], up[0], e))
+        return False
+
+
 def read_store(store):
-    """({(map, track, steamid): (id, ticks, uploaded_at)} of each best shown run, every key the store has held)."""
+    """({(map, track, steamid): (id, ticks, uploaded_at, sha)} of each best shown run, every key the store has held)."""
     db = connect(store, readonly=True)
     try:
-        rows = db.execute('SELECT id, steamid, map, track, ticks, uploaded_at, state FROM runs ORDER BY ticks, id').fetchall()
+        rows = db.execute('SELECT id, steamid, map, track, ticks, uploaded_at, state, sha FROM runs ORDER BY ticks, id'
+                          ).fetchall()
     finally:
         db.close()
     best, keys = {}, set()
@@ -59,26 +115,35 @@ def read_store(store):
         key = (mp, r['track'], r['steamid'])
         keys.add(key)
         if r['state'] == 'shown' and r['ticks'] > 0:
-            best.setdefault(key, (r['id'], r['ticks'], r['uploaded_at']))
+            best.setdefault(key, (r['id'], r['ticks'], r['uploaded_at'], (r['sha'] or '').lower()))
     return best, keys
 
 
-def ours(r):
-    return r['node'] == NODE and RUNID_RE.match(r['runid'] or '') and r['replay_id'] == 0
+def ours(r, reps):
+    """reps: {id: (runid, leaf)} of this course's 'tasup' replays rows."""
+    return (r['node'] == NODE and RUNID_RE.match(r['runid'] or '')
+            and (r['replay_id'] == 0 or reps.get(r['replay_id'], ('',))[0] == r['runid']))
 
 
-def plan(db, key, up, name, banned=False, withdraw=False):
-    """[(action, arg)] for one course and player; `up` is the best shown upload or None."""
+def plan(db, key, up, name, banned=False, withdraw=False, rep_ok=lambda key, up: False):
+    """[(action, arg)] for one course and player; `up` is the best shown upload or None. A filed row's replay_id is
+    its copy's replays row, else -1 for one to be made when rep_ok(key, up) (asked only for a row that is or will
+    be filed: the copy is made there), else 0."""
+    reps = {r['id']: (r['runid'], r['leaf']) for r in db.execute(
+        'SELECT id, runid, leaf FROM replays WHERE map = ? AND track = ? AND leg = 0 AND player = ? AND kind = ?',
+        (key[0], key[1], key[2], KIND))}
     want = None
     if up is not None:
-        rid, ticks, at = up
+        rid, ticks, at, sha = up
+        leaf = LEAF % (rid, sha[:16])
+        have = next((i for i, (ru, lf) in reps.items() if ru == RUNID % rid and lf == leaf), 0)
         want = dict(map=key[0], track=key[1], leg=0, tier=TIER, style=STYLE, player=key[2], name=name, ticks=ticks,
                     tickrate=RATE, millis=int(round(ticks * 1000.0 / RATE)), flags=TF_TAS, node=NODE,
-                    runid=RUNID % rid, submitted=at, replay_id=0, plat=0, pad=0, oldgame=0)
+                    runid=RUNID % rid, submitted=at, replay_id=have, plat=0, pad=0, oldgame=0)
     rows = db.execute('SELECT rowid, * FROM runs WHERE map = ? AND track = ? AND leg = 0 AND style = ? AND player = ?',
                       (key[0], key[1], STYLE, key[2])).fetchall()
-    mine = [r for r in rows if ours(r)]
-    theirs = [r for r in rows if not ours(r)]
+    mine = [r for r in rows if ours(r, reps)]
+    theirs = [r for r in rows if not ours(r, reps)]
     if banned:                              # accounts.ban_rows parks and restores their rows; withdraw takes ours
         return [('removed', r['rowid']) for r in mine] if want is None and withdraw else []
     if want is not None and any(r['runid'] == want['runid'] and r['tier'] != TIER for r in mine):
@@ -94,12 +159,14 @@ def plan(db, key, up, name, banned=False, withdraw=False):
             freed = freed or r['tier'] == TIER
     if want is not None:
         cur = next((r for r in mine if r['tier'] == TIER and r['runid'] == want['runid']), None)
-        if cur is not None:
+        if cur is not None or (not theirs and best is None):
+            if not want['replay_id']:
+                want['replay_id'] = -1 if rep_ok(key, up) else 0
+            if cur is None:
+                return out + [('added', want)]
             if any(cur[c] != want[c] for c in COLS):
                 out.append(('updated', want))
             return out
-        if not theirs and best is None:
-            return out + [('added', want)]
         out.append(('kept_lobby', None))
     if freed and best is not None and not any(r['tier'] == TIER for r in theirs):
         out.append(('refilled', {c: (best['id'] if c == 'replay_id' else '' if c == 'runid' else best[c])
@@ -107,12 +174,16 @@ def plan(db, key, up, name, banned=False, withdraw=False):
     return out
 
 
-def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print):
-    """One pass. -> {'added', 'updated', 'removed', 'refilled', 'kept_lobby', 'skipped'} counts."""
+def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, tasup_dir=None):
+    """One pass. -> {'added', 'updated', 'removed', 'refilled', 'kept_lobby', 'skipped', 'reps', 'unreps'} counts."""
+    if tasup_dir is None:
+        tasup_dir = default_tasup_dir(surfd_db)
     best, keys = read_store(store)
     if withdraw:
         best, full = {}, True
-    n = dict(added=0, updated=0, removed=0, refilled=0, kept_lobby=0, skipped=0)
+    n = dict(added=0, updated=0, removed=0, refilled=0, kept_lobby=0, skipped=0, reps=0, unreps=0)
+    copied = {}                             # upload id -> its copy is in place (made before the lock)
+    gone = []                               # copies to unlink once the deletes are committed
     db = connect(surfd_db)
     try:
         if full:
@@ -128,39 +199,57 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print):
                                     % ','.join('?' * len(part)), part):
                     accts[r['steamid']] = (r['name'] or '', bool(r['banned_at']))
 
-        def course(key):
+        def course(key, rep_ok):
             sid = key[2]
             up = best.get(key) if sid in accts else None    # tasupd's board shows no unknown account
             return plan(db, key, up, accts.get(sid, ('',))[0] or 'Steam ' + sid[-4:],   # tasupd's who()
-                        banned=sid in accts and accts[sid][1], withdraw=withdraw)
+                        banned=sid in accts and accts[sid][1], withdraw=withdraw, rep_ok=rep_ok)
 
         read_accounts({k[2] for k in keys})
 
+        def copy_once(key, up):
+            if up[0] not in copied:
+                copied[up[0]] = dry_run or copy_rec(store, tasup_dir, key, up, log)
+            return copied[up[0]]
+
         todo = []
         for key in sorted(keys):
-            acts = course(key)
+            acts = course(key, copy_once)
             for a, _ in acts:
                 if a in ('kept_lobby', 'skipped'):
                     n[a] += 1
             if any(a not in ('kept_lobby', 'skipped') for a, _ in acts):
                 todo.append(key)
-        if not todo:
+        if not todo and db.execute(UNNAMED + ' LIMIT 1').fetchone() is None:
             return n
         db.execute('BEGIN IMMEDIATE')
         accts.clear()                       # a ban or rename since the first read
         read_accounts({k[2] for k in todo})
         for key in todo:                    # planned again under the lock: surfd may have written since
-            for a, arg in course(key):
+            for a, arg in course(key, lambda key, up: copied.get(up[0], False)):
                 if a == 'removed':
                     db.execute('DELETE FROM runs WHERE rowid = ?', (arg,))
                 elif a in ('added', 'updated', 'refilled'):
+                    if arg['replay_id'] == -1:
+                        arg = dict(arg, replay_id=add_replay(db, store, tasup_dir, key, best[key], arg))
+                        n['reps'] += 1
                     db.execute(UPSERT, [arg[c] for c in COLS])
                 else:
                     continue
                 n[a] += 1
                 what = '' if not isinstance(arg, dict) else ' ' + (arg['runid'] or 'rep %d' % arg['replay_id'])
                 log('%s %s/%d %s%s' % ((a,) + key + (what,)))
+        for r in db.execute(UNNAMED).fetchall():           # a copy no board row names any more
+            db.execute('DELETE FROM replays WHERE id = ?', (r['id'],))
+            gone.append(os.path.join(tasup_dir, r['map_dir'], leg_dir(r['track']), r['leaf']))
+            n['unreps'] += 1
+            log('unrep %s/%d %s' % (r['map_dir'], r['track'], r['leaf']))
         db.execute('ROLLBACK' if dry_run else 'COMMIT')
+        for path in [] if dry_run else gone:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
     except BaseException:
         if db.in_transaction:
             db.execute('ROLLBACK')
@@ -170,6 +259,19 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print):
     return n
 
 
+def add_replay(db, store, tasup_dir, key, up, row):
+    """The 'tasup' replays row for the upload's copy (made before the lock) -> its id."""
+    leaf = LEAF % (up[0], up[3][:16])
+    try:
+        size = os.path.getsize(copy_path(tasup_dir, key, up))
+    except OSError:                         # a dry run makes no copy
+        size = -1
+    vals = dict(row, map_dir=key[0], leaf=leaf, bytes=size, bound=0, sha=up[3], sha_at=row['submitted'], kind=KIND)
+    db.execute(REP_UPSERT, [vals[c] for c in RCOLS])
+    return db.execute('SELECT id FROM replays WHERE map = ? AND track = ? AND leg = 0 AND leaf = ?',
+                      (key[0], key[1], leaf)).fetchone()[0]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--store', required=True, help="tasupd's tasup.sqlite3 (read only)")
@@ -177,10 +279,12 @@ def main(argv=None):
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--full', action='store_true', help='also find upload rows of courses the store no longer names')
     ap.add_argument('--withdraw', action='store_true', help='take every upload row off the board')
+    ap.add_argument('--tasup-dir', help="surfd's TASUP_DIR (default: tasup/ beside --db)")
     ap.add_argument('--quiet', action='store_true', help='print only the totals line, and only when something changed')
     a = ap.parse_args(argv)
-    n = sync(a.store, a.db, a.dry_run, a.full, a.withdraw, log=(lambda s: None) if a.quiet else print)
-    if not a.quiet or any(n[k] for k in ('added', 'updated', 'removed', 'refilled')):
+    n = sync(a.store, a.db, a.dry_run, a.full, a.withdraw, log=(lambda s: None) if a.quiet else print,
+             tasup_dir=a.tasup_dir)
+    if not a.quiet or any(n[k] for k in ('added', 'updated', 'removed', 'refilled', 'reps', 'unreps')):
         print('%s tasindex%s: %s' % (time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), ' (dry run)' if a.dry_run else '',
                                     ' '.join('%s=%d' % kv for kv in n.items())))
     return 0
