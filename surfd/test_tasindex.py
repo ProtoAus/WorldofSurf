@@ -556,7 +556,8 @@ class TasIndex(unittest.TestCase):
                  (v + "'FTESURF-REC' 0\nbegin\n", False), (v + 'FTESURF-REC\x01x\nbegin\n', False),
                  ('FTESURF-REC 0\n"begin"\nFTESURF-REC 5\nbegin\n', False), (v + 'begin:\n', False),
                  (v + 'map surf_beginner\nbegin\n', True), (v + '{FTESURF-REC 0\nbegin\n', True),
-                 (v + 'note ]\\"x\nbegin\n', False), (v + '\\"begin"\nbegin\n', False)]
+                 (v + 'note ]\\"x\nbegin\n', False), (v + '\\"begin"\nbegin\n', False),
+                 ('FTESURF-REC 1d-5\nbegin\n', False), ('FTESURF-REC 5D\nbegin\n', False)]
         for text, want in cases:
             self.assertEqual(T.game_finds_begin(text.encode()), want, repr(text[:60]))
         self.upload(ROU, 'surf_z', 0, 1000, body=(head + '\nbegin\n1\n').encode())

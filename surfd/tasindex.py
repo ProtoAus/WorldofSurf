@@ -128,7 +128,8 @@ def game_finds_begin(data):
             return ver >= 1
         if len(words) >= 2 and words[0] == b'FTESURF-REC':
             num = re.match(rb'[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?', words[1])
-            ver = float(num.group()) if num else 0.0
+            ver = float(num.group()) if num and words[1][num.end():num.end() + 1] not in (b'd', b'D') else 0.0
+            # a 'd' exponent: Wine's UCRT atof reads 1d-5 as 1e-5 (review round 6)
     return False
 
 
