@@ -498,6 +498,8 @@ def _keep_progress(conn, passed):
     except Exception as exc:
         if not _database_busy(exc):
             raise
+
+
 _CURSOR_RETIRE_LIMIT = 64
 
 CURSOR_SQL = """
@@ -939,6 +941,9 @@ def _owned_sources(conn, limit, read_budget, budget):
                 raise
             if rows:
                 last = rows[0]["id"]
+                if passed is not None:
+                    # Round 2: a caller that stops before admitting this row keeps the batches judged before it.
+                    _keep_progress(conn, last - 1)
                 passed = None       # admission commits the cursor itself
                 selected += 1
                 yield rows[0]

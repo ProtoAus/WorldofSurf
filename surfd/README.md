@@ -899,8 +899,10 @@ unobserved. Stored pairs (in either historical orientation, including skips) are
 excluded before the 200-new-peer window. Admission rotates above the last admitted
 ID, then wraps ascending: one durable source cursor and independent per-source
 peer cursors in additive internal `sim_cursor` state. Failed admissions advance;
-stored/rechecked/unadmitted work does not. Reads never create/advance cursors; old
-databases start at zero. This is attempt progress, never a judgment or a coverage
+stored/rechecked/unadmitted work does not. Selection judges 8 run ids a read; a pass
+that stops short (read, time or pair budget) commits the source cursor past the runs it
+found ineligible, so the next pass resumes there (P1858). Diagnostic reads never
+create/advance cursors; old databases start at zero. This is attempt progress, never a judgment or a coverage
 counter; historical observations are not rewritten and cursors are not public.
 
 A comparison/result-building exception affects only its admitted pair: no fake

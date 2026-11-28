@@ -127,6 +127,23 @@ class RotationResume(unittest.TestCase):
         self.assertEqual(simcheck._cursor(self.conn, 'source'), 3 * simcheck._SOURCE_PROBE,
                          'three ineligible batches judged before the deadline are kept')
 
+    def test_a_deadline_after_the_finding_read_keeps_the_batches_before_it(self):
+        # Round 2: the caller stops before admitting the found row; the ineligible batches before it stay judged.
+        clock = [0.0]
+        original = simcheck._read
+
+        def counted(conn, sql, parameters=(), read_budget=None):
+            out = original(conn, sql, parameters, read_budget)
+            if sql.startswith('SELECT r.*') and 'EXISTS' in sql and out:
+                clock[0] = 100.0
+            return out
+
+        with mock.patch.object(simcheck, '_read', side_effect=counted), \
+                mock.patch.object(simcheck.time, 'monotonic', side_effect=lambda: clock[0]):
+            self.step(10 ** 7)
+        self.assertEqual(self.compared, [])
+        self.assertEqual(simcheck._cursor(self.conn, 'source'), COMPLETE, 'cursor just before the found run')
+
     def test_a_long_stretch_of_other_rows_is_scanned_once_per_read(self):
         # Review: the eligibility read re-walked the probe's stretch of non-run rows; it starts at the first probed id.
         self.conn.executemany('INSERT INTO replays VALUES(?,?,?,?,?,?,?,?)',
