@@ -609,7 +609,7 @@ void() Sun_Draw =
 		sun_traced = FALSE;
 		return;                 // well off screen
 	}
-	sky = vbsp_skyroom_have && cvar("vbsp_skyroom");
+	sky = (vbsp_skyroom_have && cvar("vbsp_skyroom"));
 	if (sun_traced && vlen(eye - sun_tracedeye) < 0.5 && sky == sun_tracedsky)
 		target = sun_target;
 	else

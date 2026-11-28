@@ -362,7 +362,7 @@ void(vector scr) GameMode_Draw =
 	{
 		id = sprintf("gm_row%g", i);
 		sui_action_element(at, rs, id, sui_noop);
-		hot = live && sui_is_hovered(id);
+		hot = (live && sui_is_hovered(id));
 		if (i == cur)
 			sui_roundbox(at, rs, ceil(tsz * 0.35), SUI_THEME_SELECTED, 1);
 		else if (hot)
