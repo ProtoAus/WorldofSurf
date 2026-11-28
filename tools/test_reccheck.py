@@ -2803,10 +2803,12 @@ def case_angle_frameless_moves_cannot_clear():
     rn = report_inproc(Ln, drop(v, big))
     check(verdict(rn) == "BLIND", "`cmdseq 1` declared, no `cseq` record, 24%% lie with frames dropped: BLIND (%s)"
           % verdict(rn))
-    # Only in-run moves count: `cseq -1` after the run's end changes nothing.
-    endix = max(i for i, l in enumerate(L) if l.startswith("in "))
-    re_ = report_inproc(L[:endix + 1] + ["cseq -1"] + L[endix + 1:], v)
-    check(verdict(re_) == "OK", "`cseq -1` only after the last move: still tight OK (%s)" % verdict(re_))
+    # Only in-run moves count: `cseq -1` before the first move past the run's end (rows n.. are post-end here) leaves
+    # every in-run move numbered, so the run still clears; a count taken before the in-run filter would blind it.
+    check(len(rows) > n, "the fixture has post-end moves (%d rows, %d in-run)" % (len(rows), n))
+    re_ = report_inproc(L[:ix[n]] + ["cseq -1"] + L[ix[n]:], v)
+    check(verdict(re_) == "OK" and "%d unnumbered" % 0 in re_.info.get("angle_cmd", ""),
+          "`cseq -1` from the first post-end move: still tight OK, 0 unnumbered (%s)" % verdict(re_))
     # A recording without `cseq` is not touched: the round-4 shape there keeps main's verdict.
     L0 = build(sweep=600, packets=3000)
     r0 = report_inproc(lie(L0, blk, 30.0), drop(v, blk))
