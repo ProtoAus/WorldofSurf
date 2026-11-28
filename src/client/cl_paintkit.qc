@@ -19,7 +19,8 @@ void() PKC_Data;
 
 void(int id, int compatibility, string label, string files, string info) PKC_Add =
 {
-	if (id <= 0i || id >= PKC_IDS || pkc_count >= PKC_LIMIT || pkc_index[id]) return;
+	if (id <= 0i || id >= PKC_IDS || pkc_count >= PKC_LIMIT) return;
+	if (pkc_index[id]) return;
 	pkc_count += 1i;
 	pkc_ids[pkc_count] = id;
 	pkc_index[id] = pkc_count;
@@ -216,8 +217,9 @@ string(float kind, int kit, float mode, float pistol) PK_Shader =
 {
 	local string name, stem, base, mask, pattern, customized, ao, posmap, surface, data;
 	local vector style;
+	local float ready;
 	wkit_avail = FALSE;
-	if (!cvar("fs_legacy_viewmodels")) return "";
+	if (cvar("fs_legacy_viewmodels") != 1) return "";
 	if (pistol)
 	{
 		stem = pistol == FS_WEAPON_USP ? "pist_223" : "pist_glock18";
@@ -237,8 +239,13 @@ string(float kind, int kit, float mode, float pistol) PK_Shader =
 	surface = strcat(customized, "_surface.vtf");
 	pattern = PK_Asset(PKC_Get(kit, PKC_FILES));
 	if (!PK_Has(base)) return "";
-	if (!mode || !kit || !PK_Has(mask) || !PK_Has(ao) || !PK_Has(posmap) || !PK_Has(surface) || !PK_Has(pattern) ||
-	    !PK_Has(PK_SHARED "paint_wear.vtf") || !PK_Has(PK_SHARED "gun_grunge.vtf"))
+	// QC does not short-circuit: probe the kit's files only when a kit is on.
+	ready = FALSE;
+	if (mode && kit)
+		if (PK_Has(mask) && PK_Has(ao) && PK_Has(posmap) && PK_Has(surface) && PK_Has(pattern))
+			if (PK_Has(PK_SHARED "paint_wear.vtf") && PK_Has(PK_SHARED "gun_grunge.vtf"))
+				ready = TRUE;
+	if (!ready)
 	{
 		if (!pistol) return "";
 		name = sprintf("ftesurf/kit_unpainted_%g", pistol);
@@ -258,10 +265,10 @@ string(float kind, int kit, float mode, float pistol) PK_Shader =
 
 string(float row, int kit) PK_GloveRules =
 {
-	local string name, data, surface, result, previous, base, file;
+	local string name, data, surface, result, previous, base, file, lit, remap;
 	local float i, count;
 	local vector opts;
-	if (!kit || !cvar("fs_legacy_viewmodels")) return "";
+	if (!kit || cvar("fs_legacy_viewmodels") != 1) return "";
 	PKC_Uniforms(kit, TRUE);
 	opts = stov(cvar_string("cl_gkit_opts7"));
 	name = sprintf("ftesurf/glove_kit_%i", pkc_ids[kit]);
@@ -292,6 +299,16 @@ string(float row, int kit) PK_GloveRules =
 		previous = result;
 		result = strzone(strcat(base, result));
 		strunzone(previous); strunzone(base);
+	}
+	// Keep the row's remaps and lit bare-skin surfaces, as KCAT_SkinRules does.
+	lit = KCAT_LitRules(row);
+	remap = KCAT_Get(row, KCAT_REMAP);
+	if (strcmp(lit, "") || strcmp(remap, ""))
+	{
+		previous = result;
+		result = strzone(strcat(remap, lit, result));
+		strunzone(previous);
+		if (strcmp(lit, "")) strunzone(lit);
 	}
 	return result;
 };

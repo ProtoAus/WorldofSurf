@@ -174,7 +174,7 @@ void() WPU_Apply =
 		data = sprintf("{\nprogram %s\n{ map %s }\n{ map materials/models/weapons/customization/paints/%s.vtf }\n{ map %s }\n}\n", program, base, pattern, KCAT_Get(kind, KCAT_MASK));
 		wpu_painted = (shaderforname(name, data) > 0);
 	}
-	else if (isolated)
+	else if (!mode && isolated)
 	{
 		name = sprintf("ftesurf/knife_%g_original_legacy", kind);
 		data = sprintf("{\nprogram defaultskin\n{ map %s }\n}\n", base);
@@ -308,7 +308,7 @@ float(float model, int selected, vector at, float width, float row, float tsz) W
 			if (WPU_ChoiceChip(sprintf("wpu_catalog_%i", pkc_ids[i]), at + [x,y,0], [(width-6)/2,row,0], PKC_Get(i,PKC_NAME), tsz, i == selected))
 			{
 				PKC_Select(i, model);
-				if (!cvar("fs_legacy_viewmodels")) WP_MountKnifeContent(-1);
+				if (cvar("fs_legacy_viewmodels") != 1) WP_MountKnifeContent(-1);
 				wpu_pickopen = FALSE;
 			}
 		}
@@ -339,7 +339,7 @@ void(vector at, float width, float row, float tsz, float hint) WPU_KitPage =
 			if (WPU_ChoiceChip(sprintf("wpu_kit_mode%g", i), at + [(btn_x + 6) * i, 0, 0], btn, label, tsz, mode == i))
 			{
 				cvar_set("cl_wshop_mode", ftos(i));
-				if (i && !cvar("fs_legacy_viewmodels")) WP_MountKnifeContent(-1);
+				if (i && cvar("fs_legacy_viewmodels") != 1) WP_MountKnifeContent(-1);
 			}
 		}
 		at_y += tsz * 2.4;
@@ -371,7 +371,7 @@ void(vector at, float width, float row, float tsz, float hint) WPU_KitPage =
 	{
 		if (WPU_ChoiceChip("wpu_cssguns", at, [(width-6)/2,row,0], "CS:S originals", tsz, !cvar("cl_wshop_pistols"))) cvar_set("cl_wshop_pistols", "0");
 		if (WPU_ChoiceChip("wpu_goguns", at + [(width+6)/2,0,0], [(width-6)/2,row,0], "CS:GO kits", tsz, cvar("cl_wshop_pistols") != 0))
-			{ cvar_set("cl_wshop_pistols", "1"); if (!cvar("fs_legacy_viewmodels")) WP_MountKnifeContent(-1); }
+			{ cvar_set("cl_wshop_pistols", "1"); if (cvar("fs_legacy_viewmodels") != 1) WP_MountKnifeContent(-1); }
 		at_y += tsz * 2.6;
 		if (WPU_ChoiceChip("wpu_usp", at, [(width-6)/2,row,0], "Equip USP", tsz, wp_weapon == FS_WEAPON_USP)) localcmd("usp\n");
 		if (WPU_ChoiceChip("wpu_glock", at + [(width+6)/2,0,0], [(width-6)/2,row,0], "Equip Glock", tsz, wp_weapon == FS_WEAPON_GLOCK)) localcmd("glock\n");
@@ -576,6 +576,7 @@ float(float evtype, float scanx, float chary, float devid) WPU_Input =
 	if (evtype == IE_KEYDOWN && scanx == K_ESCAPE)
 	{
 		if (wpu_drop) wpu_drop = 0;
+		else if (wpu_pickopen) wpu_pickopen = FALSE;
 		else WPU_Close();
 		return TRUE;
 	}
@@ -633,7 +634,7 @@ float() WPU_Command =
 			index = PKC_Index(stof(argv(3)));
 			if (!PKC_Matches(index, model)) { print("workshop: finish is not compatible with this model\n"); return TRUE; }
 			PKC_Select(index, model);
-			if (!cvar("fs_legacy_viewmodels")) WP_MountKnifeContent(-1);
+			if (cvar("fs_legacy_viewmodels") != 1) WP_MountKnifeContent(-1);
 			return TRUE;
 		}
 		count = 0i;

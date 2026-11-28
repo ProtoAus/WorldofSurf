@@ -32,7 +32,7 @@ vector(float field) VM_Range =
 {
 	if (field == 0) return '1 1 1';
 	if (field == VM_KNIFE) return '0 24 1';
-	if (field == VM_HANDS) return '32 49 1';
+	if (field == VM_HANDS) return '32 63 1';   // KCAT_ARMS..KCAT_LAYERS-1; P1862 rigs reach 62
 	if (field == VM_LAYER) return '64 117 1';
 	if (field == VM_FINISH) return '0 3 1';
 	if (field == VM_SEED) return '0 1000 1';

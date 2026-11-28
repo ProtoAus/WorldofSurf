@@ -168,6 +168,8 @@ def build(directory):
         maps.extend(mask.removesuffix('_masks.vtf') + suf + '.vtf' for suf in ('_ao', '_pos', '_surface'))
         if not mask.endswith('_masks.vtf') or not all(p in pack.entries for p in maps):
             unfit.add(name)
+        if not 0 < m['row'] < 25:  # bits 25/26 are the USP/Glock (cl_paintkit.qc PKC_USP/PKC_GLOCK)
+            raise ResourceError(f'knife row {m["row"]} collides with the pistol bits')
         model_bits[name] = m['row']
     schema = dict(kv((directory / 'scripts/items/items_game.txt').read_text(encoding='utf-8-sig')))['items_game']
     loc = (directory / 'resource/csgo_english.txt').read_text(encoding='utf-16')

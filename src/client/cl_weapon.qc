@@ -114,7 +114,13 @@ string(float w) WP_Model =
 	if (w == FS_WEAPON_USP) return "models/weapons/v_pist_usp.mdl";
 	if (w == FS_WEAPON_SCOUT) return "models/weapons/v_snip_scout.mdl";
 	if (w == FS_WEAPON_GLOCK)
-		return cvar_type("fs_css_weapon_assets") ? "models/ftesurf/css/v_pist_glock18.mdl" : "models/weapons/v_pist_glock18.mdl";
+	{
+		// -1 (no Steam CS:S): a CS:S mounted another way still has the global name, unless
+		// Legacy is mounted too and its v49 Glock could answer it.
+		if (cvar_type("fs_css_weapon_assets") && (cvar("fs_css_weapon_assets") >= 0 || cvar("fs_legacy_viewmodels") == 1))
+			return "models/ftesurf/css/v_pist_glock18.mdl";
+		return "models/weapons/v_pist_glock18.mdl";
+	}
 	return "";
 };
 
@@ -613,6 +619,7 @@ float() WP_KnifeTexturePending =
 void() WP_RequestCSSContent =
 {
 	if (time < wp_css_mountnext) return;
+	if (cvar_type("fs_css_weapon_assets") && cvar("fs_css_weapon_assets") < 0) return;	// failed this session; fs_css_weapon_mount retries by hand
 	wp_css_mountnext = time + 5;
 	if (cvar_type("fs_css_weapon_assets"))
 		localcmd("fs_css_weapon_mount\ncss_weapon_mount_done\n");

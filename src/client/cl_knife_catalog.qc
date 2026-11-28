@@ -177,13 +177,13 @@ string(string surfaces, string shader) KCAT_Rules =
 	}
 	return result;
 };
-string(float row) KCAT_PieceRules =
+// Character materials are not Valve inventory previews: keep their installed
+// diffuse, but use model lighting instead of the unsupported-class unlit fallback.
+string(float row) KCAT_LitRules =
 {
 	local float i, count;
 	local string result, previous, shader, surface, texture;
 	result = "";
-	// Character materials are not Valve inventory previews: keep their installed
-	// diffuse, but use model lighting instead of the unsupported-class unlit fallback.
 	count = min(128, tokenizebyseparator(KCAT_Get(row, KCAT_LIT), "|"));
 	for (i = 0; i + 1 < count; i = i + 2)
 	{
@@ -194,6 +194,13 @@ string(float row) KCAT_PieceRules =
 		result = strzone(strcat(result, sprintf("replace \"%s\" \"%s\"\n", surface, shader)));
 		if (strcmp(previous, "")) strunzone(previous);
 	}
+	return result;
+};
+string(float row) KCAT_PieceRules =
+{
+	local float i, count;
+	local string result, previous, shader, surface, texture;
+	result = KCAT_LitRules(row);
 	count = min(128, tokenizebyseparator(KCAT_Get(row, KCAT_NEUTRAL), "|"));
 	for (i = 0; i + 1 < count; i = i + 2)
 	{
