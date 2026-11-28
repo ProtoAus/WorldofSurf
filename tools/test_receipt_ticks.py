@@ -323,6 +323,63 @@ class FinishTicks(unittest.TestCase):
         self.assertEqual(r.faults, [])
         self.assertTrue(any('2 recordings carry this runid' in n and 'joined the one finishing' in n for n in r.notes))
 
+    def test_p1867_review1_tie_after_a_wrong_first_joins_a_match(self):
+        path, recording, actual = self.signed()
+        fixtures.with_rec(self.m, self.sw, '20261008-000300-0',
+                          recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 7)))
+        twins = [self.kept(recording, actual, 'p1867-tie%d' % k) for k in (1, 2)]
+        result = self.sw.read_receipt(path)
+        self.assertEqual((result[0], result[3], result[5]), ('VALID', 'OK', 1))
+        r = rcptcheck.read(path)
+        rcptcheck.join_rec(r)
+        self.assertIn(r.recpath, twins)
+        self.assertTrue(any('2 finish at the signed %d ticks; joined the first of them' % actual in n for n in r.notes))
+
+    def test_p1867_review1_unreadable_later_recording_never_defers(self):
+        path, recording, actual = self.signed()
+        later = self.kept(recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 7)), actual - 7,
+                          'p1867-eio')
+        original = open
+        class BodyFails:
+            """The header reads; the body raises (EIO after the runid matched)."""
+            def __init__(self, fh):
+                self.fh = fh
+            def __enter__(self):
+                return self
+            def __exit__(self, *exc):
+                self.fh.close()
+            def __iter__(self):
+                if getattr(self, 'begun', False):
+                    raise OSError(5, 'generated EIO in the body')
+                for raw in self.fh:
+                    if raw.strip() == b'begin':
+                        self.begun = True       # the reader stops here; its next read is the body
+                    yield raw
+            def read(self, *args):
+                raise OSError(5, 'generated EIO in the body')
+        def opening(p, *args, **kwargs):
+            if p == later:
+                return BodyFails(original(p, *args, **kwargs))
+            return original(p, *args, **kwargs)
+        with mock.patch('builtins.open', side_effect=opening):
+            result = self.sw.read_receipt(path)
+            r = rcptcheck.read(path)
+            rcptcheck.join_rec(r)
+        self.assertEqual((result[0], result[3], result[5], result[12]), ('VALID', 'OK', 1, False))
+        self.assertFalse(r.ioerror)
+        self.assertTrue(any('1 more recording(s) carrying this runid could not be read' in n for n in r.notes))
+        # CONTROL: the FIRST recording unreadable still defers, as before P1867.
+        first = os.path.join(rcptcheck.GAME, 'data', 'evidence', 'bhop_eazy', '20261008-000300-0.rec')
+        def opening_first(p, *args, **kwargs):
+            if p == first:
+                raise PermissionError('generated unreadable first recording')
+            return original(p, *args, **kwargs)
+        os.remove(later)
+        with mock.patch('builtins.open', side_effect=opening_first):
+            r = rcptcheck.read(path)
+            rcptcheck.join_rec(r)
+        self.assertEqual(r.recpath, None)
+
     def test_p1867_unkept_and_abandon_receipts_are_not_matched(self):
         for signed in (-1, 0):
             path, recording, actual = self.signed(ticks=signed)

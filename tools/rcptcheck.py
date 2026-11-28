@@ -304,7 +304,7 @@ def join_rec(r):
     value = signed_get(r, "ticks")
     ticks = int(value) if value and len(value) <= 11 and value.isascii() and value.isdigit() else 0
     first = match = None
-    seen = matches = 0
+    seen = matches = unread = 0
     for path in hits:
         selected = False
         data = None
@@ -335,12 +335,14 @@ def join_rec(r):
                 else:
                     end = _end_ticks(ln for raw in itertools.chain(prefix, fh) for ln in raw.splitlines())
         except OSError as exc:
-            if selected:
+            if selected and first is None and match is None:
                 # The matched recording exists, but its session nonce/angles
                 # are unmeasured. Do not silently store a permanent VALID row.
                 r.ioerror = True
                 r.note("the selected .rec read is deferred (%r)" % exc)
                 return
+            if selected:        # P1867 review 1: a later one never defers (the parent never opened it)
+                unread += 1
             continue
         seen += 1
         if first is None and match is None:
@@ -351,6 +353,8 @@ def join_rec(r):
                 match, first = (path, head, data), None
         if ticks <= 0:
             break               # -1 unkept, 0 abandon: nothing to match
+    if unread:
+        r.note("%d more recording(s) carrying this runid could not be read; not considered" % unread)
     if seen > 1:
         r.note("%d recordings carry this runid (a save-load after a finish keeps it); %s" % (seen,
                "joined the one finishing at the %d ticks this receipt signs" % ticks if matches == 1 else
