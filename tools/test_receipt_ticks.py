@@ -264,8 +264,8 @@ class FinishTicks(unittest.TestCase):
         rcptcheck.join_rec(r)
         self.assertEqual((r.recpath, r.faults), (own, []))
         self.assertTrue(any('2 recordings carry this runid' in n and str(actual) in n for n in r.notes))
-        # CONTROL: joining the first recording found, as before P1867, faults the same pair.
-        with mock.patch.object(rcptcheck, '_signed_finish', lambda r, cands: cands[0]):
+        # CONTROL: with no finish matched (the parent's first-found join), the same pair faults.
+        with mock.patch.object(rcptcheck, '_end_ticks', lambda lines: None):
             before = self.sw.read_receipt(path)
         self.assertEqual((before[0], before[5]), ('FAULT', 1))
         self.assertIn('recording finish is %d' % (actual - 7), before[4])
@@ -289,7 +289,39 @@ class FinishTicks(unittest.TestCase):
         r = rcptcheck.read(path)
         rcptcheck.join_rec(r)
         self.assertEqual((r.recpath, r.faults), (first, []))
-        self.assertTrue(any('more than one' in n for n in r.notes))
+        self.assertTrue(any('2 finish at the signed %d ticks; joined the first of them' % actual in n for n in r.notes))
+
+    def test_p1867_review1_later_recordings_are_streamed_not_held(self):
+        # Review 1: every kept finish of a runid was held in memory at once. Once a match is held, later recordings
+        # are read for their finish only, never kept.
+        path, recording, actual = self.signed()
+        others = [self.kept(recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - k)), actual - k,
+                            'p1867-later%d' % k) for k in (3, 5, 9)]
+        calls = []
+        real = rcptcheck._end_ticks
+        def spy(lines):
+            calls.append(isinstance(lines, list))
+            return real(lines)
+        with mock.patch.object(rcptcheck, '_end_ticks', spy):
+            r = rcptcheck.read(path)
+            rcptcheck.join_rec(r)
+        first = os.path.join(rcptcheck.GAME, 'data', 'evidence', 'bhop_eazy', '20261008-000300-0.rec')
+        self.assertEqual((r.recpath, r.faults), (first, []))
+        self.assertEqual(calls, [True, False, False, False])     # the match's bytes, then three streams
+        self.assertTrue(any('4 recordings carry this runid' in n for n in r.notes))
+        for o in others:
+            os.remove(o)
+
+    def test_p1867_review1_cr_only_finish_is_found_streamed(self):
+        path, recording, actual = self.signed()
+        self.kept(recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 4)).replace('\n', '\r'),
+                  actual - 4, 'p1867-cr')
+        self.assertEqual(rcptcheck._end_ticks(
+            ln for raw in [recording.replace('\n', '\r').encode()] for ln in raw.splitlines()), actual)
+        r = rcptcheck.read(path)
+        rcptcheck.join_rec(r)
+        self.assertEqual(r.faults, [])
+        self.assertTrue(any('2 recordings carry this runid' in n and 'joined the one finishing' in n for n in r.notes))
 
     def test_p1867_unkept_and_abandon_receipts_are_not_matched(self):
         for signed in (-1, 0):

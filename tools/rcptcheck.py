@@ -45,6 +45,7 @@ Usage:
 import glob
 import hashlib
 import io
+import itertools
 import ipaddress
 import math
 import os
@@ -272,32 +273,15 @@ def file_bytes(r, path):
     return data
 
 
-def _end_ticks(data):
-    """The last `end` row's counted finish, or None (the grammar parse stays the authority)."""
+def _end_ticks(lines):
+    """The last `end` row's counted finish in these byte lines, or None (the grammar parse stays the authority)."""
     import reccheck
-    for raw in reversed(data.splitlines()):
-        if raw.startswith(b"end "):
-            f = raw.split()
-            return reccheck.exact_finish_ticks(f[1].decode("ascii", "replace")) if len(f) > 1 else None
-    return None
-
-
-def _signed_finish(r, cands):
-    """P1867: a save-load after a finish keeps the runid (Patch 426), so one runid can have several kept
-    finishes; join the one whose finish this receipt signs.  Live 28 Nov: 6 receipts FAULTed against
-    another finish of their runid, each with its own finish on disk.  No unique match: the first, as before."""
-    if len(cands) == 1:
-        return cands[0]
-    value = signed_get(r, "ticks")
-    ticks = int(value) if value and len(value) <= 11 and value.isascii() and value.isdigit() else None
-    same = [c for c in cands if ticks and _end_ticks(c[2]) == ticks]
-    if len(same) == 1:
-        r.note("%d recordings carry this runid (a save-load after a finish keeps it); joined the one "
-               "finishing at the %d ticks this receipt signs" % (len(cands), ticks))
-        return same[0]
-    r.note("%d recordings carry this runid and %s finishes at the signed ticks; joined the first"
-           % (len(cands), "none" if not same else "more than one"))
-    return cands[0]
+    last = None
+    for ln in lines:
+        if ln.startswith(b"end "):
+            last = ln
+    f = last.split() if last is not None else []
+    return reccheck.exact_finish_ticks(f[1].decode("ascii", "replace")) if len(f) > 1 else None
 
 
 def join_rec(r):
@@ -313,9 +297,17 @@ def join_rec(r):
     hits = glob.glob(os.path.join(GAME, "data", "evidence", mapname, "*.rec"))
     for leg in ("main", "stage_*", "bonus_*"):
         hits += glob.glob(os.path.join(GAME, "data", "runs", mapname, leg, "*.rec"))
-    cands = []
+    # P1867: a save-load after a finish keeps the runid (Patch 426), so one runid can have several kept finishes
+    # (live 28 Nov: up to 39; 6 receipts FAULTed against another finish of their runid).  Join the one whose last
+    # `end` finishes at the signed ticks; none: the first found, as before.  At most two recordings are held: the
+    # first until a match turns up, then the match; later ones are streamed for the tie count only (review 1).
+    value = signed_get(r, "ticks")
+    ticks = int(value) if value and len(value) <= 11 and value.isascii() and value.isdigit() else 0
+    first = match = None
+    seen = matches = 0
     for path in hits:
         selected = False
+        data = None
         try:
             # Unrelated recordings cost only a header scan, as before. Capture
             # the selected one's exact bytes BEFORE closing this same handle.
@@ -337,7 +329,11 @@ def join_rec(r):
                 if head.get("runid") != runid:
                     continue
                 selected = True
-                data = b"".join(prefix) + fh.read()
+                if match is None:
+                    data = b"".join(prefix) + fh.read()
+                    end = _end_ticks(data.splitlines()) if ticks > 0 else None
+                else:
+                    end = _end_ticks(ln for raw in itertools.chain(prefix, fh) for ln in raw.splitlines())
         except OSError as exc:
             if selected:
                 # The matched recording exists, but its session nonce/angles
@@ -346,9 +342,22 @@ def join_rec(r):
                 r.note("the selected .rec read is deferred (%r)" % exc)
                 return
             continue
-        cands.append((path, head, data))
-    if cands:
-        path, head, data = _signed_finish(r, cands)
+        seen += 1
+        if first is None and match is None:
+            first = (path, head, data)
+        if ticks > 0 and end == ticks:
+            matches += 1
+            if match is None:
+                match, first = (path, head, data), None
+        if ticks <= 0:
+            break               # -1 unkept, 0 abandon: nothing to match
+    if seen > 1:
+        r.note("%d recordings carry this runid (a save-load after a finish keeps it); %s" % (seen,
+               "joined the one finishing at the %d ticks this receipt signs" % ticks if matches == 1 else
+               "%d finish at the signed %d ticks; joined the first of them" % (matches, ticks) if matches else
+               "none finishes at the signed ticks; joined the first"))
+    if match or first:
+        path, head, data = match or first
         # No digest covers the .rec. Nonce/ticks/angles share ONE observation;
         # REC12 lexical checks must see its original suffix bytes, not CRLF
         # converted to LF by a text read and then re-encoded.
