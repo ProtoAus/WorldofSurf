@@ -105,8 +105,9 @@ SKIP_CODES = {
 }
 KNOWN_SKIP_CODES = frozenset(SKIP_CODES.values()) | {"peer_unresolved", "unknown"}
 
-# P1859: skips a better reader may not make.  Each row records the recsim READER_REVISION that made it (older rows:
-# 1); a pair whose only rows are such skips from an older revision is unobserved again and re-measured in place.
+# P1859: skips a better reader may not make.  `reader` is the recsim READER_REVISION that made a row (older rows: 1);
+# `tried` the last revision that attempted it without the reader running (file missing, comparison raised).  A pair
+# whose only rows are such skips, made and tried by older revisions, is unobserved again and re-measured in place.
 # Live 28 Nov: 15,237 of 15,873 rows were unmodelled/malformed skips from a reader that predates REC 12/14 rows.
 REMEASURE_CODES = ("unmodelled", "malformed", "no_rows")
 
@@ -120,8 +121,8 @@ def _stale(alias, revision):
     """SQL: the `alias` sims row is a skip a reader of `revision` (an int, never caller text) should retry, or None."""
     if type(revision) is not int or revision <= 1:
         return None
-    return ("(%s.verdict = 'skip' AND %s.skip_code IN (%s) AND %s.reader < %d)"
-            % (alias, alias, ",".join("'%s'" % c for c in REMEASURE_CODES), alias, revision))
+    return ("(%s.verdict = 'skip' AND %s.skip_code IN (%s) AND %s.reader < %d AND %s.tried < %d)"
+            % (alias, alias, ",".join("'%s'" % c for c in REMEASURE_CODES), alias, revision, alias, revision))
 
 
 def _settles(alias, revision):
@@ -131,7 +132,18 @@ def _settles(alias, revision):
 
 
 def _has_reader_column(conn):
-    return "reader" in {r[1] for r in conn.execute("PRAGMA table_info(sims)")}
+    """The columns _stale() reads; a historical table may lack any of them (the dry run never adds them)."""
+    return {"reader", "tried", "skip_code"} <= {r[1] for r in conn.execute("PRAGMA table_info(sims)")}
+
+
+def stale_count(conn, revision, limit=1000000, read_budget=None):
+    """Diagnostic: rows a reader of `revision` would re-measure (the P1859 backlog), capped at `limit`."""
+    _limit("limit", limit)
+    stale = _stale("s", revision)
+    if stale is None or not _has_reader_column(conn):
+        return 0
+    return _read(conn, "SELECT COUNT(*) FROM (SELECT 1 FROM sims s WHERE " + stale + " LIMIT ?)",
+                 (limit,), read_budget)[0][0]
 
 SOURCE_SNAPSHOT_MAX = 512
 TF_HELPED = 1048576         # sh_defs.qc; surfd.TF_HELPED is pinned by test_board
@@ -498,6 +510,7 @@ CREATE TABLE IF NOT EXISTS sims (
     yaw_agree  INTEGER,
     yaw_turning INTEGER,
     reader     INTEGER NOT NULL DEFAULT 1,
+    tried      INTEGER NOT NULL DEFAULT 0,
     at         INTEGER NOT NULL,
     UNIQUE (a_id, b_id)
 );
@@ -637,7 +650,8 @@ def ensure_schema(conn):
     for column, definition in (("skip_code", "TEXT NOT NULL DEFAULT ''"),
                                ("source_capture", "TEXT NOT NULL DEFAULT ''"),
                                ("yaw_agree", "INTEGER"), ("yaw_turning", "INTEGER"),
-                               ("reader", "INTEGER NOT NULL DEFAULT 1")):
+                               ("reader", "INTEGER NOT NULL DEFAULT 1"),
+                               ("tried", "INTEGER NOT NULL DEFAULT 0")):
         if column not in {r[1] for r in conn.execute("PRAGMA table_info(sims)")}:
             try:
                 conn.execute("ALTER TABLE sims ADD COLUMN %s %s" % (column, definition))
@@ -803,7 +817,7 @@ def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
             # tried; the old verdict and reason stay.
             _idle(conn)
             with conn:
-                conn.execute("UPDATE OR IGNORE sims SET reader = ? WHERE (a_id = ? OR b_id = ?) AND " + stale,
+                conn.execute("UPDATE OR IGNORE sims SET tried = ? WHERE (a_id = ? OR b_id = ?) AND " + stale,
                              (revision, a_id, a_id))
         return 0, 0, 0
     found = []
@@ -863,16 +877,16 @@ def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
         names = [c.strip() for c in columns.split(",")]
         sql = "INSERT OR IGNORE INTO sims (%s) VALUES (%s)" % (columns, ",".join("?" for _ in names))
         # P1859: a stale skip (see REMEASURE_CODES) is replaced in place by what the reader made of the pair, keeping
-        # its id.  When the reader never ran on it (a peer file missing, a comparison that raised) only `reader` moves:
-        # this revision has tried, and the old verdict and reason stay (review: no loop, no false provenance).
+        # its id.  When the reader never ran on it (a peer file missing, a comparison that raised) only `tried` moves:
+        # one attempt per revision, the old verdict, reason and `reader` stay (reviews 1-2: no loop, no false provenance).
         stale = _stale("sims", revision)
         update = ("UPDATE OR IGNORE sims SET %s WHERE id = ? AND %s"
                   % (", ".join("%s = ?" % c for c in names), stale)) if stale else None
-        tried = "UPDATE OR IGNORE sims SET reader = ? WHERE id = ? AND %s" % stale if stale else None
+        tried = "UPDATE OR IGNORE sims SET tried = ? WHERE id = ? AND %s" % stale if stale else None
         replaced = []
         if stale:
             for b in unread:
-                conn.execute("UPDATE OR IGNORE sims SET reader = ? WHERE ((a_id = ? AND b_id = ?) OR (a_id = ? AND b_id = ?))"
+                conn.execute("UPDATE OR IGNORE sims SET tried = ? WHERE ((a_id = ? AND b_id = ?) OR (a_id = ? AND b_id = ?))"
                              " AND " + stale, (revision, a_id, b, b, a_id))
         # Count only this flush's additions (replacements apart), not overlap or trigger writes.
         for f in found:
@@ -900,9 +914,12 @@ def _compare_run(surfd, conn, row, now=None, limit_peers=200, tools_dir=None,
         raise
     if replaced and diagnostics is not None:
         diagnostics["remeasured"] = diagnostics.get("remeasured", 0) + len(replaced)
-    skipped = sum(1 for f in inserted if not f[1])
-    notable = sum(1 for f in inserted + replaced if f[1] and f[2] >= NOTABLE)
-    return len(inserted), skipped, notable
+        diagnostics["remeasured_skip"] = diagnostics.get("remeasured_skip", 0) + sum(1 for f in replaced if not f[1])
+    # Replacements count as stored: the process worker's result check needs notable <= stored (review 2).
+    stored = inserted + replaced
+    skipped = sum(1 for f in stored if not f[1])
+    notable = sum(1 for f in stored if f[1] and f[2] >= NOTABLE)
+    return len(stored), skipped, notable
 
 
 def _pending_where(revision=1):
@@ -1314,12 +1331,13 @@ def _similarity_step(conn, surfd, limit=50, now=None, tools_dir=None,
         if read_limited or (read_budget is not None and read_budget.exhausted):
             break
     note = ""
-    if stored:
-        note = "sims +%d" % stored
-        if skipped:
-            note += " (%d unjudgeable)" % skipped
-    if diagnostics.get("remeasured"):
-        note = (note + " " if note else "") + "sims re-measured %d" % diagnostics["remeasured"]
+    remeasured, still = diagnostics.get("remeasured", 0), diagnostics.get("remeasured_skip", 0)
+    if stored - remeasured:
+        note = "sims +%d" % (stored - remeasured)
+        if skipped - still:
+            note += " (%d unjudgeable)" % (skipped - still)
+    if remeasured:
+        note = (note + " " if note else "") + "sims re-measured %d (%d still unjudgeable)" % (remeasured, still)
     if retired:
         note = (note + " " if note else "") + "sims retired %d orphan peer cursors" % retired
     unavailable = []

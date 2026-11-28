@@ -903,7 +903,12 @@ stored/rechecked/unadmitted work does not. Selection judges 8 run ids a read; a 
 that stops short (read, time or pair budget) commits the source cursor past the runs it
 found ineligible, so the next pass resumes there (P1858). Diagnostic reads never
 create/advance cursors; old databases start at zero. This is attempt progress, never a judgment or a coverage
-counter; historical observations are not rewritten and cursors are not public.
+counter; cursors are not public. Historical observations are not rewritten, with one
+exception (P1859): a skip a reader may stop making (unmodelled, malformed, no rows), made
+by an older recsim READER_REVISION, is re-measured once by a newer reader and replaced in
+place (same id, same orientation first; `reader` records the revision that made a row).
+When the reader never runs on it (a file missing, a comparison that raised) only `tried`
+moves: one attempt per revision, the old row kept. The note says `sims re-measured N`.
 
 A comparison/result-building exception affects only its admitted pair: no fake
 skip/zero is stored, prior/later successful observations still flush, and a fixed
@@ -923,7 +928,8 @@ ignored bytes and original newline representation. The collector accepts only th
 fixed hash/size schema; it never reopens paths to reconstruct provenance. Legacy,
 skipped and unsupported/invalid captures remain empty, without historical reread
 or backfill. Stored orientation owns A/B, and retries never refresh the first
-observation. This identifies historical bytes consumed, not simultaneous/atomic
+observation (except a P1859 re-measure, which refreshes `at` and the capture and may
+store a (b,a)-only pair as (a,b)). This identifies historical bytes consumed, not simultaneous/atomic
 filesystem acquisition, present-file equality, source authenticity or calibration.
 
 Authenticated historical review projects only validated captures alongside valid

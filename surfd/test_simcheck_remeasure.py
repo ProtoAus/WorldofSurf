@@ -29,6 +29,7 @@ class Remeasure(unittest.TestCase):
         self.conn.commit()
         self.compared = []
         self.verdict = 'compared'
+        self.match = .4
         self.surfd = SimpleNamespace(replay_file=lambda row: (row['id'], ''))
 
     def tearDown(self):
@@ -50,7 +51,7 @@ class Remeasure(unittest.TestCase):
         self.compared.append((a, b))
         if self.verdict != 'compared':
             return self.verdict, 'synthetic %s' % self.verdict
-        return 'compared', {'compared': 80, 'match': .4, 'cover': 1., 'prefix': 1, 'offset': 0, 'moves_a': 80,
+        return 'compared', {'compared': 80, 'match': self.match, 'cover': 1., 'prefix': 1, 'offset': 0, 'moves_a': 80,
                             'moves_b': 80, 'tickrate_a': 100, 'tickrate_b': 100, 'who_a': 'a', 'who_b': 'b',
                             'same_who': False}
 
@@ -60,7 +61,7 @@ class Remeasure(unittest.TestCase):
 
     def rows(self):
         return [tuple(r) for r in self.conn.execute(
-            'SELECT id, a_id, b_id, verdict, skip_code, reader FROM sims ORDER BY id')]
+            'SELECT id, a_id, b_id, verdict, skip_code, reader, tried FROM sims ORDER BY id')]
 
     def legacy(self):
         self.seed(1, 2, 'skip', 'unmodelled')          # the live shape: no reader recorded -> revision 1
@@ -70,11 +71,11 @@ class Remeasure(unittest.TestCase):
     def test_a_newer_reader_remeasures_only_the_stale_skip_in_place(self):
         self.legacy()
         before = self.rows()
-        self.assertEqual([r[5] for r in before], [1, 1, 1], 'existing rows read as revision 1')
+        self.assertEqual([r[5:] for r in before], [(1, 0)] * 3, 'existing rows: made by revision 1, never tried')
         out = self.step(2)
         self.assertEqual(self.compared, [(1, 2)], out)
         after = self.rows()
-        self.assertEqual(after[0], (before[0][0], 1, 2, 'compared', '', 2), 'replaced in place, same id')
+        self.assertEqual(after[0], (before[0][0], 1, 2, 'compared', '', 2, 0), 'replaced in place, same id')
         self.assertEqual(after[1:], before[1:], 'the helped skip and the measured pair are untouched')
         self.assertEqual(self.step(2), (0, 0, ''))
         self.assertEqual((self.compared, self.rows()), ([(1, 2)], after), 'a settled sample stays idle')
@@ -92,13 +93,13 @@ class Remeasure(unittest.TestCase):
         self.verdict = 'malformed input'
         out = self.step(2)
         self.assertEqual(self.compared, [(1, 2)], out)
-        self.assertEqual(self.rows()[0][3:], ('skip', 'malformed', 2))
+        self.assertEqual(self.rows()[0][3:], ('skip', 'malformed', 2, 0))
         self.assertEqual(self.step(2), (0, 0, ''))
         self.assertEqual(self.compared, [(1, 2)], 'no re-measure loop')
         self.verdict = 'compared'
         self.step(3)
         self.assertEqual([tuple(sorted(c)) for c in self.compared], [(1, 2), (1, 2)], 'a later revision may try it again')
-        self.assertEqual(self.rows()[0][3:], ('compared', '', 3))
+        self.assertEqual(self.rows()[0][3:], ('compared', '', 3, 0))
 
     def test_stale_rows_in_both_orientations_settle_without_a_unique_clash(self):
         self.seed(1, 2, 'skip', 'unmodelled')
@@ -116,7 +117,7 @@ class Remeasure(unittest.TestCase):
         self.surfd.replay_file = lambda row: (None, 'missing') if row['id'] == 2 else (row['id'], '')
         self.step(2)
         self.assertEqual(self.compared, [])
-        self.assertEqual(self.rows()[0][3:], ('skip', 'unmodelled', 2), 'old verdict kept, this revision has tried')
+        self.assertEqual(self.rows()[0][3:], ('skip', 'unmodelled', 1, 2), 'made by 1, tried by 2, old verdict kept')
         before = self.rows()
         self.assertEqual((self.step(2)[0], self.compared, self.rows()), (0, [], before), 'and it is not retried')
 
@@ -124,7 +125,7 @@ class Remeasure(unittest.TestCase):
         self.legacy()
         self.surfd.replay_file = lambda row: (None, 'missing') if row['id'] in (1, 2) else (row['id'], '')
         self.step(2)
-        self.assertEqual(self.rows()[0][3:], ('skip', 'unmodelled', 2))
+        self.assertEqual(self.rows()[0][3:], ('skip', 'unmodelled', 1, 2))
         out = self.step(2)
         self.assertNotIn('source unavailable', out[2], 'a settled pair is not retried every pass (%r)' % (out,))
 
@@ -140,25 +141,38 @@ class Remeasure(unittest.TestCase):
             simcheck.similarity_step(self.conn, self.surfd, limit=5, max_pairs=10, max_seconds=5)
             simcheck.similarity_step(self.conn, self.surfd, limit=5, max_pairs=10, max_seconds=5)
         self.assertEqual(self.compared, [(1, 2)], 'one attempt, not one per pass')
-        self.assertEqual(self.rows()[0][3:], ('skip', 'unmodelled', 2))
+        self.assertEqual(self.rows()[0][3:], ('skip', 'unmodelled', 1, 2))
 
     def test_the_note_counts_replacements_apart_from_additions(self):
         self.legacy()
+        self.verdict = 'malformed input'
         out = self.step(2)
-        self.assertEqual(out[0], 0, out)
-        self.assertIn('sims re-measured 1', out[2])
+        self.assertEqual(out[:2], (1, 0), out)
+        self.assertIn('sims re-measured 1 (1 still unjudgeable)', out[2])
         self.assertNotIn('sims +', out[2])
+
+    def test_a_notable_remeasure_counts_as_stored(self):
+        self.legacy()
+        self.match = 1.0
+        out = self.step(2)
+        self.assertEqual(out[:2], (1, 1), 'notable <= stored, as the process worker requires (%r)' % (out,))
+
+    def test_the_backlog_is_counted_for_the_installed_revision(self):
+        self.legacy()
+        self.assertEqual((simcheck.stale_count(self.conn, 1), simcheck.stale_count(self.conn, 2)), (0, 1))
+        self.step(2)
+        self.assertEqual(simcheck.stale_count(self.conn, 2), 0)
 
     def test_a_historical_table_gains_the_column_with_revision_1(self):
         old = sqlite3.connect(':memory:')
         self.addCleanup(old.close)
-        old.executescript(simcheck.SIMS_SQL.replace('    reader     INTEGER NOT NULL DEFAULT 1,\n', ''))
-        self.assertNotIn('reader', {r[1] for r in old.execute('PRAGMA table_info(sims)')})
+        old.executescript(simcheck.SIMS_SQL.replace('    reader     INTEGER NOT NULL DEFAULT 1,\n', '').replace('    tried      INTEGER NOT NULL DEFAULT 0,\n', ''))
+        self.assertFalse({'reader', 'tried'} & {r[1] for r in old.execute('PRAGMA table_info(sims)')})
         old.execute("INSERT INTO sims(a_id,b_id,map,track,leg,verdict,skip_code,at) VALUES(1,2,'m',0,0,'skip','unmodelled',0)")
         old.commit()
         simcheck.ensure_schema(old)
         simcheck.ensure_schema(old)
-        self.assertEqual(old.execute('SELECT reader FROM sims').fetchone()[0], 1)
+        self.assertEqual(tuple(old.execute('SELECT reader, tried FROM sims').fetchone()), (1, 0))
 
     def test_a_direct_caller_on_a_historical_table_compares_as_before(self):
         old = sqlite3.connect(':memory:')
@@ -167,7 +181,7 @@ class Remeasure(unittest.TestCase):
         old.execute('CREATE TABLE replays(id INTEGER PRIMARY KEY, kind TEXT, map TEXT, track INTEGER,'
                     ' leg INTEGER, leaf TEXT, tier TEXT, player TEXT)')
         old.executemany('INSERT INTO replays VALUES(?,?,?,?,?,?,?,?)', [(i, 'run', 'm', 0, 0, str(i), '', 'p') for i in (1, 2)])
-        old.executescript(simcheck.SIMS_SQL.replace('    reader     INTEGER NOT NULL DEFAULT 1,\n', ''))
+        old.executescript(simcheck.SIMS_SQL.replace('    reader     INTEGER NOT NULL DEFAULT 1,\n', '').replace('    tried      INTEGER NOT NULL DEFAULT 0,\n', ''))
         old.commit()
         row = old.execute('SELECT * FROM replays WHERE id=1').fetchone()
         with mock.patch.object(simcheck, '_recsim', return_value=(self.reader(2), 'fake')):

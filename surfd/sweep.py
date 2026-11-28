@@ -1385,6 +1385,13 @@ def _main_connected(conn, args):
                         n = simcheck.pending_count(conn, cap, read_budget=reads)
                         print("sims pending: %s%d run(s) with unobserved eligible pairs"
                               % ("at least " if n == cap else "", n))
+                        # P1859: skips an older reader made, which the installed one re-measures.
+                        rs, _why = simcheck._recsim(TOOLS)
+                        rev = simcheck.reader_revision(rs) if rs is not None else 1
+                        if rev > 1:
+                            k = simcheck.stale_count(conn, rev, cap, read_budget=reads)
+                            print("sims re-measure backlog: %s%d skip(s) older readers made, for reader revision %d"
+                                  % ("at least " if k == cap else "", k, rev))
                     else:
                         print("sims pending: unavailable (table missing)")
                 except simcheck.ReadLimit:
