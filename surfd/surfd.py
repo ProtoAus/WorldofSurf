@@ -5593,6 +5593,7 @@ def replay(rid):
         log.exception("replay %d unreadable: %s", rid, exc)
         return fail(500, "storage error")
     resp.headers["X-Surfd-Replay"] = str(rid)
+    resp.headers["X-Content-Type-Options"] = "nosniff"     # P1870: uploaded TAS files are served here too
     return resp
 
 

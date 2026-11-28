@@ -68,6 +68,8 @@ class TasIndex(unittest.TestCase):
         S._rate.clear()
         r = self.client.get('/api/replay/%d' % rep)
         out = r.status_code, r.get_data()
+        if r.status_code == 200:
+            self.assertEqual(r.headers.get('X-Content-Type-Options'), 'nosniff')
         r.close()
         return out
 
@@ -520,10 +522,29 @@ class TasIndex(unittest.TestCase):
         self.assertEqual((n['added'], n['reps']), (2, 1))
         self.assertEqual(self.copies(), [])
 
+    def test_a_header_the_game_cannot_read_gets_no_rep(self):
+        long_head = b'FTESURF-REC 5\n' + b'note x\n' * 63 + b'begin\n1\n'      # begin is line 65
+        ok_head = b'FTESURF-REC 5\n' + b'note x\n' * 62 + b'begin\n1\n'        # begin is line 64
+        self.upload(ROU, 'surf_z', 0, 1000, body=long_head)
+        self.upload(LEX, 'surf_z', 0, 900, body=ok_head)
+        logged = []
+        T.sync(self.store, self.db, log=logged.append, tasup_dir=S.TASUP_DIR)
+        self.assertEqual(sorted((p, rep > 0) for p, _, _, rep in self.board('surf_z')), [(ROU, False), (LEX, True)])
+        self.assertTrue(any(line.startswith('copy skipped') for line in logged), logged)
+
     def test_cli_quiet(self):
         self.upload(ROU, 'surf_z', 0, 1000)
         self.assertEqual(T.main(['--store', str(self.store), '--db', str(self.db), '--quiet']), 0)
         self.assertEqual(len(self.rows()), 1)
+
+    def test_cli_quiet_still_prints_copy_problems(self):
+        import contextlib
+        import io
+        self.upload(ROU, 'surf_z', 0, 1000, body=self.rec('surf_z', 1000), stored=b'tampered')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            T.main(['--store', str(self.store), '--db', str(self.db), '--tasup-dir', S.TASUP_DIR, '--quiet'])
+        self.assertIn('copy refused surf_z/0', out.getvalue())
 
 
 if __name__ == '__main__':

@@ -22,7 +22,7 @@
 ## next
 
 ### P1870 Watch uploaded TAS runs
-- Uploaded TAS runs on the TAS board can be watched now: click the run in game, or use Watch or 3D on the website board, like any other record.
+- Uploaded TAS runs on the in-game TAS board can be watched now: click the run, as with any other record.
 
 ### P1863 Saving while a load is still opening
 - In a recorded run, saving right after a load while the save-lock is still held is now refused with a message (let go and move first). Such a save used to break the run's recording when it was loaded later. Loading an old save made that way now cancels the run ("the save's recording could not be restored") instead of leaving a recording the anti-cheat check rejects.

@@ -32,6 +32,8 @@ NODE, RUNID, RUNID_RE = 'tasup', 'tasup-%d', re.compile(r'^tasup-[0-9]+$')
 KIND, LEAF = 'tasup', 'tasup-%d-%s.rec'          # surfd's replays.kind and _TASLEAF_OK: id, sha256[:16]
 LEAF_RE = re.compile(r'^tasup-[1-9][0-9]{0,9}-[0-9a-f]{16}\.rec$')
 ORPHAN_AGE = 3600           # s; a copy no replays row names, older than this, is swept (a pass that lost its slot)
+HEAD_MAX = 64               # cl_online.qc OR_HEADMAX: the game reads this many lines looking for `begin`
+WARN = ('copy ', 'unlink failed', 'sweep failed')      # printed even with --quiet
 RATE = 66.6667              # what lobby rows store for the game's tick; tasupd.TICK is 0.015
 MAX_TRACK = 99              # tasupd.MAX_TRACK
 MAPNAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$')   # surfd._MAPNAME_OK; clean_map also refuses '..'
@@ -102,6 +104,10 @@ def copy_rec(store, tasup_dir, key, up, log, write=True):
             data = f.read()
         if hashlib.sha256(data).hexdigest() != up[3]:
             log('copy refused %s/%d tasup-%d: the stored file is not its sha256' % (key[0], key[1], up[0]))
+            return False
+        if not any(line.split()[:1] == [b'begin'] for line in data.split(b'\n', HEAD_MAX)[:HEAD_MAX]):
+            log('copy skipped %s/%d tasup-%d: no begin in the first %d lines, the game could not read it'
+                % (key[0], key[1], up[0], HEAD_MAX))
             return False
         if not write:
             return True
@@ -341,8 +347,8 @@ def main(argv=None):
     ap.add_argument('--tasup-dir', help="surfd's TASUP_DIR (default: tasup/ beside --db)")
     ap.add_argument('--quiet', action='store_true', help='print only the totals line, and only when something changed')
     a = ap.parse_args(argv)
-    n = sync(a.store, a.db, a.dry_run, a.full, a.withdraw, log=(lambda s: None) if a.quiet else print,
-             tasup_dir=a.tasup_dir)
+    n = sync(a.store, a.db, a.dry_run, a.full, a.withdraw,
+             log=(lambda s: print(s) if s.startswith(WARN) else None) if a.quiet else print, tasup_dir=a.tasup_dir)
     if not a.quiet or any(n[k] for k in ('added', 'updated', 'removed', 'refilled', 'reps', 'unreps')):
         print('%s tasindex%s: %s' % (time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), ' (dry run)' if a.dry_run else '',
                                     ' '.join('%s=%d' % kv for kv in n.items())))
