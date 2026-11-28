@@ -159,9 +159,28 @@ class Remeasure(unittest.TestCase):
 
     def test_the_backlog_is_counted_for_the_installed_revision(self):
         self.legacy()
-        self.assertEqual((simcheck.stale_count(self.conn, 1), simcheck.stale_count(self.conn, 2)), (0, 1))
+        self.assertEqual((simcheck.stale_count(self.conn, 1), simcheck.stale_count(self.conn, 2)), ((0, ''), (1, '')))
         self.step(2)
-        self.assertEqual(simcheck.stale_count(self.conn, 2), 0)
+        self.assertEqual(simcheck.stale_count(self.conn, 2), (0, ''))
+
+    def test_the_backlog_fits_its_allowance_at_live_size(self):
+        # Review 4: 1,700 runs and 15,873 rows, 15,237 of them stale, overran a 1M-step allowance.
+        self.conn.executemany('INSERT INTO replays VALUES(?,?,?,?,?,?,?,?)',
+                              [(i, 'run', 'm%d' % (i % 60), 0, 0, str(i), '', 'p') for i in range(10, 1710)])
+        ids = list(range(10, 1710))
+        rows, k = [], 0
+        for a in ids:
+            for b in ids:
+                if a < b and a % 60 == b % 60 and k < 15873:
+                    rows.append((a, b, 'm%d' % (a % 60), 'skip' if k < 15237 else 'compared',
+                                 'unmodelled' if k < 15237 else '', 1, 0))
+                    k += 1
+        self.conn.executemany("INSERT INTO sims(a_id,b_id,map,track,leg,verdict,skip_code,at,reader) VALUES"
+                              "(?,?,?,0,0,?,?,?,?)", [r[:5] + (0, r[5]) for r in rows])
+        self.conn.commit()
+        self.assertEqual(self.conn.execute('SELECT count(*) FROM sims').fetchone()[0], 15873)
+        n, why = simcheck.stale_count(self.conn, 2, read_budget=simcheck.ReadBudget(self.conn, 10 ** 6))
+        self.assertEqual(n, 15237, why)
 
     def test_a_historical_table_gains_the_column_with_revision_1(self):
         old = sqlite3.connect(':memory:')

@@ -1385,7 +1385,6 @@ def _main_connected(conn, args):
                         n = simcheck.pending_count(conn, cap, read_budget=reads)
                         print("sims pending: %s%d run(s) with unobserved eligible pairs"
                               % ("at least " if n == cap else "", n))
-
                     else:
                         print("sims pending: unavailable (table missing)")
                 except simcheck.ReadLimit:
@@ -1393,20 +1392,22 @@ def _main_connected(conn, args):
             else:
                 print("sims pending: unavailable (SQL reads disabled)")
             if args.sims_sql_steps:
-                # P1859: pairs whose only rows are skips older readers made, which the installed reader re-measures.
-                # Its own allowance and label (review 3).
+                # P1859: same-leg run pairs whose only rows are older readers' skips, which the installed reader
+                # re-measures.  A manual diagnostic: ten times the pass allowance (review 4: 1.1M steps at live size).
                 try:
                     rs, why = simcheck._recsim(TOOLS)
                 except Exception as exc:
                     rs, why = None, repr(exc)
                 if rs is None:
                     print("sims re-measure backlog: unavailable (reader: %s)" % why)
-                elif simcheck.reader_revision(rs) > 1:
+                elif simcheck.reader_revision(rs) <= 1:
+                    print("sims re-measure backlog: none (installed reader revision 1)")
+                else:
                     rev = simcheck.reader_revision(rs)
                     try:
-                        k = simcheck.stale_count(conn, rev, 10 ** 6,
-                                                 read_budget=simcheck.ReadBudget(conn, args.sims_sql_steps))
-                        print("sims re-measure backlog: unavailable (no stored skip codes)" if k is None else
+                        k, why = simcheck.stale_count(conn, rev, 10 ** 6,
+                                                      read_budget=simcheck.ReadBudget(conn, 10 * args.sims_sql_steps))
+                        print("sims re-measure backlog: unavailable (%s)" % why if k is None else
                               "sims re-measure backlog: %s%d pair(s) whose only rows are older readers' skips "
                               "(reader revision %d)" % ("at least " if k == 10 ** 6 else "", k, rev))
                     except simcheck.ReadLimit:
