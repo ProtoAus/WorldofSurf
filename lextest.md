@@ -1,5 +1,12 @@
 # lextest.md — things waiting on a human
 
+## P1862 CS:GO weapon workshop (branch wshop-p1862; local games only until lobby progs ship)
+
+- In a local game (`map surf_beginner`), type `usp` with CS:S installed but not in `fs_load`: the gun should appear after a moment, and `fs_loadlist` should still not list CS:S. Then `knife`, `glock`.
+- Open `weapon_workshop` (or bind **Weapon workshop** in Keys). Knives tab: equip Butterfly, Stock kit, pick Marble Fade, Case Hardened, Fade, Crimson Web; drag Wear float and Pattern seed; press Inspect. Compare against CS:GO Legacy's Workshop Workbench or a market screenshot at the same seed and float: pattern placement (offset/rotation per seed) is meant to match; the colour, gloss and how chips/scratches grow with wear are approximations, report what looks off.
+- Pistols tab: CS:GO kits, Equip USP / Glock, a few finishes, Inspect and shoot. Gloves tab: each family and a few finishes with the Wear slider. Custom kit: scale/rotation/offset/tint should move the pattern without touching Stock.
+- Mouse-drag the sliders and pick list on the desktop GPU (only software EGL was tested), and say if the knife or pistols sit oddly on screen.
+
 ## P1851 post-finish reset and disconnect
 
 - On a staged map, reach a later stage and press your normal reset key before and after finishing: the first reset should be to your current stage, the second to the map start. On the Windows client, try `!disconnect` in the chat box, rejoin, then use the red **Disconnect** button immediately left of **Lobbies**. You should return without quitting, and the button should disappear.

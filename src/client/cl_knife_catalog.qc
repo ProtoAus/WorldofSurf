@@ -20,7 +20,8 @@ float(float field) VM_ViewValue;
 #define KCAT_FAMILY 15i
 #define KCAT_NEUTRAL 16i
 #define KCAT_LIT 17i
-#define KCAT_FIELDS 18i
+#define KCAT_COMPLETE 18i
+#define KCAT_FIELDS 19i
 #define KCAT_ARMS 32i
 #define KCAT_LAYERS 64i
 string *kcat_values;
@@ -129,7 +130,7 @@ float() KCAT_Layer =
 float() KCAT_ActiveLayer =
 {
 	local float row;
-	if (KCAT_Hands() < (float)KCAT_ARMS + 2) return -1; // complete rigs have sleeves
+	if (!strcmp(KCAT_Get(KCAT_Hands(), KCAT_COMPLETE), "1")) return -1;
 	row = KCAT_Layer();
 	if (row == (float)KCAT_LAYERS + 1) return -1;
 	if (row == (float)KCAT_LAYERS)

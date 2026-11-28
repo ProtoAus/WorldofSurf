@@ -2,7 +2,7 @@
  * Metadata only: no game assets, local install paths or inventory data. */
 void() KCAT_Data =
 {
-	kcat_knives = 25; kcat_hands = 18; kcat_layers = 54;
+	kcat_knives = 25; kcat_hands = 31; kcat_layers = 54;
 	KCAT_Row(0i, "Counter-Strike: Source", "models/weapons/v_knife_t.mdl");
 	KCAT_Row(64i, "Automatic sleeves", "");
 	KCAT_Row(65i, "No sleeves / watch", "");
@@ -67,7 +67,7 @@ void() KCAT_Data =
 	KCAT_Clips(15i, "@draw", "@idle1", "@lookat01", "@light_miss1", "@heavy_miss1", "@light_hit1", "@heavy_hit1");
 	KCAT_Set(15i, 15i, "3");
 	KCAT_Row(16i, "Karambit", "models/weapons/v_knife_karam.mdl");
-	KCAT_Mesh(16i, "materials/models/weapons/v_models/knife_karam/karam.vtf", "", "studio:v_knife_karam.smd:l0:m0", "", "", "");
+	KCAT_Mesh(16i, "materials/models/weapons/v_models/knife_karam/karam.vtf", "materials/models/weapons/customization/knife_karam/knife_karam_masks.vtf", "studio:v_knife_karam.smd:l0:m0", "", "", "");
 	KCAT_Clips(16i, "@draw", "@idle1", "@lookat01", "@light_miss1", "@heavy_miss1", "@light_hit1", "@heavy_hit1");
 	KCAT_Set(16i, 15i, "3");
 	KCAT_Row(17i, "Nomad knife", "models/weapons/v_knife_outdoor.mdl");
@@ -103,8 +103,10 @@ void() KCAT_Data =
 	KCAT_Clips(24i, "@draw", "@idle1", "@lookat01", "@light_miss1", "@heavy_miss1", "@light_hit1", "@heavy_hit1");
 	KCAT_Set(24i, 15i, "3");
 	KCAT_Row(32i, "Counter-Terrorist (complete)", "models/weapons/ct_arms.mdl");
+	KCAT_Set(32i, KCAT_COMPLETE, "1");
 	KCAT_Mesh(32i, "", "", "", "", "", "");
 	KCAT_Row(33i, "Terrorist (complete)", "models/weapons/t_arms.mdl");
+	KCAT_Set(33i, KCAT_COMPLETE, "1");
 	KCAT_Mesh(33i, "", "", "", "", "arms:t_arms_leet.dmx:l0:m0", "");
 	KCAT_Row(34i, "Glove Anarchist", "models/weapons/v_models/arms/anarchist/v_glove_anarchist.mdl");
 	KCAT_Mesh(34i, "", "", "", "", "", "");
@@ -160,6 +162,45 @@ void() KCAT_Data =
 	KCAT_Set(49i, KCAT_NEUTRAL, "gloves:v_glove_sporty.dmx:l0:m1|materials/models/weapons/customization/glove_sporty/ao.vtf|gloves:v_glove_sporty.dmx:l0:m2|materials/models/weapons/customization/glove_sporty/ao.vtf");
 	KCAT_Set(49i, KCAT_LIT, "gloves:v_glove_sporty.dmx:l0:m0|materials/models/weapons/v_models/arms/bare/bare_arm_133.vtf");
 	KCAT_Mesh(49i, "", "", "", "", "", "");
+	KCAT_Row(50i, "CT FBI (complete)", "models/weapons/ct_arms_fbi.mdl");
+	KCAT_Set(50i, KCAT_COMPLETE, "1");
+	KCAT_Mesh(50i, "", "", "", "", "", "");
+	KCAT_Row(51i, "CT GIGN (complete)", "models/weapons/ct_arms_gign.mdl");
+	KCAT_Set(51i, KCAT_COMPLETE, "1");
+	KCAT_Mesh(51i, "", "", "", "", "", "");
+	KCAT_Row(52i, "CT GSG9 (complete)", "models/weapons/ct_arms_gsg9.mdl");
+	KCAT_Set(52i, KCAT_COMPLETE, "1");
+	KCAT_Mesh(52i, "", "", "", "", "", "");
+	KCAT_Row(53i, "CT IDF (complete)", "models/weapons/ct_arms_idf.mdl");
+	KCAT_Set(53i, KCAT_COMPLETE, "1");
+	KCAT_Mesh(53i, "", "", "", "", "", "");
+	KCAT_Row(54i, "CT SAS (complete)", "models/weapons/ct_arms_sas.mdl");
+	KCAT_Set(54i, KCAT_COMPLETE, "1");
+	KCAT_Mesh(54i, "", "", "", "", "", "");
+	KCAT_Row(55i, "CT ST6 (complete)", "models/weapons/ct_arms_st6.mdl");
+	KCAT_Set(55i, KCAT_COMPLETE, "1");
+	KCAT_Mesh(55i, "", "", "", "", "", "");
+	KCAT_Row(56i, "CT SWAT (complete)", "models/weapons/ct_arms_swat.mdl");
+	KCAT_Set(56i, KCAT_COMPLETE, "1");
+	KCAT_Mesh(56i, "", "", "", "", "", "");
+	KCAT_Row(57i, "T Anarchist (complete)", "models/weapons/t_arms_anarchist.mdl");
+	KCAT_Set(57i, KCAT_COMPLETE, "1");
+	KCAT_Mesh(57i, "", "", "", "", "", "");
+	KCAT_Row(58i, "T Balkan (complete)", "models/weapons/t_arms_balkan.mdl");
+	KCAT_Set(58i, KCAT_COMPLETE, "1");
+	KCAT_Mesh(58i, "", "", "", "", "", "");
+	KCAT_Row(59i, "T Phoenix (complete)", "models/weapons/t_arms_phoenix.mdl");
+	KCAT_Set(59i, KCAT_COMPLETE, "1");
+	KCAT_Mesh(59i, "", "", "", "", "", "");
+	KCAT_Row(60i, "T Pirate (complete)", "models/weapons/t_arms_pirate.mdl");
+	KCAT_Set(60i, KCAT_COMPLETE, "1");
+	KCAT_Mesh(60i, "", "", "", "", "", "");
+	KCAT_Row(61i, "T Professional (complete)", "models/weapons/t_arms_professional.mdl");
+	KCAT_Set(61i, KCAT_COMPLETE, "1");
+	KCAT_Mesh(61i, "", "", "", "", "", "");
+	KCAT_Row(62i, "T Separatist (complete)", "models/weapons/t_arms_separatist.mdl");
+	KCAT_Set(62i, KCAT_COMPLETE, "1");
+	KCAT_Mesh(62i, "", "", "", "", "", "");
 	KCAT_Row(66i, "Sleeve Anarchist", "models/weapons/v_models/arms/anarchist/v_sleeve_anarchist.mdl");
 	KCAT_Mesh(66i, "", "", "", "", "", "");
 	KCAT_Row(67i, "Sleeve Balkan", "models/weapons/v_models/arms/balkan/v_sleeve_balkan.mdl");

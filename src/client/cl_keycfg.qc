@@ -37,7 +37,7 @@
 ===========================================================================
 */
 
-#define KC_N        41
+#define KC_N        42
 
 // FTE names it; #630 in the engine table. checkbuiltin-gated in KC_SetBind.
 void(float keynum, string bindcmd, optional float bindmap, optional float modifier) setkeybind = #0:setkeybind;
@@ -91,6 +91,7 @@ string(float i) KC_Def =
 	if (i == 38) return "screenshot|Screenshot|screenshot||F9|Game|screenshot";
 	if (i == 39) return "fullscreen|Fullscreen|fullscreen_toggle|vid_toggle|F11|Game|fullscreen";
 	if (i == 40) return "jumpduck|Jump + duck|+jumpduck|||Movement|jump+duck";   // P1796: listed after Duck (KC_Order)
+	if (i == 41) return "workshop|Weapon workshop|weapon_workshop|knife_menu||Game|weapon kits";
 	return "";
 };
 
@@ -103,6 +104,7 @@ float(float n) KC_Order =
 {
 	if (n < 6) return n;
 	if (n == 6) return 40;
+	if (n == 41) return 41;
 	n = n - 1;
 	if (n < 13) return n;
 	if (n < 28) return n + 1;
