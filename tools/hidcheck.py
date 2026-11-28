@@ -2781,6 +2781,12 @@ def angle_server_row(words):
     return row
 
 
+def _rem360(x):
+    """math.remainder(x, 360) that cannot raise: a non-finite angle is NaN, which compares false everywhere and so
+    binds nothing (P1869: inf in a journal 'v' line raised here and the journal's content check never ran)."""
+    return math.remainder(x, 360.0) if math.isfinite(x) else math.nan
+
+
 class AngleCauseTrace:
     """Sparse opt-in observations. Unbound context abstains; it is not a license.
 
@@ -2916,7 +2922,7 @@ class AngleCauseTrace:
             return False     # applied after the command that acknowledged its packet was built
         if hi is None or lo is None or lo[1] < c - self.DELTA_SPAN or not self._quiet(op, lo[0], hi):
             return None
-        rot = tuple(math.remainder(b - a, 360.0) for a, b in zip(op["pre"][:2], op["post"][:2]))
+        rot = tuple(_rem360(b - a) for a, b in zip(op["pre"][:2], op["post"][:2]))
         span = self._span(views, vlines, lo[0], hi, rotate=(line, rot))
         banking = all(_short_span([a[i] for a in span], ack["angles"][i]) for i in (0, 1))
         return banking and steering
@@ -2942,7 +2948,7 @@ class AngleCauseTrace:
         # Intermediates use the exact native float32 observations instead.
         def close(a, b, printed=False):
             eps = 0.000000500001 if printed else 0.0
-            return all(abs(math.remainder(x - y, 360.0)) <= eps
+            return all(abs(_rem360(x - y)) <= eps
                        for x, y in zip(a, b))
 
         for serial, end in self.ends.items():
@@ -3045,13 +3051,13 @@ class AngleCauseTrace:
         used, count = set(), 0
 
         def near(res, exp):
-            return all(res[i] is not None and abs(math.remainder(res[i] - exp[i], 360.0)) <= max(0.5, 0.05 * abs(exp[i]))
+            return all(res[i] is not None and abs(_rem360(res[i] - exp[i])) <= max(0.5, 0.05 * abs(exp[i]))
                        for i in (0, 1))
 
         for _frame, ops in self.predicted_candidates:
             ok = True
             for op, kind, value in ops:
-                if not all(abs(math.remainder(op["post"][i] - op["pre"][i], 360.0)) <= self.PRED_CORRECTION
+                if not all(abs(_rem360(op["post"][i] - op["pre"][i])) <= self.PRED_CORRECTION
                            for i in (0, 1)):
                     ok = False
                     break
@@ -3066,8 +3072,8 @@ class AngleCauseTrace:
                     if res is None or v[0] in used:
                         continue
                     p = views[idx - 1]
-                    exp = value[:2] if kind == "delta" else (math.remainder(value[0] - p[4], 360.0),
-                                                             math.remainder(value[1] - p[5], 360.0))
+                    exp = value[:2] if kind == "delta" else (_rem360(value[0] - p[4]),
+                                                             _rem360(value[1] - p[5]))
                     if near(res, exp):
                         found = v[0]
                         break

@@ -362,6 +362,32 @@ def honest(start=(3.0, 40.0), per=1, lag=0.0, pre_frames=12, after=8, back=0, dx
     return d, d.ack(row, c)
 
 
+class NonFiniteTests(unittest.TestCase):
+    """P1869: inf in a 'v' line raised in the angle trace, so rcptcheck stored the journal as "" (not checked)."""
+
+    def _mutated(self, text, value):
+        lines = text.splitlines()
+        idx = max(i for i, line in enumerate(lines) if line.startswith("v "))
+        out = []
+        for field in (5, 6):
+            tok = lines[idx].split(" ")
+            tok[field] = value
+            out.append("\n".join(lines[:idx] + [" ".join(tok)] + lines[idx + 1:]) + "\n")
+        return out
+
+    def test_non_finite_view_faults_and_never_raises(self):
+        text, scope = fixture()
+        d, op = honest()
+        for value in ("inf", "-inf", "nan"):
+            for bad in self._mutated(text, value):
+                report = read(bad, scope)
+                self.assertTrue(any("non-finite view observation" in f for f in report.faults), report.faults)
+            for bad in self._mutated(d.j.end(), value):
+                report = hidcheck.check_hid("_anglecause_synthetic.hid", data=bad.encode(),
+                                            angle_authority={"nonce": NONCE, "operations": {(NONCE, 1): op}})
+                self.assertTrue(any("non-finite view observation" in f for f in report.faults), report.faults)
+
+
 class DeltaAngleCauseTests(unittest.TestCase):
     """P1865: most server angle sets reach FTE clients as svcfte_setangledelta. Round 3: a delta is never accounted
     on the client's own `f` labels; a server-matched one is HELD (unresolved) and its labels only say "framed"."""
