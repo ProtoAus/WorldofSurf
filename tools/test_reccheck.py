@@ -2754,6 +2754,49 @@ def case_angle_frameless_moves_cannot_clear():
     rs = report_inproc(lie(L, small, 30.0), drop(v, small))
     check(verdict(rs) == "OK", "the stated limit: %d moves (4%%) +30 deg with their frames left out still clear (%s)"
           % (len(small), verdict(rs)))
+    # Round 1: frames KEPT but relabelled. Each lied move keeps its own command's frame with its real angle; the
+    # frames' tick label is set to the block's first tick (monotone, so the parser accepts it). The command rule
+    # finds them out of step, not frameless, and a count of frameless moves alone let 24% of a run clear.
+    def relabel(view, s0, e0, lab):
+        out = list(view[:4])
+        for ln in view[4:]:
+            p = ln.split()
+            if s0 <= int(p[1]) - 1000 < e0:
+                p[2] = "%d" % lab
+            out.append(" ".join(p))
+        return out
+    t0 = int(rows[1500].split()[2]) - HORIZON
+    for deg in (30.0, 90.0):
+        rr = report_inproc(lie(L, blk, deg), relabel(v, 1500, 1800, t0))
+        check(verdict(rr) == "BLIND" and "NOT CLEARED (P1860)" in rr.info.get("angle_solo", ""),
+              "300 moves +%g deg, frames kept but relabelled to one tick: BLIND (%s)" % (deg, verdict(rr)))
+    big = set(range(1000, 1600))
+    rb = report_inproc(lie(L, big, 30.0), relabel(v, 1000, 1600, int(rows[1000].split()[2]) - HORIZON))
+    check(verdict(rb) == "BLIND", "600 moves (24%%) relabelled: BLIND (%s)" % verdict(rb))
+    # One real frame copied under every lied command number (its angle and tick): out of step, so counted.
+    body = [ln.split() for ln in v[4:]]
+    src = next(p for p in body if int(p[1]) - 1000 == 1499)
+    dup = v[:4] + [" ".join([p[0], p[1]] + src[2:]) if 1500 <= int(p[1]) - 1000 < 1800 else " ".join(p)
+                   for p in body]
+    rd = report_inproc(lie(L, blk, 30.0), dup)
+    check(verdict(rd) == "BLIND", "one real frame duplicated under 300 lied commands: BLIND (%s)" % verdict(rd))
+    # The .rec's own numbers step back over the lie (the recorder writes any change): those moves join old commands'
+    # frames out of step.
+    Lb = lie(L, blk, 30.0)
+    Lb = Lb[:ix[1500]] + ["cseq 1000"] + Lb[ix[1500]:ix[1800]] + ["cseq 1800"] + Lb[ix[1800]:]
+    rsb = report_inproc(Lb, drop(v, blk))
+    check(verdict(rsb) == "BLIND", "the recording's numbers step back over a dropped-frame lie: BLIND (%s)"
+          % verdict(rsb))
+    # A held view (a save's tail) over the last 23% with a lie on it: not cleared. Its price: an honest held view over
+    # more than ANG_CMD_FRAMELESS of a run is BLIND too, never a fault; a short one still clears.
+    a = n - int(0.23 * n)
+    rh = report_inproc(lie(L, set(range(a, len(rows))), 30.0), held_view(L, a, n))
+    check(verdict(rh) == "BLIND", "a lie under a held-view tail over the last 23%%: BLIND (%s)" % verdict(rh))
+    rhc = report_inproc(L, held_view(L, a, n))
+    check(verdict(rhc) == "BLIND" and not rhc.faults, "honest held-view tail over 23%%: BLIND, not a fault (%s)"
+          % verdict(rhc))
+    rhs = report_inproc(L, held_view(L, 1000, 1030))
+    check(verdict(rhs) == "OK", "honest 30-move held view mid-run: still tight OK (%s)" % verdict(rhs))
     # A recording without `cseq` is not touched: the round-4 shape there keeps main's verdict.
     L0 = build(sweep=600, packets=3000)
     r0 = report_inproc(lie(L0, blk, 30.0), drop(v, blk))

@@ -4210,9 +4210,11 @@ ANG_CMD_REMOTE = 2       # P1856: median command delay (ticks) from which the cl
 # P1860: A MOVE THE COMMAND RULE CANNOT SEE MAY NOT HELP CLEAR A RUN.  A sidecar that leaves out the frames for the
 # ticks it lies about leaves those moves uncovered, which at under the tick rate is normal, so the one-frame rule's
 # 75% floor let it lie on about a quarter of a run and keep a tight OK.  Every move of a numbered run has a command,
-# and an honest client draws every command (fleet, 28 Nov: 39 runs, frameless median 0.44%, max 3.30%).  Above this
-# share of in-run moves with no number (`cseq -1`, a jump past 2^24) or no frame of their own command, the run is
-# never tight: BLIND, never a fault.
+# and an honest client draws every command in step (fleet, 28 Nov, 39 runs: all three kinds median 0.67%, max 4.75%,
+# the top ones remote clients with held views that P1856 already caps).  Above this
+# share of in-run moves the command rule did not join -- no number (`cseq -1`, a jump past 2^24), no frame of their
+# own command, or frames whose tick label is out of step (round 1: relabelling the lied moves' frames to one tick
+# escaped a count of frameless moves alone) -- the run is never tight: BLIND, never a fault.
 ANG_CMD_FRAMELESS = 5.0
 
 
@@ -4691,7 +4693,7 @@ def angle_join(r, rec, frames):
     # 55% of its ticks print the cleanest line the rule can produce.
     judged = tight and held >= ANG_SOLO_MIN
     # P1860 (see ANG_CMD_FRAMELESS): same denominator as the cover, the run's own in-run moves.
-    unseen = cmd["unnumbered"] + cmd["frameless"] if cmd is not None else 0
+    unseen = cmd["unnumbered"] + cmd["comparable"] - cmd["joined"] if cmd is not None else 0
     unseen_pc = 100.0 * unseen / comparable
     blinded = unseen_pc > ANG_CMD_FRAMELESS
     covered = judged and cover >= ANG_SOLO_COVER and not excused and not blinded
@@ -4748,8 +4750,8 @@ def angle_join(r, rec, frames):
             why = ("%d one-frame and %d sweep disagreement(s) were excused by the command rule (P1856), which "
                    "cannot clear a run" % (excused_solo, excused_sweep))
         elif blinded and cover >= ANG_SOLO_COVER:
-            why = ("%d of %d moves have no command number or no frame of their own command (%.1f%%), over the %g%% "
-                   "it allows (P1860)" % (unseen, comparable, unseen_pc, ANG_CMD_FRAMELESS))
+            why = ("%d of %d moves have no command number, no frame of their own command or frames out of step "
+                   "(%.1f%%), over the %g%% it allows (P1860)" % (unseen, comparable, unseen_pc, ANG_CMD_FRAMELESS))
         else:
             why = ("%d of %d moves held one rendered frame (%.0f%%), under the "
                    "%g%% it needs" % (len(solo), comparable, cover, ANG_SOLO_COVER))
