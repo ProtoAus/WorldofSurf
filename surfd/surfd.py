@@ -2700,7 +2700,8 @@ def fail(code, message):
 # heartbeat got 500). A heartbeat repeats within seconds, so it answers 503 at once rather than hold one of the four
 # request threads longer; a lobby never resends a run, so /api/run waits up to RUN_BUSY_MS before its 503; a
 # 'storage' reply during a live match aborts it (sv_tournament.qc tq_broken), so /api/tournaments/game waits up to
-# TOUR_BUSY_MS, under the lobby's TQ_HTTP_WAIT (10 s).
+# TOUR_BUSY_MS. The lobby's TQ_HTTP_WAIT (10 s) runs from its send, so time queued behind other requests counts
+# too: this helps only while the worker queue is short (review: with a 12 s lock, 11 of 12 polls passed 10 s).
 RUN_BUSY_MS = 10000
 TOUR_BUSY_MS = 8000
 
