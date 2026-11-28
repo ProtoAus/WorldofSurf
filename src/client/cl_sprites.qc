@@ -1663,6 +1663,8 @@ void(entity e, float id) Sprite_TplNet =
 	e.tfx_slot = i;
 };
 
+float spr_skypre;               // P1886: 0 not yet asked this map, 1 the engine answers, 2 it does not (traced)
+float spr_skypreon;             // P1886: vbsp_sprite_skypre, read once a frame by Sprite_SkyTick
 void() Sprite_LoadForMap =
 {
 	local string tok, key, cn, map, model, srendercolor;
@@ -1674,6 +1676,7 @@ void() Sprite_LoadForMap =
 	local entity net;
 	local float  glowh, glowv, gmin, gmax, gouter, gproxy, wantglow;
 
+	spr_skypre = 0;	// P1886: ask the engine again on this map
 	map = CL_LumpMapName();	// P1489
 	if (map == "")
 		return;
@@ -2995,8 +2998,16 @@ void(float i, vector eye) Sprite_GlareCheck =
 
 // P1218: the sky state of one sprite (i < spr_n) or beam (i - spr_n), from this eye.
 string trace_surfacename;       // also cl_emit.qc's; the engine fills it for a progs that declares it
+/*
+  P1886: the engine's pre-test. A trace's first hit can only be a sky/ face if the segment meets a brush with one, so
+  skysegment answers 0 when no such brush's box lies on it (the trace below would return SKY_CLEAR: it is not run), 1
+  when one might (traced as before), -1 when it cannot say on this map (a sky-sided brush entity, no brush tree).
+  On bhop_canals the sky test's traces were 0.37 ms of csprogs a frame. An engine without it: checkbuiltin, traced.
+*/
+float(vector start, vector end) skysegment = #0;
 float(vector eye, vector p, float st) Sprite_SkyTest =
 {
+	local float pre;
 	if (st == SKY_ROOM)
 		return st;
 	// SURF_SKY does not come through a VBSP trace; the side's name does (cl_sun.qc).
@@ -3005,6 +3016,20 @@ float(vector eye, vector p, float st) Sprite_SkyTest =
 		traceline(vbsp_skyroom_pos, p, MOVE_NOMONSTERS, world);
 		if ((1 - trace_fraction) * vlen(p - vbsp_skyroom_pos) < 64)
 			return SKY_ROOM;
+	}
+	if (spr_skypreon)
+	if (spr_skypre != 2)
+	{
+		if (!spr_skypre)
+			spr_skypre = checkbuiltin(skysegment) ? 1 : 2;
+		if (spr_skypre == 1)
+		{
+			pre = skysegment(eye, p);
+			if (pre == 0)
+				return SKY_CLEAR;
+			if (pre < 0)
+				spr_skypre = 2;
+		}
 	}
 	traceline(eye, p, MOVE_NOMONSTERS, world);
 	// P1345: QC && is eager; misses need no name work, hits need no prefix allocation.
@@ -3038,6 +3063,7 @@ void(vector eye) Sprite_SkyTick =
 
 	n = spr_n + beam_n;
 	burst = FALSE;
+	spr_skypreon = cvar("vbsp_sprite_skypre");	// P1886
 	hold = bound(16, cvar("vbsp_sprite_skyhold"), 256);	// P1497; at most the 256-unit jump that starts a burst
 	if (vlen(eye - spr_skyeye) > 256)
 		spr_skyburst = n;
