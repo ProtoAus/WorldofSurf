@@ -148,7 +148,7 @@ class Remeasure(unittest.TestCase):
         self.verdict = 'malformed input'
         out = self.step(2)
         self.assertEqual(out[:2], (1, 0), out)
-        self.assertIn('sims re-measured 1 (1 still unjudgeable)', out[2])
+        self.assertIn('sims re-measured 1 (1 unjudgeable)', out[2])
         self.assertNotIn('sims +', out[2])
 
     def test_a_notable_remeasure_counts_as_stored(self):

@@ -83,6 +83,25 @@ class DrySchema(ObservationFixture):
         self.assertTrue(any('COUNT(*)' in sql and 'FROM replays r' in sql for sql in traces))
         self.assertEqual(self.snapshot(), before)
 
+    def test_backlog_counts_unsettled_stale_pairs_even_before_the_columns_exist(self):
+        # P1859 review 3: the live table has no reader/tried until the first post-swap sweep; the backlog read 0.
+        self.c.executescript(simcheck.SIMS_SQL)
+        self.c.execute('ALTER TABLE sims DROP COLUMN reader')
+        self.c.execute('ALTER TABLE sims DROP COLUMN tried')
+        a, b = [r[0] for r in self.c.execute("SELECT id FROM replays WHERE kind='run' ORDER BY id LIMIT 2")]
+        for x, y, code in ((a, b, 'unmodelled'), (b, a, 'malformed'), (a, 900, 'unmodelled')):
+            self.c.execute("INSERT INTO sims(a_id,b_id,map,track,leg,verdict,skip_code,at) VALUES(?,?,'bhop_eazy',0,0,"
+                           "'skip',?,1)", (x, y, code))
+        self.c.commit()
+        before = self.snapshot()
+        out, traces = self.dry()
+        self.assertIn('sims re-measure backlog: 1 pair(s)', out, 'both orientations are one pair; a non-run peer none')
+        self.assertEqual(self.snapshot(), before)
+        self.c.execute("UPDATE sims SET verdict='compared', skip_code='' WHERE a_id=? AND b_id=?", (a, b))
+        self.c.commit()
+        out, traces = self.dry()
+        self.assertIn('sims re-measure backlog: 0 pair(s)', out, 'one settling row settles the pair')
+
     def test_current_schema_stays_exact(self):
         simcheck.ensure_schema(self.c)
         before = self.snapshot()

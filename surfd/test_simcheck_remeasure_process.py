@@ -57,7 +57,7 @@ class RemeasureProcess(unittest.TestCase):
         self.assertEqual(eval(lines['ROW']), ('compared', 1.0, 2), 'the stale skip was re-measured as a notable pair')
         self.assertNotIn('invalid result', step[2])
         self.assertEqual(step[:2], (1, 1), step)
-        self.assertIn('sims re-measured 1 (0 still unjudgeable)', step[2])
+        self.assertIn('sims re-measured 1 (0 unjudgeable)', step[2])
 
 
 if __name__ == '__main__':

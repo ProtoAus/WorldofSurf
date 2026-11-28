@@ -137,13 +137,27 @@ def _has_reader_column(conn):
 
 
 def stale_count(conn, revision, limit=1000000, read_budget=None):
-    """Diagnostic: rows a reader of `revision` would re-measure (the P1859 backlog), capped at `limit`."""
+    """Diagnostic (P1859 backlog): run pairs whose only rows are skips a reader of `revision` re-measures, capped at
+    `limit`; None when sims or its skip codes are missing.  Before the first post-swap sweep adds `reader`/`tried`,
+    every row reads as made by 1, never tried (review 3: it read 0 exactly when someone would check it)."""
     _limit("limit", limit)
-    stale = _stale("s", revision)
-    if stale is None or not _has_reader_column(conn):
+    if type(revision) is not int or revision <= 1:
         return 0
-    return _read(conn, "SELECT COUNT(*) FROM (SELECT 1 FROM sims s WHERE " + stale + " LIMIT ?)",
-                 (limit,), read_budget)[0][0]
+    cols = {r[1] for r in _read(conn, "PRAGMA table_info(sims)", read_budget=read_budget)}
+    if "skip_code" not in cols:
+        return None
+    def stale(a):
+        return ("(%s.verdict = 'skip' AND %s.skip_code IN (%s) AND %s < %d AND %s < %d)"
+                % (a, a, ",".join("'%s'" % c for c in REMEASURE_CODES),
+                   a + ".reader" if "reader" in cols else "1", revision,
+                   a + ".tried" if "tried" in cols else "0", revision))
+    return _read(conn,
+        "SELECT COUNT(*) FROM (SELECT DISTINCT min(s.a_id, s.b_id), max(s.a_id, s.b_id) FROM sims s WHERE "
+        + stale("s") + " AND EXISTS (SELECT 1 FROM replays ra WHERE ra.id = s.a_id AND ra.kind = 'run')"
+        " AND EXISTS (SELECT 1 FROM replays rb WHERE rb.id = s.b_id AND rb.kind = 'run')"
+        " AND NOT EXISTS (SELECT 1 FROM sims t WHERE ((t.a_id = s.a_id AND t.b_id = s.b_id)"
+        " OR (t.a_id = s.b_id AND t.b_id = s.a_id)) AND NOT " + stale("t") + ") LIMIT ?)",
+        (limit,), read_budget)[0][0]
 
 SOURCE_SNAPSHOT_MAX = 512
 TF_HELPED = 1048576         # sh_defs.qc; surfd.TF_HELPED is pinned by test_board
@@ -1337,7 +1351,7 @@ def _similarity_step(conn, surfd, limit=50, now=None, tools_dir=None,
         if skipped - still:
             note += " (%d unjudgeable)" % (skipped - still)
     if remeasured:
-        note = (note + " " if note else "") + "sims re-measured %d (%d still unjudgeable)" % (remeasured, still)
+        note = (note + " " if note else "") + "sims re-measured %d (%d unjudgeable)" % (remeasured, still)
     if retired:
         note = (note + " " if note else "") + "sims retired %d orphan peer cursors" % retired
     unavailable = []
