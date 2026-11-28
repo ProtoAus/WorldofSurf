@@ -3947,7 +3947,10 @@ def _check_rec(r, path, verbose=False, *, data=None):
     if len(ang_mt):
         r.angles = (ang_mt, ang_yaw, ang_pit, in_start or 0,
                     "in rows" if ver >= 9 else "in rows (.v_angle, pre-v9)", ver)
-        if cs_seen and len(ang_cs) == len(ang_mt):
+        # P1860 review round 1: the recorder writes `cmdseq 1` exactly when it numbers rows, and writes no `cseq`
+        # when a client's number is invalid from its first command (sv_timer.qc, P1613), so a declared header with
+        # no record means every row is unnumbered, not that the command rule has nothing to say.
+        if (cs_seen or head.get("cmdseq") == "1") and len(ang_cs) == len(ang_mt):
             r.angle_cmds = ang_cs
     elif samples:
         mts = array.array("i")
