@@ -1,5 +1,10 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026: P1856 waits for the reader pins (worldofsurf-62)
+tools/reccheck.py only (a reader pin change; no runtime/schema change). Remote lobby players' false angle FAULTs
+(17 of 232 fleet runs) become BLIND; never OK, 0 new faults. Ship it with the reader-pin generation (gen1857 kit,
+REF >= this commit) together with P1858/P1859; re-read the fleet after the swap and expect 17 FAULT -> BLIND.
+
 ## 28 Nov 2026: P1859 waits for the next generation AND the reader update (worldofsurf-62)
 surfd/simcheck.py + surfd/sweep.py (runtime) and tools/census/recsim.py (READER_REVISION = 2; a reader pin change).
 Schema: simcheck.ensure_schema ADDs sims.reader (INTEGER NOT NULL DEFAULT 1) and sims.tried (INTEGER NOT NULL DEFAULT 0)
