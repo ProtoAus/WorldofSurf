@@ -85,6 +85,14 @@ class FinishTicks(unittest.TestCase):
         self.assertEqual(self.sw.receipt_step(self.c), (1, 0))
         self.assertEqual(self.c.execute('SELECT ticks FROM receipts').fetchone()[0], actual)
 
+    def test_p1868_review1_stores_the_server_count_not_the_client_copy(self):
+        # The client signs 407, the server counted 400: the row is the 400 finish's (and FAULTs), not detached.
+        _path, _rec, actual = self.signed()
+        self.signed(ticks=actual + 7, server_ticks=actual)
+        self.assertEqual(self.sw.receipt_step(self.c), (1, 1))
+        row = self.c.execute('SELECT verdict, ticks FROM receipts').fetchone()
+        self.assertEqual(tuple(row), ('FAULT', actual))
+
     def test_p1868_sweep_stores_the_unkept_latch_as_is(self):
         self.signed(ticks=-1)
         self.assertEqual(self.sw.receipt_step(self.c), (1, 0))

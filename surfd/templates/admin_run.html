@@ -400,6 +400,10 @@ function renderRun(j) {
   if (j.receipt) {
     const c = j.receipt;
     const put = (k, node) => { rdl.append(el("dt", "", k)); const d = el("dd"); d.append(node); rdl.append(d); };
+    if (c.other_finish != null)
+      put("covers", pill("another finish (" + c.other_finish + " ticks)", "warn",
+                         "a save-load after a finish keeps the run id; this run has no receipt of its own and " +
+                         "everything below describes the other finish"));
     put("signature", pill(c.verdict, RCPT_CLS[c.verdict]));
     put("reread binding", el("span", "muted", c.identity_bound
       ? "bound to captured receipt metadata"

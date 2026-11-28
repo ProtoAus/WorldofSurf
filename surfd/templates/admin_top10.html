@@ -95,7 +95,10 @@ function row(r) {
   if (r.rid) tr.dataset.rid = r.rid;
   // the receipt: VALID/FAULT, and "unsigned" when the client did not sign (no evidence for the run's inputs)
   const rcpt = r.rverdict ? pill(r.rverdict + (r.sig ? "" : " unsigned"), r.sig ? RCPT_CLS[r.rverdict] : "warn",
-                                 r.rreason || "") : pill(r.runid && r.runid !== "-" ? "none yet" : "no run id", "warn");
+                                 r.rreason || "")
+    : r.rother != null ? pill("other finish", "warn", "this run id's receipt is for a finish at " + r.rother +
+                              " ticks (a save-load after a finish keeps the run id); this one has none of its own")
+    : pill(r.runid && r.runid !== "-" ? "none yet" : "no run id", "warn");
   // `angles` "" = not checked or no .view uploaded (sweep.py cannot tell them apart)
   const view = r.angles ? pill(r.angles, CHECK_CLS[r.angles]) : pill(r.rverdict ? "no view" : "", "warn");
   const jr = r.journal ? pill(r.journal, CHECK_CLS[r.journal]) : el("span", "muted", "-");

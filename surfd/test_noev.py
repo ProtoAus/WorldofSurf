@@ -96,10 +96,15 @@ def main():
     # P1868: a receipt signing another finish of the same runid (a save-load after a finish) is not this run's
     sql(mod, "UPDATE receipts SET ticks = 4600 WHERE runid = 'r-p05'")      # p05 finished at 4500
     sql(mod, "UPDATE receipts SET ticks = 4600 WHERE runid = 'r-p06'")      # p06 finished at 4600: its own
-    sql(mod, "UPDATE receipts SET ticks = -1 WHERE runid = 'r-p07'")        # unkept latch: not a finish time
+    sql(mod, "UPDATE receipts SET ticks = -1 WHERE runid = 'r-p07'")        # unkept latch: covers no kept finish
     m = marks(test_board.board(mod))
-    eq("P1868: only the run whose finish the receipt signs is covered by it",
-       (m.get("p05"), m.get("p06"), m.get("p07"), m.get("p08")), ("receipt", None, None, None))
+    eq("P1868: only the run whose finish the receipt is for is covered by it",
+       (m.get("p05"), m.get("p06"), m.get("p07"), m.get("p08")), ("finish", None, "finish", None))
+    # review 1: two rows sharing a runid are judged by their own ticks (p08 takes p06's runid, finishing at 4800)
+    sql(mod, "UPDATE runs SET runid = 'r-p06' WHERE player = 'p08'")
+    m = marks(test_board.board(mod))
+    eq("P1868: rows sharing a runid are marked by their own finish", (m.get("p06"), m.get("p08")), (None, "finish"))
+    sql(mod, "UPDATE runs SET runid = 'r-p08' WHERE player = 'p08'")
     sql(mod, "UPDATE receipts SET ticks = -2 WHERE runid IN ('r-p05', 'r-p06', 'r-p07')")
 
     # the combined board: an imported run ahead pushes p09 (WOS #10) to place 11 there; it is still marked

@@ -3444,9 +3444,10 @@ def board_counts(db, mapname, track, leg, style, base=None, name=""):
 
 def noev_reasons(db, cands):
     """P1699: {runid: why} for (runid, submitted, plat, ticks) WOS top-10 candidates whose evidence is missing --
-    "receipt" (none was read, the run has no id, or P1868: the runid's receipt signs another finish), "view" (no view
-    file uploaded) or "journal" (a Windows run's input journal never arrived). A run the receipt reader has not
-    passed yet, or before NOEV_SINCE, is not judged."""
+    "receipt" (none was read, or the run has no id), "finish" (P1868: the runid's receipt is for another finish, a
+    save-load after a finish keeping the runid), "view" (no view file uploaded) or "journal" (a Windows run's input
+    journal never arrived), keyed (runid, ticks). A run the receipt reader has not passed yet, or before NOEV_SINCE,
+    is not judged."""
     cands = [c for c in cands if c[1] >= NOEV_SINCE]
     if not NOEV_ON or not cands:
         return {}
@@ -3471,12 +3472,14 @@ def noev_reasons(db, cands):
         if through < submitted + NOEV_MARGIN:
             continue
         rc = got.get(runid) if runid not in ("", "-") else None
-        if rc is None or (rc[2] > 0 and rc[2] != ticks):
-            out[runid] = "receipt"
+        if rc is None:
+            out[(runid, ticks)] = "receipt"
+        elif rc[2] != -2 and rc[2] != ticks:
+            out[(runid, ticks)] = "finish"
         elif not rc[0]:
-            out[runid] = "view"
+            out[(runid, ticks)] = "view"
         elif not plat and rc[1] == "ABSENT" and NOEV_JOURNAL_SINCE and submitted >= NOEV_JOURNAL_SINCE:
-            out[runid] = "journal"
+            out[(runid, ticks)] = "journal"
     return out
 
 
@@ -3596,9 +3599,9 @@ def board_rows(db, mapname, track, leg, tier, style, limit, offset, base=None, n
             if rk <= 10:
                 cands.append((row["runid"], row["submitted"], row["plat"], row["ticks"], out))
         why = noev_reasons(db, [c[:4] for c in cands])
-        for runid, _sub, _plat, _ticks, out in cands:
-            if runid in why:
-                out["noev"] = why[runid]
+        for runid, _sub, _plat, ticks, out in cands:
+            if (runid, ticks) in why:
+                out["noev"] = why[(runid, ticks)]
     return rows
 
 

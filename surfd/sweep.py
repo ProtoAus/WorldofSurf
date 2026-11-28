@@ -692,8 +692,10 @@ def read_receipt(path, journal_only=False, expected_identity=None, expected_pub=
 
 
 def signed_ticks(rcptcheck, r):
-    """P1868: the finish the receipt signs (-1 unkept, 0 abandon), or -2 when it states none."""
-    value = rcptcheck.signed_get(r, "ticks") or ""
+    """P1868: the finish the receipt's run ended at by the server's own count (`svticks`; -1 unkept, 0 abandon),
+    or -2 when it states none.  Not the client's signed copy (review 1: a mismatching one hid the receipt's FAULT
+    from the run it belongs to); on every VALID receipt the two are equal (join_ticks)."""
+    value = (r.head.get("svticks") or "").strip()
     return int(value) if re.fullmatch(r"-?[0-9]{1,11}", value) else -2
 
 

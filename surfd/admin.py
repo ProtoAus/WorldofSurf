@@ -400,8 +400,15 @@ def list_top10(conn, since, offset):
           else "NULL AS rverdict, NULL AS angles, NULL AS rreason, NULL AS sig, NULL AS journal")
     join = " LEFT JOIN receipts rc ON rc.runid = k.runid AND k.runid NOT IN ('', '-')" if "verdict" in rcols else ""
     if join and "ticks" in rcols:
-        # P1868: on the main course, only the finish the receipt signs; a stage row shares its run's recording.
-        join += " AND (rc.ticks <= 0 OR k.leg <> 0 OR rc.ticks = k.ticks)"
+        # P1868: on the main course, only the finish the receipt's run ended at (-2: not read since); `rother` is
+        # the other finish's ticks when this run has no receipt of its own.  Stage rows keep their run's receipt.
+        other = "rc{0}.ticks <> -2 AND k.leg = 0 AND rc{0}.ticks <> k.ticks"
+        join += " AND NOT (" + other.format("") + ")"
+        join += (" LEFT JOIN receipts rco ON rco.runid = k.runid AND k.runid NOT IN ('', '-') AND "
+                 + other.format("o"))
+        rc += ", rco.ticks AS rother"
+    else:
+        rc += ", NULL AS rother"
     return conn.execute("""
 WITH ranked AS (
   SELECT r.map, r.track, r.leg, r.style, r.player, r.name, r.millis, r.ticks, r.flags, r.submitted, r.replay_id, r.runid,
@@ -467,6 +474,8 @@ def receipt_for(conn, rid, runid, *, own_association_budget=False):
         extra += ", identity"
     if "angles_reason" in cols:
         extra += ", angles_reason"
+    if "ticks" in cols:
+        extra += ", ticks"
     if "journal_metrics" in cols:
         extra += ", coalesce(substr(CAST(journal_metrics AS BLOB),1,%d),X'') AS journal_metrics" % (JOURNAL_METRICS_MAX + 1)
     rc = conn.execute("SELECT runid, map, pub, verdict, angles, reason, at"
@@ -475,6 +484,12 @@ def receipt_for(conn, rid, runid, *, own_association_budget=False):
     if rc is None:
         return None
     out = dict(rc)
+    # P1868: a main-course replay whose finish is not the one the runid's receipt is for has none of its own.
+    out["other_finish"] = None
+    if out.get("ticks", -2) != -2 and rid:
+        rp = conn.execute("SELECT ticks, leg FROM replays WHERE id = ?", (rid,)).fetchone()
+        if rp is not None and rp[1] == 0 and rp[0] != out["ticks"]:
+            out["other_finish"] = out["ticks"]
     out["identity_bound"] = bool(out.pop("identity", ""))
     out.setdefault("angles_reason", "")
     out["journal_metrics"] = receipt_metrics(out.get("journal_metrics", ""))

@@ -64,6 +64,7 @@
   var PAD_TIP = 'Controller';
   // P1699: what surfd's `noev` word means on a WOS top-10 run.
   var NOEV_TIP = { receipt: 'No evidence: the run\'s receipt was never read',
+                   finish: 'No evidence: the run\'s receipt is for another finish of the same run',
                    view: 'No evidence: the run\'s view file was never uploaded',
                    journal: 'No evidence: the run\'s input journal never arrived' };
   // P1710: surfd's `oldgame` (the run's game could not count scripts or controller use): it ranks, marked.
