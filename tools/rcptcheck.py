@@ -45,7 +45,6 @@ Usage:
 import glob
 import hashlib
 import io
-import itertools
 import ipaddress
 import math
 import os
@@ -273,15 +272,14 @@ def file_bytes(r, path):
     return data
 
 
-def _end_ticks(lines):
-    """The last `end` row's counted finish in these byte lines, or None (the grammar parse stays the authority)."""
+def _end_ticks(data):
+    """The last `end` row's counted finish, or None (the grammar parse stays the authority)."""
     import reccheck
-    last = None
-    for ln in lines:
-        if ln.startswith(b"end "):
-            last = ln
-    f = last.split() if last is not None else []
-    return reccheck.exact_finish_ticks(f[1].decode("ascii", "replace")) if len(f) > 1 else None
+    for raw in reversed(data.splitlines()):
+        if raw.startswith(b"end "):
+            f = raw.split()
+            return reccheck.exact_finish_ticks(f[1].decode("ascii", "replace")) if len(f) > 1 else None
+    return None
 
 
 def join_rec(r):
@@ -299,12 +297,12 @@ def join_rec(r):
         hits += glob.glob(os.path.join(GAME, "data", "runs", mapname, leg, "*.rec"))
     # P1867: a save-load after a finish keeps the runid (Patch 426), so one runid can have several kept finishes
     # (live 28 Nov: up to 39; 6 receipts FAULTed against another finish of their runid).  Join the one whose last
-    # `end` finishes at the signed ticks; none: the first found, as before.  At most two recordings are held: the
-    # first until a match turns up, then the match; later ones are streamed for the tie count only (review 1).
+    # `end` finishes at the signed ticks, stopping there; none: the first found, as before.  At most two recordings
+    # are held at once, the first and the one being read (review 1: all of them were).
     value = signed_get(r, "ticks")
     ticks = int(value) if value and len(value) <= 11 and value.isascii() and value.isdigit() else 0
     first = match = None
-    seen = matches = unread = 0
+    seen = unread = 0
     for path in hits:
         selected = False
         data = None
@@ -329,13 +327,9 @@ def join_rec(r):
                 if head.get("runid") != runid:
                     continue
                 selected = True
-                if match is None:
-                    data = b"".join(prefix) + fh.read()
-                    end = _end_ticks(data.splitlines()) if ticks > 0 else None
-                else:
-                    end = _end_ticks(ln for raw in itertools.chain(prefix, fh) for ln in raw.splitlines())
+                data = b"".join(prefix) + fh.read()
         except OSError as exc:
-            if selected and first is None and match is None:
+            if selected and first is None:
                 # The matched recording exists, but its session nonce/angles
                 # are unmeasured. Do not silently store a permanent VALID row.
                 r.ioerror = True
@@ -345,20 +339,24 @@ def join_rec(r):
                 unread += 1
             continue
         seen += 1
-        if first is None and match is None:
+        if ticks > 0 and _end_ticks(data) == ticks:
+            match = (path, head, data)
+            break
+        if first is None:
             first = (path, head, data)
-        if ticks > 0 and end == ticks:
-            matches += 1
-            if match is None:
-                match, first = (path, head, data), None
         if ticks <= 0:
             break               # -1 unkept, 0 abandon: nothing to match
+    if unread and match is None and ticks > 0:
+        # Review 2: the finish this receipt signs may be the unreadable one; a FAULT row would stick.
+        r.ioerror = True
+        r.note("the .rec read is deferred: %d recording(s) carrying this runid could not be read and none of "
+               "the rest finishes at the signed ticks" % unread)
+        return
     if unread:
         r.note("%d more recording(s) carrying this runid could not be read; not considered" % unread)
     if seen > 1:
         r.note("%d recordings carry this runid (a save-load after a finish keeps it); %s" % (seen,
-               "joined the one finishing at the %d ticks this receipt signs" % ticks if matches == 1 else
-               "%d finish at the signed %d ticks; joined the first of them" % (matches, ticks) if matches else
+               "joined the one finishing at the %d ticks this receipt signs" % ticks if match else
                "none finishes at the signed ticks; joined the first"))
     if match or first:
         path, head, data = match or first

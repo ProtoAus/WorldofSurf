@@ -289,39 +289,37 @@ class FinishTicks(unittest.TestCase):
         r = rcptcheck.read(path)
         rcptcheck.join_rec(r)
         self.assertEqual((r.recpath, r.faults), (first, []))
-        self.assertTrue(any('2 finish at the signed %d ticks; joined the first of them' % actual in n for n in r.notes))
+        self.assertFalse(any('recordings carry this runid' in n for n in r.notes))   # the twin is never read
 
-    def test_p1867_review1_later_recordings_are_streamed_not_held(self):
-        # Review 1: every kept finish of a runid was held in memory at once. Once a match is held, later recordings
-        # are read for their finish only, never kept.
+    def test_p1867_review1_stops_at_the_first_match(self):
+        # Review 1: every kept finish of a runid was held in memory at once; review 2: the rest need not be read.
         path, recording, actual = self.signed()
         others = [self.kept(recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - k)), actual - k,
                             'p1867-later%d' % k) for k in (3, 5, 9)]
-        calls = []
-        real = rcptcheck._end_ticks
-        def spy(lines):
-            calls.append(isinstance(lines, list))
-            return real(lines)
-        with mock.patch.object(rcptcheck, '_end_ticks', spy):
+        opened = []
+        original = open
+        def opening(p, *args, **kwargs):
+            opened.append(p)
+            return original(p, *args, **kwargs)
+        with mock.patch('builtins.open', side_effect=opening):
             r = rcptcheck.read(path)
             rcptcheck.join_rec(r)
         first = os.path.join(rcptcheck.GAME, 'data', 'evidence', 'bhop_eazy', '20261008-000300-0.rec')
         self.assertEqual((r.recpath, r.faults), (first, []))
-        self.assertEqual(calls, [True, False, False, False])     # the match's bytes, then three streams
-        self.assertTrue(any('4 recordings carry this runid' in n for n in r.notes))
+        self.assertEqual([o for o in others if o in opened], [])
         for o in others:
             os.remove(o)
 
-    def test_p1867_review1_cr_only_finish_is_found_streamed(self):
+    def test_p1867_review1_cr_only_finish_is_matched(self):
         path, recording, actual = self.signed()
-        self.kept(recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 4)).replace('\n', '\r'),
-                  actual - 4, 'p1867-cr')
-        self.assertEqual(rcptcheck._end_ticks(
-            ln for raw in [recording.replace('\n', '\r').encode()] for ln in raw.splitlines()), actual)
+        self.assertEqual(rcptcheck._end_ticks(recording.replace('\n', '\r').encode()), actual)
+        self.assertEqual(rcptcheck._end_ticks(recording.replace('\n', '\r\n').encode()), actual)
+        fixtures.with_rec(self.m, self.sw, '20261008-000300-0',
+                          recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 4)))
+        own = self.kept(recording.replace('\n', '\r'), actual, 'p1867-cr')
         r = rcptcheck.read(path)
         rcptcheck.join_rec(r)
-        self.assertEqual(r.faults, [])
-        self.assertTrue(any('2 recordings carry this runid' in n and 'joined the one finishing' in n for n in r.notes))
+        self.assertEqual(r.recpath, own)
 
     def test_p1867_review1_tie_after_a_wrong_first_joins_a_match(self):
         path, recording, actual = self.signed()
@@ -333,13 +331,35 @@ class FinishTicks(unittest.TestCase):
         r = rcptcheck.read(path)
         rcptcheck.join_rec(r)
         self.assertIn(r.recpath, twins)
-        self.assertTrue(any('2 finish at the signed %d ticks; joined the first of them' % actual in n for n in r.notes))
+        self.assertTrue(any('2 recordings carry this runid' in n and 'joined the one finishing at the %d' % actual in n
+                            for n in r.notes))
 
     def test_p1867_review1_unreadable_later_recording_never_defers(self):
+        # The evidence-tree recording is another finish; runs/ holds a failing one and the signed one, in the
+        # filesystem's order. Either the signed finish is joined or the receipt waits; never a FAULT against another.
         path, recording, actual = self.signed()
-        later = self.kept(recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 7)), actual - 7,
-                          'p1867-eio')
+        fixtures.with_rec(self.m, self.sw, '20261008-000300-0',
+                          recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 7)))
+        bad = self.kept(recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 3)), actual - 3, 'p1867-eio')
+        own = self.kept(recording, actual, 'p1867-own')
         original = open
+        with mock.patch('builtins.open', side_effect=self.body_fails(original, bad)):
+            r = rcptcheck.read(path)
+            rcptcheck.join_rec(r)
+        self.assertEqual(r.faults, [])
+        if r.ioerror:
+            self.assertIsNone(r.recpath)            # the failing one came first: wait for a re-read
+        else:
+            self.assertEqual(r.recpath, own)
+        # CONTROL: the FIRST recording's body failing still defers, as before P1867.
+        first = os.path.join(rcptcheck.GAME, 'data', 'evidence', 'bhop_eazy', '20261008-000300-0.rec')
+        with mock.patch('builtins.open', side_effect=self.body_fails(original, first)):
+            r = rcptcheck.read(path)
+            rcptcheck.join_rec(r)
+        self.assertEqual((r.ioerror, r.recpath), (True, None))
+        self.assertTrue(any('selected .rec read is deferred' in n for n in r.notes))
+
+    def body_fails(self, original, target):
         class BodyFails:
             """The header reads; the body raises (EIO after the runid matched)."""
             def __init__(self, fh):
@@ -349,36 +369,48 @@ class FinishTicks(unittest.TestCase):
             def __exit__(self, *exc):
                 self.fh.close()
             def __iter__(self):
-                if getattr(self, 'begun', False):
-                    raise OSError(5, 'generated EIO in the body')
                 for raw in self.fh:
-                    if raw.strip() == b'begin':
-                        self.begun = True       # the reader stops here; its next read is the body
                     yield raw
             def read(self, *args):
                 raise OSError(5, 'generated EIO in the body')
         def opening(p, *args, **kwargs):
-            if p == later:
+            if p == target:
+                return BodyFails(original(p, *args, **kwargs))
+            return original(p, *args, **kwargs)
+        return opening
+
+    def test_p1867_review2_unreadable_maybe_signed_finish_defers(self):
+        # The first recording found is another finish; the signed one is later and its body fails to read.
+        path, recording, actual = self.signed()
+        fixtures.with_rec(self.m, self.sw, '20261008-000300-0',
+                          recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 7)))
+        own = self.kept(recording, actual, 'p1867-own-eio')
+        original = open
+        class BodyFails:
+            def __init__(self, fh):
+                self.fh = fh
+            def __enter__(self):
+                return self
+            def __exit__(self, *exc):
+                self.fh.close()
+            def __iter__(self):
+                for raw in self.fh:
+                    yield raw
+            def read(self, *args):
+                raise OSError(5, 'generated EIO in the body')
+        def opening(p, *args, **kwargs):
+            if p == own:
                 return BodyFails(original(p, *args, **kwargs))
             return original(p, *args, **kwargs)
         with mock.patch('builtins.open', side_effect=opening):
-            result = self.sw.read_receipt(path)
             r = rcptcheck.read(path)
             rcptcheck.join_rec(r)
-        self.assertEqual((result[0], result[3], result[5], result[12]), ('VALID', 'OK', 1, False))
-        self.assertFalse(r.ioerror)
-        self.assertTrue(any('1 more recording(s) carrying this runid could not be read' in n for n in r.notes))
-        # CONTROL: the FIRST recording unreadable still defers, as before P1867.
-        first = os.path.join(rcptcheck.GAME, 'data', 'evidence', 'bhop_eazy', '20261008-000300-0.rec')
-        def opening_first(p, *args, **kwargs):
-            if p == first:
-                raise PermissionError('generated unreadable first recording')
-            return original(p, *args, **kwargs)
-        os.remove(later)
-        with mock.patch('builtins.open', side_effect=opening_first):
-            r = rcptcheck.read(path)
-            rcptcheck.join_rec(r)
-        self.assertEqual(r.recpath, None)
+            deferred = self.sw.read_receipt(path)
+        self.assertEqual((r.ioerror, r.faults, r.recpath), (True, [], None))
+        self.assertIsNone(deferred)
+        # CONTROL: readable again, the signed finish is joined and the receipt is VALID.
+        result = self.sw.read_receipt(path)
+        self.assertEqual((result[0], result[5]), ('VALID', 1))
 
     def test_p1867_unkept_and_abandon_receipts_are_not_matched(self):
         for signed in (-1, 0):
