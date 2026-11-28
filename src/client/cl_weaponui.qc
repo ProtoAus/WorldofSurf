@@ -174,7 +174,7 @@ void() WPU_Apply =
 		data = sprintf("{\nprogram %s\n{ map %s }\n{ map materials/models/weapons/customization/paints/%s.vtf }\n{ map %s }\n}\n", program, base, pattern, KCAT_Get(kind, KCAT_MASK));
 		wpu_painted = (shaderforname(name, data) > 0);
 	}
-	else if (!mode && isolated)
+	else if (isolated && !wpu_painted)
 	{
 		name = sprintf("ftesurf/knife_%g_original_legacy", kind);
 		data = sprintf("{\nprogram defaultskin\n{ map %s }\n}\n", base);

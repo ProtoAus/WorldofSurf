@@ -6,7 +6,7 @@ float wp_eventat, wp_drawing, wp_events, wp_sndnext, wp_callbacks;
 float wp_scriptbytes, wp_scriptalias, wp_scripthits;
 string wp_model, wp_frame, wp_soundlast;
 float wp_motionvalid, wp_motiontime, wp_bobtime, wp_mountnext;
-float wp_css_mountnext, wp_wantlegacy, wp_legacy_next, wp_legacy_failed;
+float wp_css_mountnext, wp_wantlegacy, wp_legacy_next, wp_legacy_failed, wp_legacy_seen;
 float wp_mode, wp_burstleft, wp_burstat, wp_kick, wp_kickvel, wp_kickdt;
 float wp_zoom, wp_scopepending, wp_rezoomat, wp_drawstarts;
 entity wp_flashent;
@@ -609,6 +609,7 @@ float() WP_KnifeTexturePending =
 		return FALSE;
 	}
 	if (cvar("fs_knife_texture") > 0) return FALSE;
+	if (cvar_type("fs_legacy_viewmodels") && cvar("fs_legacy_viewmodels") < 0) return FALSE;	// no Legacy install
 	WP_MountKnifeContent(-1);
 	return TRUE;
 };
@@ -677,6 +678,11 @@ void() WP_Frame =
 		wp_zoom = wp_scopepending = 0;
 		wp_sequence = seq;
 		return;
+	}
+	if (cvar("fs_legacy_viewmodels") != wp_legacy_seen)
+	{
+		if (wp_legacy_seen == 1) wp_legacy_next = 0;	// a searchpath rebuild closed the pack: ask again now
+		wp_legacy_seen = cvar("fs_legacy_viewmodels");
 	}
 	if (!VM_IsMirroring() && cvar_type("fs_legacy_viewmodels") && !cvar("fs_legacy_viewmodels") && time >= wp_legacy_next &&
 	    ((WP_IsPistol(w) && wp_wantlegacy) || (w == FS_WEAPON_KNIFE && KCAT_Knife() > 0 &&

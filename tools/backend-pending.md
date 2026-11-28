@@ -1,5 +1,12 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026: P1862 waits for the next generation (Claude Code efb4d888)
+surfd/viewmodel.py only: account setup field 3 (hands) accepts rows 32-63, matching sh_viewmodel.qc VM_HANDS (the 13
+CS:GO faction rigs are rows 50-62). No schema change; tools/test_viewmodel_ranges.py checks every field against the QC.
+Order: this generation, then the client release with P1862 and the lobby progs together. Before it, a rig in 50-62 is
+refused by the account store (lobby VM_SVError, nothing saved); after it, old clients spectating such a player drop that
+player's mirrored setup (VM_Normalize rejects the whole payload).
+
 ## 28 Nov 2026: P1856 waits for the reader pins (worldofsurf-62)
 tools/reccheck.py only (a reader pin change; no runtime/schema change). Remote lobby players' false angle FAULTs
 (17 of 232 fleet runs) become BLIND; never OK, 0 new faults. Ship it with the reader-pin generation (gen1857 kit,
