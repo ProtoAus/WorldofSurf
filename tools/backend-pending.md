@@ -1,5 +1,12 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026: P1858 waits for the next generation (worldofsurf-62)
+surfd/simcheck.py only (source selection). Live, the collector's rotation starved: the cursor sat at the newest run, each
+pass's wrap read judged ~650 complete runs before the oldest incomplete one and overran the 1M-step budget ("sims SQL read
+limit reached" on 251 of 300 sweeps; 65 runs incomplete for 4-23 days). P1858 judges 8 run ids a read and commits the
+cursor past ineligible runs when a pass stops short; on a live-DB snapshot it reaches them on pass 3. No schema change.
+After the swap expect a few passes with "SQL read limit reached" while the rotation catches up, then "sims +N".
+
 ## 28 Nov 2026: P1857 admin card waits for the next generation (worldofsurf-62)
 surfd/admin.py (`/admin/api/seasonflag`, SEASONFLAG_BYTES) and templates/admin_top10.html (a "Season strafe flag" card).
 It reads /srv/nvme/surfd/data/seasonflag.json (override SURFD_SEASONFLAG), written daily by the proto user timer
