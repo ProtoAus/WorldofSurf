@@ -1,5 +1,19 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026: P1867 waits for the next reader pins (worldofsurf-62)
+Reader only: tools/rcptcheck.py at 4c341454 (main 014e8e08..4c341454). A save-load after a finish keeps the runid
+(Patch 426), so one runid can have several kept finishes (live: 88 runids, 403 files, up to 39 for one); join_rec took
+the first recording carrying the runid, and 6 live receipts FAULT "the receipt signs ticks X but the recording finish
+is Y" against another finish of their runid (each has its own finish on disk). Now the one whose last `end` finishes at
+the signed ticks is joined (stop at the first match; at most two recordings held); an unreadable recording that may be
+the signed finish defers. Shadow of all 2,917 live receipts (Pi, read-only): exactly those 6 FAULT -> VALID (two also
+angles FAULT -> BLIND), nothing else moves. Four review rounds x two lenses: r1 BLOCKING (memory: every recording held),
+r2-r4 NON-BLOCKING. Accepted limit (same class as main's first-recording defer): a recording that opens but fails
+mid-read (a disk fault) and may be the signed finish holds the receipt, and so receipts_through, until it reads; a
+retry cap that stores "unmeasured" would bound it. DEPLOY WITH P1868 (surfd attaches a receipt to every run of its
+runid, so without it a later save-load finish shows the earlier finish's VALID/angles in admin and NOEV). Do NOT run
+--reread-receipts for these 6 before P1868 is live.
+
 ## 28 Nov 2026: P1870 waits for the next generation; then tasindex (worldofsurf-33)
 Runtime member: surfd/surfd.py only. Serves replays kind 'tasup' (leaf tasup-<id>-<sha16>.rec, _TASLEAF_OK) from
 TASUP_DIR = DATA_DIR/tasup = /srv/nvme/surfd/data/tasup (code default; SURFD_TASUP optional, NOT needed: no surfd.env
