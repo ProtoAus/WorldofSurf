@@ -1,5 +1,11 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026: P1860 waits for the reader pins (worldofsurf-62)
+tools/reccheck.py only (a reader pin change). On a numbered recording, more than 5% of in-run moves the command rule
+did not join (no number, no frame of their own command, or frames out of step) keeps the angle result below tight:
+BLIND, never FAULT. Fleet: 0 of 232 verdicts change; honest share median 0.67%, max 4.75% (39 numbered runs). Ships in
+gen1857 with P1856/P1858/P1859.
+
 ## 28 Nov 2026: P1856 waits for the reader pins (worldofsurf-62)
 tools/reccheck.py only (a reader pin change; no runtime/schema change). Remote lobby players' false angle FAULTs
 (17 of 232 fleet runs) become BLIND; never OK, 0 new faults. Ship it with the reader-pin generation (gen1857 kit,
