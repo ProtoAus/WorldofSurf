@@ -129,6 +129,7 @@ class TasIndex(unittest.TestCase):
         self.assertEqual(T.rec_path(self.store, 'ab' * 32), str(U.rec_path(self.store, 'ab' * 32)))
         for track in (0, 1, 7):
             self.assertEqual(T.leg_dir(track), S.leg_dir(track, 0))
+        self.assertEqual(T.LEAF_RE.pattern, S._TASLEAF_OK.pattern)
         leaf = T.LEAF % (2, 'f' * 16)
         self.assertTrue(S._TASLEAF_OK.match(leaf))
         self.assertFalse(S._LEAF_OK.match(leaf))             # never a lobby leaf: submit_run's leaf lookup
@@ -430,6 +431,94 @@ class TasIndex(unittest.TestCase):
         n = self.sync(withdraw=True)
         self.assertEqual((n['removed'], n['unreps']), (1, 1))
         self.assertEqual((self.rows(), self.tasreps(), self.copies()), ([], [], []))
+
+    def test_a_rejected_copy_takes_the_row_off_and_stays_rejected(self):
+        rid = self.upload(ROU, 'surf_z', 0, 1000, body=self.rec('surf_z', 1000))
+        self.sync()
+        rep = self.board('surf_z')[0][3]
+        keep = self.replay(ROU, 'surf_z', 0, 1100, at=1795400000)
+        with sqlite3.connect(self.db) as c:
+            c.execute("INSERT INTO reviews (replay_id, decision, at) VALUES (?, 'reject', ?)", (rep, 1795528495))
+        n = self.sync()
+        self.assertEqual((n['removed'], n['refilled'], n['unreps']), (1, 1, 0))
+        self.assertEqual(self.board('surf_z'), [(ROU, 'RecName', 16500, keep)])
+        self.assertEqual([r[0] for r in self.tasreps()], [rep])                 # kept: the reject keys on its id
+        self.set_state(rid, 'held')
+        self.sync()
+        self.set_state(rid, 'shown')
+        self.assertEqual(self.sync()['added'], 0)                               # shown again: still rejected
+        self.assertEqual(self.board('surf_z'), [(ROU, 'RecName', 16500, keep)])
+        self.assertEqual((self.sync(withdraw=True)['unreps'], self.tasreps(), self.copies()), (1, [], []))
+
+    def test_a_lost_or_corrupt_copy_is_repaired(self):
+        body = self.rec('surf_z', 1000)
+        self.upload(ROU, 'surf_z', 0, 1000, body=body)
+        self.sync()
+        rep = self.board('surf_z')[0][3]
+        copy = Path(S.TASUP_DIR) / self.copies()[0]
+        copy.unlink()
+        self.assertEqual(self.sync()['updated'], 0)
+        self.assertEqual(self.fetch(rep), (200, body))
+        copy.write_bytes(b'x' * len(body))                  # same size, other bytes
+        self.sync()
+        self.assertEqual(self.fetch(rep), (200, body))
+
+    def test_a_lost_copy_without_its_source_drops_the_rep(self):
+        body = self.rec('surf_z', 1000)
+        self.upload(ROU, 'surf_z', 0, 1000, body=body)
+        self.sync()
+        (Path(S.TASUP_DIR) / self.copies()[0]).unlink()
+        Path(U.rec_path(self.store, hashlib.sha256(body).hexdigest())).unlink()
+        n = self.sync()
+        self.assertEqual((n['updated'], n['unreps']), (1, 1))
+        self.assertEqual((self.board('surf_z'), self.tasreps()), ([(ROU, 'Rounin', 15000, 0)], []))
+        self.assertEqual(self.sync()['updated'] + self.sync()['reps'], 0)
+
+    def test_orphan_copies_are_swept(self):
+        self.upload(ROU, 'surf_z', 0, 1000, body=self.rec('surf_z', 1000))
+        self.sync()
+        d = Path(S.TASUP_DIR) / 'surf_q' / 'main'
+        d.mkdir(parents=True)
+        old, young, part, other = (d / ('tasup-7-%s.rec' % ('a' * 16)), d / ('tasup-8-%s.rec' % ('b' * 16)),
+                                   d / ('tasup-9-%s.rec.part' % ('c' * 16)), d / 'notes.txt')
+        for f in (old, young, part, other):
+            f.write_bytes(b'x')
+        for f in (old, part):
+            os.utime(f, (1, 1))
+        self.sync()
+        self.assertEqual(sorted(p.name for p in d.iterdir()), sorted([young.name, other.name]))
+        self.assertEqual(len(self.copies()), 3)              # the filed copy stays
+        self.sync(withdraw=True)
+        self.assertEqual(self.copies(), ['surf_q/main/notes.txt'])
+
+    def test_an_unlink_that_fails_is_retried_by_the_sweep(self):
+        self.upload(ROU, 'surf_z', 0, 1000, body=self.rec('surf_z', 1000))
+        rid = self.n
+        self.sync()
+        real = T.os.unlink
+
+        def refuse(path):
+            raise PermissionError(13, 'refused', path)
+        T.os.unlink = refuse
+        try:
+            self.set_state(rid, 'removed')
+            logged = []
+            n = T.sync(self.store, self.db, log=logged.append, tasup_dir=S.TASUP_DIR)
+        finally:
+            T.os.unlink = real
+        self.assertEqual(n['unreps'], 1)
+        self.assertTrue(any(line.startswith('unlink failed') for line in logged), logged)
+        self.assertEqual(len(self.copies()), 1)
+        os.utime(Path(S.TASUP_DIR) / self.copies()[0], (1, 1))
+        self.sync()
+        self.assertEqual(self.copies(), [])
+
+    def test_dry_run_counts_only_copies_that_could_be_made(self):
+        self.upload(ROU, 'surf_z', 0, 1000, body=self.rec('surf_z', 1000), stored=b'other bytes')
+        self.upload(LEX, 'surf_z', 0, 900, body=self.rec('surf_z', 900))
+        n = self.sync(dry_run=True)
+        self.assertEqual((n['added'], n['reps']), (2, 1))
+        self.assertEqual(self.copies(), [])
 
     def test_cli_quiet(self):
         self.upload(ROU, 'surf_z', 0, 1000)

@@ -30,6 +30,8 @@ TF_TAS = 4194304            # surfd.TF_TAS
 TIER, STYLE = 'community', 'tas'   # surfd.TIER_COMMUNITY, STYLE_TAS: the TAS board's only tier
 NODE, RUNID, RUNID_RE = 'tasup', 'tasup-%d', re.compile(r'^tasup-[0-9]+$')
 KIND, LEAF = 'tasup', 'tasup-%d-%s.rec'          # surfd's replays.kind and _TASLEAF_OK: id, sha256[:16]
+LEAF_RE = re.compile(r'^tasup-[1-9][0-9]{0,9}-[0-9a-f]{16}\.rec$')
+ORPHAN_AGE = 3600           # s; a copy no replays row names, older than this, is swept (a pass that lost its slot)
 RATE = 66.6667              # what lobby rows store for the game's tick; tasupd.TICK is 0.015
 MAX_TRACK = 99              # tasupd.MAX_TRACK
 MAPNAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$')   # surfd._MAPNAME_OK; clean_map also refuses '..'
@@ -43,8 +45,9 @@ RCOLS = ('map', 'map_dir', 'track', 'leg', 'leaf', 'tier', 'style', 'player', 'n
          'flags', 'node', 'submitted', 'bytes', 'runid', 'bound', 'sha', 'sha_at', 'kind')
 REP_UPSERT = ('INSERT INTO replays (%s) VALUES (%s) ON CONFLICT(map, track, leg, leaf) DO UPDATE SET name = excluded.name'
               % (', '.join(RCOLS), ','.join('?' * len(RCOLS))))
-UNNAMED = ("SELECT p.id, p.map_dir, p.track, p.leaf FROM replays p WHERE p.kind = 'tasup'"
-           ' AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.replay_id = p.id)')
+UNNAMED_ANY = ("SELECT p.id, p.map_dir, p.track, p.leaf FROM replays p WHERE p.kind = 'tasup'"
+               ' AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.replay_id = p.id)')
+UNNAMED = UNNAMED_ANY + ' AND NOT ' + REJECTED_SQL      # a rejected copy's row stays: the reject keys on its id
 
 
 def connect(path, readonly=False):
@@ -76,18 +79,32 @@ def copy_path(tasup_dir, key, up):
     return os.path.join(tasup_dir, key[0], leg_dir(key[1]), LEAF % (up[0], up[3][:16]))
 
 
-def copy_rec(store, tasup_dir, key, up, log):
-    """Put the upload's .rec at copy_path, checked against its sha256. -> True when it is there."""
-    dst = copy_path(tasup_dir, key, up)
-    src = rec_path(store, up[3])
+def sha_file(path):
+    with open(path, 'rb') as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def has_copy(tasup_dir, key, up):
     try:
-        if os.path.isfile(dst) and os.path.getsize(dst) == os.path.getsize(src):
-            return True
-        with open(src, 'rb') as f:
+        return sha_file(copy_path(tasup_dir, key, up)) == up[3]
+    except OSError:
+        return False
+
+
+def copy_rec(store, tasup_dir, key, up, log, write=True):
+    """Put the upload's .rec at copy_path, checked against its sha256 (write=False: only check it could be).
+    -> True when it is there."""
+    if has_copy(tasup_dir, key, up):
+        return True
+    dst = copy_path(tasup_dir, key, up)
+    try:
+        with open(rec_path(store, up[3]), 'rb') as f:
             data = f.read()
         if hashlib.sha256(data).hexdigest() != up[3]:
             log('copy refused %s/%d tasup-%d: the stored file is not its sha256' % (key[0], key[1], up[0]))
             return False
+        if not write:
+            return True
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         tmp = dst + '.part'
         with open(tmp, 'wb') as f:
@@ -120,23 +137,27 @@ def read_store(store):
 
 
 def ours(r, reps):
-    """reps: {id: (runid, leaf)} of this course's 'tasup' replays rows."""
+    """reps: {id: (runid, leaf, rejected)} of this course's 'tasup' replays rows."""
     return (r['node'] == NODE and RUNID_RE.match(r['runid'] or '')
             and (r['replay_id'] == 0 or reps.get(r['replay_id'], ('',))[0] == r['runid']))
 
 
 def plan(db, key, up, name, banned=False, withdraw=False, rep_ok=lambda key, up: False):
     """[(action, arg)] for one course and player; `up` is the best shown upload or None. A filed row's replay_id is
-    its copy's replays row, else -1 for one to be made when rep_ok(key, up) (asked only for a row that is or will
-    be filed: the copy is made there), else 0."""
-    reps = {r['id']: (r['runid'], r['leaf']) for r in db.execute(
-        'SELECT id, runid, leaf FROM replays WHERE map = ? AND track = ? AND leg = 0 AND player = ? AND kind = ?',
-        (key[0], key[1], key[2], KIND))}
+    its copy's replays row, else -1 for one to be made; 0 when rep_ok(key, up) says the copy is not in place and
+    cannot be made (asked only for a row that is or will be filed: the copy is made or repaired there). An upload
+    whose copy carries a current review reject is treated as not shown (off the board, as restand takes a run)."""
+    reps = {r['id']: (r['runid'], r['leaf'], r['rejected']) for r in db.execute(
+        'SELECT p.id, p.runid, p.leaf, ' + REJECTED_SQL + ' AS rejected FROM replays p WHERE p.map = ? AND p.track = ?'
+        ' AND p.leg = 0 AND p.player = ? AND p.kind = ?', (key[0], key[1], key[2], KIND))}
     want = None
     if up is not None:
         rid, ticks, at, sha = up
         leaf = LEAF % (rid, sha[:16])
-        have = next((i for i, (ru, lf) in reps.items() if ru == RUNID % rid and lf == leaf), 0)
+        have = next((i for i, (ru, lf, _) in reps.items() if ru == RUNID % rid and lf == leaf), 0)
+        if have and reps[have][2]:
+            up = have = None
+    if up is not None:
         want = dict(map=key[0], track=key[1], leg=0, tier=TIER, style=STYLE, player=key[2], name=name, ticks=ticks,
                     tickrate=RATE, millis=int(round(ticks * 1000.0 / RATE)), flags=TF_TAS, node=NODE,
                     runid=RUNID % rid, submitted=at, replay_id=have, plat=0, pad=0, oldgame=0)
@@ -160,8 +181,10 @@ def plan(db, key, up, name, banned=False, withdraw=False, rep_ok=lambda key, up:
     if want is not None:
         cur = next((r for r in mine if r['tier'] == TIER and r['runid'] == want['runid']), None)
         if cur is not None or (not theirs and best is None):
-            if not want['replay_id']:
-                want['replay_id'] = -1 if rep_ok(key, up) else 0
+            if not rep_ok(key, up):
+                want['replay_id'] = 0
+            elif not want['replay_id']:
+                want['replay_id'] = -1
             if cur is None:
                 return out + [('added', want)]
             if any(cur[c] != want[c] for c in COLS):
@@ -209,8 +232,11 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, 
 
         def copy_once(key, up):
             if up[0] not in copied:
-                copied[up[0]] = dry_run or copy_rec(store, tasup_dir, key, up, log)
+                copied[up[0]] = copy_rec(store, tasup_dir, key, up, log, write=not dry_run)
             return copied[up[0]]
+
+        def copy_known(key, up):            # under the lock: no copying, only what pass 1 made or a check
+            return copied[up[0]] if up[0] in copied else has_copy(tasup_dir, key, up)
 
         todo = []
         for key in sorted(keys):
@@ -220,13 +246,16 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, 
                     n[a] += 1
             if any(a not in ('kept_lobby', 'skipped') for a, _ in acts):
                 todo.append(key)
-        if not todo and db.execute(UNNAMED + ' LIMIT 1').fetchone() is None:
+        unnamed = UNNAMED_ANY if withdraw else UNNAMED
+        if not todo and db.execute(unnamed + ' LIMIT 1').fetchone() is None:
+            if not dry_run:
+                sweep_copies(db, tasup_dir, log, 0 if withdraw else ORPHAN_AGE)
             return n
         db.execute('BEGIN IMMEDIATE')
         accts.clear()                       # a ban or rename since the first read
         read_accounts({k[2] for k in todo})
         for key in todo:                    # planned again under the lock: surfd may have written since
-            for a, arg in course(key, lambda key, up: copied.get(up[0], False)):
+            for a, arg in course(key, copy_known):
                 if a == 'removed':
                     db.execute('DELETE FROM runs WHERE rowid = ?', (arg,))
                 elif a in ('added', 'updated', 'refilled'):
@@ -239,7 +268,7 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, 
                 n[a] += 1
                 what = '' if not isinstance(arg, dict) else ' ' + (arg['runid'] or 'rep %d' % arg['replay_id'])
                 log('%s %s/%d %s%s' % ((a,) + key + (what,)))
-        for r in db.execute(UNNAMED).fetchall():           # a copy no board row names any more
+        for r in db.execute(unnamed).fetchall():           # a copy no board row names any more
             db.execute('DELETE FROM replays WHERE id = ?', (r['id'],))
             gone.append(os.path.join(tasup_dir, r['map_dir'], leg_dir(r['track']), r['leaf']))
             n['unreps'] += 1
@@ -250,6 +279,10 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, 
                 os.unlink(path)
             except FileNotFoundError:
                 pass
+            except OSError as e:                # sweep_copies retries it
+                log('unlink failed %s: %s' % (path, e))
+        if not dry_run:
+            sweep_copies(db, tasup_dir, log, 0 if withdraw else ORPHAN_AGE)
     except BaseException:
         if db.in_transaction:
             db.execute('ROLLBACK')
@@ -257,6 +290,32 @@ def sync(store, surfd_db, dry_run=False, full=False, withdraw=False, log=print, 
     finally:
         db.close()
     return n
+
+
+def sweep_copies(db, tasup_dir, log, min_age):
+    """Unlink copies (and .part files) of ours under tasup_dir that no 'tasup' replays row names, older than min_age:
+    a copy whose slot a lobby run took between the passes, a failed unlink, a crash before commit."""
+    named = {(r['map_dir'], leg_dir(r['track']), r['leaf'])
+             for r in db.execute("SELECT map_dir, track, leaf FROM replays WHERE kind = 'tasup'")}
+    now = time.time()
+    try:
+        maps = os.listdir(tasup_dir)
+    except FileNotFoundError:
+        return
+    for mp in maps:
+        for lg in (os.listdir(os.path.join(tasup_dir, mp)) if os.path.isdir(os.path.join(tasup_dir, mp)) else []):
+            d = os.path.join(tasup_dir, mp, lg)
+            for leaf in (os.listdir(d) if os.path.isdir(d) else []):
+                base = leaf[:-5] if leaf.endswith('.part') else leaf
+                path = os.path.join(d, leaf)
+                if not LEAF_RE.match(base) or ((mp, lg, leaf) in named) or not os.path.isfile(path):
+                    continue
+                try:
+                    if now - os.path.getmtime(path) >= min_age:
+                        os.unlink(path)
+                        log('swept %s/%s/%s' % (mp, lg, leaf))
+                except OSError as e:
+                    log('sweep failed %s: %s' % (path, e))
 
 
 def add_replay(db, store, tasup_dir, key, up, row):
