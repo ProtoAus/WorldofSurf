@@ -412,6 +412,26 @@ class FinishTicks(unittest.TestCase):
         result = self.sw.read_receipt(path)
         self.assertEqual((result[0], result[5]), ('VALID', 1))
 
+    def test_p1867_review3_unreadable_other_finish_by_name_never_defers(self):
+        # Review 3: a kept file named for another finish cannot be the signed one; its EIO must not hold the
+        # receipt (and receipts_through) back forever when the signed finish is not on disk.
+        path, recording, actual = self.signed()
+        fixtures.with_rec(self.m, self.sw, '20261008-000300-0',
+                          recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 7)))
+        bad = self.kept(recording.replace('\nend %d ' % actual, '\nend %d ' % (actual - 3)), actual - 3, 'p1867-eio')
+        with mock.patch('builtins.open', side_effect=self.body_fails(open, bad)):
+            r = rcptcheck.read(path)
+            rcptcheck.join_rec(r)
+        self.assertFalse(r.ioerror)
+        self.assertTrue(any('recording finish is %d' % (actual - 7) in f for f in r.faults))   # main's verdict
+        # CONTROL: the same failure on a file named for the signed ticks still defers.
+        os.remove(bad)
+        maybe = self.kept(recording, actual, 'p1867-eio-own')
+        with mock.patch('builtins.open', side_effect=self.body_fails(open, maybe)):
+            r = rcptcheck.read(path)
+            rcptcheck.join_rec(r)
+        self.assertEqual((r.ioerror, r.faults), (True, []))
+
     def test_p1867_unkept_and_abandon_receipts_are_not_matched(self):
         for signed in (-1, 0):
             path, recording, actual = self.signed(ticks=signed)

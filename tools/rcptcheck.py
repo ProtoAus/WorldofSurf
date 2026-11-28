@@ -335,8 +335,10 @@ def join_rec(r):
                 r.ioerror = True
                 r.note("the selected .rec read is deferred (%r)" % exc)
                 return
-            if selected:        # P1867 review 1: a later one never defers (the parent never opened it)
-                unread += 1
+            if selected:        # a later one defers only if it may be the signed finish (reviews 1, 3)
+                stamp = re.match(r"(\d+)_", os.path.basename(path))
+                if not (stamp and int(stamp.group(1)) != ticks):    # kept files are named <ticks>_...
+                    unread += 1
             continue
         seen += 1
         if ticks > 0 and _end_ticks(data) == ticks:
