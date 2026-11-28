@@ -1123,6 +1123,12 @@ def check_hid(path, verbose=False, *, data=None, angle_authority=None):
                     r.fault("line %d: non-finite view observation; angle/counts "
                             "comparisons unavailable, not an angle accusation"
                             % (lineno + 1))
+                elif abs(view[4]) > V_PITCH_MAX or abs(view[5]) > V_YAW_MAX:
+                    # P1869 review 1: the yaw tolerance grows with |yaw| (a 1e8 yaw let 20 deg no-count turns pass)
+                    # and a pitch past the clamp gate turns accusations into unresolved frames.
+                    bad_observers.add("v")
+                    r.fault("line %d: view angle out of range (pitch %g, yaw %g); angle/counts comparisons "
+                            "unavailable, not an angle accusation" % (lineno + 1, view[4], view[5]))
                 # Patch 312: close the window this 'v' ends. The expected raw is
                 # the 'd' record if the frame had one and the v's own delta if it
                 # did not -- a missing 'd' IS the claim that they are equal.
@@ -2738,8 +2744,8 @@ def _short_span(angles, short):
     """P136 sends a lerp of two neighbouring frames' views (cl_input.c:2161-2165) and ANGLE2SHORT truncates, so a
     command's short lies within one unit of the truncated span of the views it could have been resampled from;
     the journal prints views to 1e-6 deg. Taken modulo 65536 (yaw wraps)."""
-    if not angles or not all(math.isfinite(a) for a in angles):
-        return False
+    if not angles or not all(math.isfinite(a) and abs(a) <= V_YAW_MAX for a in angles):
+        return False                # P1869 review 1: a huge finite angle overflowed int() below
     ds = [((int(a * 65536 / 360.0) - short + 32768) & 0xffff) - 32768 for a in angles]
     return min(ds) - 1 <= 0 <= max(ds) + 1
 
@@ -2779,6 +2785,11 @@ def angle_server_row(words):
         # native verifier accepts the row's shape, so neither is a schema fault here.
         row["consistent"] = delta_wire(row["target"], row["lastcmd"]) == words[8]
     return row
+
+
+# P1869: 271 stored journals, 8.5M 'v' rows (28 Nov): |yaw| <= 360 (normalised), |pitch| <= 89.
+V_YAW_MAX = 3600.0
+V_PITCH_MAX = 90.0
 
 
 def _rem360(x):

@@ -787,9 +787,11 @@ def join_journal(r):
     except Exception as exc:
         # A journal too broken to parse is a finding about the file, but this
         # function must not take the receipt step down with it -- the sweep's own
-        # rule, and the reason its imports are inside functions at all.
-        r.journal = ""
-        r.note("the journal content check did not run (%r)" % exc)
+        # rule, and the reason its imports are inside functions at all.  P1869:
+        # BLIND, not "" (not checked): a crafted journal must not skip its check.
+        r.journal = "BLIND"
+        r.journal_detail = ("the journal content check raised (%r); nothing judged" % exc)[:300]
+        r.note("the journal content check did not complete (%r)" % exc)
         return
     # A rejected/skipped diagnostic record may leave zero or a subtotal in the
     # reader's counters. Withhold new input totals conservatively on any fault;

@@ -98,6 +98,19 @@ class FinishTicks(unittest.TestCase):
         self.assertEqual(self.sw.receipt_step(self.c), (1, 0))
         self.assertEqual(self.c.execute('SELECT ticks FROM receipts').fetchone()[0], -1)
 
+    def test_p1869_a_raising_journal_check_is_blind_not_unchecked(self):
+        path, _rec, _actual = self.signed()
+        import hidcheck
+        hid = path[:-5] + ".hid"
+        with open(hid, "wb") as fh:
+            fh.write(b"FTESURF-HID 1\n")
+        r = rcptcheck.read(path)
+        with mock.patch.object(hidcheck, "check_hid", side_effect=ValueError("math domain error")):
+            r.digest_checked.add(("hid", hid))
+            rcptcheck.join_journal(r)
+        self.assertEqual(r.journal, "BLIND")
+        self.assertIn("raised", r.journal_detail)
+
     def test_real_sweep_stores_clock_fault_and_valid_signature(self):
         _path, _rec, actual = self.signed()
         self.signed(ticks=actual+1)
