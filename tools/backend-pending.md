@@ -1,5 +1,12 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026 07:42Z: lobbies on 0.1.72 + P1863 (qwprogs only; worldofsurf-62)
+All 12 ftesurf@N restarted 07:42:00-02Z on qwprogs e7884e33 (0.1.72 source f3af055e + P1863 5d783c21, built with the
+0.1.72 compiler), replacing e5ad4e89; csprogs unchanged bd41fc6c (codes.txt needs nothing). 0 players at the swap; boot
+logs clean; heartbeats flowing. Rollback: game/ftesurf/qwprogs.dat.pre1863-20261128T074143Z; pre-swap data tar
+/srv/nvme/agent-work/acland-20261128-62/lobby1863/data-pre1863-20261128T074143Z.tar (parts+resume, 3,751 entries). A
+later release must carry P1863 (it is on main) so the lobbies do not regress.
+
 ## 28 Nov 2026: P1864 waits for the next generation (worldofsurf-62)
 surfd/surfd.py + surfd/tournaments.py (runtime members). A sweep holding the write lock past connect()'s 5 s busy wait
 no longer turns lobby writes into 500 tracebacks: heartbeat answers 503 + Retry-After at once (it repeats), /api/run waits
