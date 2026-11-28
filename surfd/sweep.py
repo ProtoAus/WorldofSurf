@@ -578,7 +578,7 @@ def read_receipt(path, journal_only=False, expected_identity=None, expected_pub=
     sibling digests and journal. Optional new-schema REC authority is observed
     separately: a pruned REC cannot move the historical receipt verdict.
     -> (verdict, pub, map, angles, reason, sig, journal, journal_reason, owed,
-        partial, identity, view_missing, rec_missing, angles_reason, journal_metrics), or None. view_only checks the view and
+        partial, identity, view_missing, rec_missing, angles_reason, journal_metrics, ticks), or None. view_only checks the view and
     recording/angles without observing HID. `view_missing` is a captured absence,
     not a later stat. `sig` is 1 when the signature verified, which a FAULT for any other
     reason can still have; `owed` is 1 when the journal is ABSENT and the
@@ -630,7 +630,7 @@ def read_receipt(path, journal_only=False, expected_identity=None, expected_pub=
                 r.angles, faults[0][:300] if faults else "", 1 if r.ok is True else 0,
                 "", "", 0, deferred, identity,
                 r.file_bytes.get(os.path.splitext(path)[0] + ".view", False) is None, not r.recpath,
-                r.angles_detail[:1000], "")
+                r.angles_detail[:1000], "", signed_ticks(rcptcheck, r))
     if not journal_only:
         rcptcheck.join_rec(r)
         rcptcheck.join_ticks(r)
@@ -650,7 +650,7 @@ def read_receipt(path, journal_only=False, expected_identity=None, expected_pub=
         return ("FAULT", r.head.get("pub", ""), r.head.get("map", ""),
                 "BLIND", observed[0][:300], 1 if r.ok is True else 0,
                 journal, detail[:300], 0, True, identity, False, False,
-                "angle check deferred after signed sibling I/O; no angle measurement", "")
+                "angle check deferred after signed sibling I/O; no angle measurement", "", signed_ticks(rcptcheck, r))
     if not journal_only:
         rcptcheck.join_angles(r, {})
     refused = not journal_only and _join_view_refused(r, path)
@@ -688,7 +688,13 @@ def read_receipt(path, journal_only=False, expected_identity=None, expected_pub=
             not journal_only and not refused and r.file_bytes.get(os.path.splitext(path)[0] + ".view", False) is None,
             not journal_only and not r.recpath, r.angles_detail[:1000],
             json.dumps(r.journal_metrics, sort_keys=True, separators=(",", ":"), allow_nan=False)
-            if r.journal_metrics is not None else "")
+            if r.journal_metrics is not None else "", signed_ticks(rcptcheck, r))
+
+
+def signed_ticks(rcptcheck, r):
+    """P1868: the finish the receipt signs (-1 unkept, 0 abandon), or -2 when it states none."""
+    value = rcptcheck.signed_get(r, "ticks") or ""
+    return int(value) if re.fullmatch(r"-?[0-9]{1,11}", value) else -2
 
 
 def join_journal_authority(r, rcptcheck, *, discover_rec=False):
@@ -1001,6 +1007,7 @@ def receipt_step(conn, limit=200, now=None):
             partial, identity = got[9:11]
             areason = got[13]
             jmetrics = got[14]
+            rticks = got[15] if len(got) > 15 else -2
             signed_at = prior[4] if prior else max(1, int(mtime))
             if view_only or rec_only:
                 old = conn.execute("SELECT verdict FROM receipts WHERE runid = ?", (runid,)).fetchone()
@@ -1103,11 +1110,11 @@ def receipt_step(conn, limit=200, now=None):
                 conn.execute(
                     "INSERT OR REPLACE INTO receipts"
                     " (runid, map, pub, verdict, angles, reason, at, sig, signed_at, stale,"
-                    "  journal, journal_reason, identity, angles_reason, journal_metrics)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "  journal, journal_reason, identity, angles_reason, journal_metrics, ticks)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (runid, mapname, pub, verdict, angles, reason, observed_at, sig,
                      signed_at, 2 if partial else 0, journal, jreason,
-                     prior[2] if prior and prior[2] else identity, areason, jmetrics))
+                     prior[2] if prior and prior[2] else identity, areason, jmetrics, rticks))
                 if not automatic_partial:
                     bind_key(conn, runid, pub, t0)
                 if partial:

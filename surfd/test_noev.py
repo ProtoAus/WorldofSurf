@@ -37,9 +37,9 @@ def setup(mod):
         conn.close()
 
 
-def receipt(mod, runid, angles="OK", journal="OK"):
-    sql(mod, "INSERT INTO receipts (runid, map, pub, verdict, angles, reason, at, sig, signed_at, journal)"
-             " VALUES (?, 'surf_test', ?, 'VALID', ?, '', 1, 1, 1, ?)", (runid, "a" * 64, angles, journal))
+def receipt(mod, runid, angles="OK", journal="OK", ticks=-2):
+    sql(mod, "INSERT INTO receipts (runid, map, pub, verdict, angles, reason, at, sig, signed_at, journal, ticks)"
+             " VALUES (?, 'surf_test', ?, 'VALID', ?, '', 1, 1, 1, ?, ?)", (runid, "a" * 64, angles, journal, ticks))
 
 
 def watermark(mod, v):
@@ -92,6 +92,15 @@ def main():
     eq("ranks 11 and 12 (no receipts) are not judged", (m.get("p10"), m.get("p11")), (None, None))
     eq("complete evidence carries no key", "noev" in [r for r in test_board.board(mod)["rows"]
                                                          if r["player"] == "p00"][0], False)
+
+    # P1868: a receipt signing another finish of the same runid (a save-load after a finish) is not this run's
+    sql(mod, "UPDATE receipts SET ticks = 4600 WHERE runid = 'r-p05'")      # p05 finished at 4500
+    sql(mod, "UPDATE receipts SET ticks = 4600 WHERE runid = 'r-p06'")      # p06 finished at 4600: its own
+    sql(mod, "UPDATE receipts SET ticks = -1 WHERE runid = 'r-p07'")        # unkept latch: not a finish time
+    m = marks(test_board.board(mod))
+    eq("P1868: only the run whose finish the receipt signs is covered by it",
+       (m.get("p05"), m.get("p06"), m.get("p07"), m.get("p08")), ("receipt", None, None, None))
+    sql(mod, "UPDATE receipts SET ticks = -2 WHERE runid IN ('r-p05', 'r-p06', 'r-p07')")
 
     # the combined board: an imported run ahead pushes p09 (WOS #10) to place 11 there; it is still marked
     sql(mod, "INSERT INTO runs (map, track, leg, tier, style, player, name, ticks, tickrate, millis, flags, node,"

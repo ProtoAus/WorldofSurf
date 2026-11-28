@@ -399,9 +399,12 @@ def list_top10(conn, since, offset):
           if {"verdict", "angles", "reason", "sig"} <= rcols
           else "NULL AS rverdict, NULL AS angles, NULL AS rreason, NULL AS sig, NULL AS journal")
     join = " LEFT JOIN receipts rc ON rc.runid = k.runid AND k.runid NOT IN ('', '-')" if "verdict" in rcols else ""
+    if join and "ticks" in rcols:
+        # P1868: on the main course, only the finish the receipt signs; a stage row shares its run's recording.
+        join += " AND (rc.ticks <= 0 OR k.leg <> 0 OR rc.ticks = k.ticks)"
     return conn.execute("""
 WITH ranked AS (
-  SELECT r.map, r.track, r.leg, r.style, r.player, r.name, r.millis, r.flags, r.submitted, r.replay_id, r.runid,
+  SELECT r.map, r.track, r.leg, r.style, r.player, r.name, r.millis, r.ticks, r.flags, r.submitted, r.replay_id, r.runid,
          r.plat, r.pad, r.oldgame,
          ROW_NUMBER() OVER (PARTITION BY r.map, r.track, r.leg, r.style
                             ORDER BY r.millis, r.submitted, r.player) AS rk

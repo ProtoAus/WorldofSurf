@@ -80,6 +80,16 @@ class FinishTicks(unittest.TestCase):
             self.assertIn(str(actual+delta), result[4])
             self.assertIn(str(actual), result[4])
 
+    def test_p1868_sweep_stores_the_signed_ticks(self):
+        _path, _rec, actual = self.signed()
+        self.assertEqual(self.sw.receipt_step(self.c), (1, 0))
+        self.assertEqual(self.c.execute('SELECT ticks FROM receipts').fetchone()[0], actual)
+
+    def test_p1868_sweep_stores_the_unkept_latch_as_is(self):
+        self.signed(ticks=-1)
+        self.assertEqual(self.sw.receipt_step(self.c), (1, 0))
+        self.assertEqual(self.c.execute('SELECT ticks FROM receipts').fetchone()[0], -1)
+
     def test_real_sweep_stores_clock_fault_and_valid_signature(self):
         _path, _rec, actual = self.signed()
         self.signed(ticks=actual+1)

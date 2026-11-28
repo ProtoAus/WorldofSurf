@@ -1408,7 +1408,10 @@ def receipts_v8(conn):
                           # Empty is an unbound historical observation, not a
                           # bad signature. Never backfill from today's path or
                           # automatically request reinterpretation at startup.
-                          ("identity", "identity TEXT NOT NULL DEFAULT ''")))):
+                          ("identity", "identity TEXT NOT NULL DEFAULT ''"),
+                          # P1868: the finish the receipt signs (-1 unkept, 0 abandon); -2 = not read since.
+                          # A save-load after a finish keeps the runid, so one runid can carry several finishes.
+                          ("ticks", "ticks INTEGER NOT NULL DEFAULT -2")))):
         cols = {r[1] for r in conn.execute("PRAGMA table_info(%s)" % table)}
         for col, ddl in adds:
             if col not in cols:
@@ -3440,9 +3443,10 @@ def board_counts(db, mapname, track, leg, style, base=None, name=""):
 
 
 def noev_reasons(db, cands):
-    """P1699: {runid: why} for (runid, submitted, plat) WOS top-10 candidates whose evidence is missing -- "receipt"
-    (none was read, or the run has no id), "view" (no view file uploaded) or "journal" (a Windows run's input journal
-    never arrived). A run the receipt reader has not passed yet, or before NOEV_SINCE, is not judged."""
+    """P1699: {runid: why} for (runid, submitted, plat, ticks) WOS top-10 candidates whose evidence is missing --
+    "receipt" (none was read, the run has no id, or P1868: the runid's receipt signs another finish), "view" (no view
+    file uploaded) or "journal" (a Windows run's input journal never arrived). A run the receipt reader has not
+    passed yet, or before NOEV_SINCE, is not judged."""
     cands = [c for c in cands if c[1] >= NOEV_SINCE]
     if not NOEV_ON or not cands:
         return {}
@@ -3456,17 +3460,18 @@ def noev_reasons(db, cands):
         return {}               # the reader has not run on this box: nothing can be called missing
     ids = sorted({c[0] for c in cands if c[0] not in ("", "-")})
     got = {}
+    tcol = "ticks" if "ticks" in cols else "-2"
     for i in range(0, len(ids), 500):
         part = ids[i:i + 500]
-        for r in db.execute("SELECT runid, angles, journal FROM receipts WHERE runid IN (%s)"
-                            % ",".join("?" * len(part)), part):
-            got[r[0]] = (r[1], r[2])
+        for r in db.execute("SELECT runid, angles, journal, %s FROM receipts WHERE runid IN (%s)"
+                            % (tcol, ",".join("?" * len(part))), part):
+            got[r[0]] = (r[1], r[2], r[3])
     out = {}
-    for runid, submitted, plat in cands:
+    for runid, submitted, plat, ticks in cands:
         if through < submitted + NOEV_MARGIN:
             continue
         rc = got.get(runid) if runid not in ("", "-") else None
-        if rc is None:
+        if rc is None or (rc[2] > 0 and rc[2] != ticks):
             out[runid] = "receipt"
         elif not rc[0]:
             out[runid] = "view"
@@ -3589,9 +3594,9 @@ def board_rows(db, mapname, track, leg, tier, style, limit, offset, base=None, n
                     (row["rmap"], track, leg, TIER_RANKED, style,
                      row["millis"], row["submitted"], row["player"])).fetchone()[0]
             if rk <= 10:
-                cands.append((row["runid"], row["submitted"], row["plat"], out))
-        why = noev_reasons(db, [c[:3] for c in cands])
-        for runid, _sub, _plat, out in cands:
+                cands.append((row["runid"], row["submitted"], row["plat"], row["ticks"], out))
+        why = noev_reasons(db, [c[:4] for c in cands])
+        for runid, _sub, _plat, _ticks, out in cands:
             if runid in why:
                 out["noev"] = why[runid]
     return rows
