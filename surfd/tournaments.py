@@ -289,6 +289,10 @@ def register(app, d):
                 return response(out)
         except rules.Refusal as exc:
             return response(reply(False, 'refused', current(db, node), str(exc)))
-        except sqlite3.Error:
-            d.log.exception('tournament storage error')
+        except sqlite3.Error as exc:
+            if isinstance(exc, sqlite3.OperationalError) and 'locked' in str(exc).lower():
+                # P1864: a sweep held the write lock; the lobby resends the identical request on 'storage'.
+                d.log.warning('tournament storage busy (%s %s): %s', node, op, exc)
+            else:
+                d.log.exception('tournament storage error')
             return response(reply(False, 'storage', error='storage unavailable; retry same request'))

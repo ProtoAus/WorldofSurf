@@ -2695,6 +2695,33 @@ def fail(code, message):
     return resp
 
 
+# P1864: a sweep pass can hold the write lock past connect()'s 5 s busy wait (28 Nov 04:50:25Z and 06:05:24Z a lobby
+# heartbeat got 500). A heartbeat repeats within seconds, so it answers 503 at once rather than hold one of the four
+# request threads longer; a lobby never resends a run, so /api/run waits up to RUN_BUSY_MS before its 503.
+RUN_BUSY_MS = 10000
+
+
+def db_locked(exc):
+    """True for SQLite's writer-contention error (locked/busy), not for a real storage fault."""
+    return isinstance(exc, sqlite3.OperationalError) and any(
+        w in str(exc).lower() for w in ("database is locked", "database is busy", "database table is locked"))
+
+
+def busy(message):
+    resp = fail(503, message)
+    resp.headers["Retry-After"] = "2"
+    return resp
+
+
+def run_db():
+    """The request's connection with the run submit's longer busy wait (closed at teardown, so it ends here)."""
+    db = get_db()
+    if not g.get("run_busy"):
+        db.execute("PRAGMA busy_timeout=%d" % RUN_BUSY_MS)
+        g.run_busy = True
+    return db
+
+
 @app.post("/api/heartbeat")
 def heartbeat():
     now = int(time.time())
@@ -2773,6 +2800,9 @@ def heartbeat():
             if players > 0:
                 _lobby_touch(db, node)
     except sqlite3.Error as exc:
+        if db_locked(exc):
+            log.warning("heartbeat from %s deferred: %s", src, exc)
+            return busy("database busy; retry")
         log.exception("heartbeat db error from %s: %s", src, exc)
         return fail(500, "storage error")
 
@@ -4186,12 +4216,12 @@ def submit_run():
             log.warning("ignoring pub from untrusted source %s", src)
             pub = ""
         try:
-            with get_db() as conn:
+            with run_db() as conn:
                 acct_why, player = accounts.run_identity(
                     conn, runid, mapname, track, install, pub, now)
         except sqlite3.Error as exc:
             log.exception("run identity db error from %s: %s", src, exc)
-            return fail(500, "storage error")
+            return busy("database busy; retry") if db_locked(exc) else fail(500, "storage error")
         if acct_why == accounts.RANK_BANNED:
             log.info("run from %s is a banned account's (%s); not stored", src, player)
             return jsonify({"ok": True, "stored": False, "best": 0, "rank": 0, "of": 0,
@@ -4443,7 +4473,7 @@ def submit_run():
                      " recording the file", leaf, recbytes, fsize)
         recbytes = fsize
 
-    db = get_db()
+    db = run_db()
     # Only the lobbies' finishes (trusted, like runid and pub) are logged.
     rid = 0
     if trusted and style == STYLE_CLEAN:
@@ -4766,7 +4796,7 @@ def submit_run():
             )
     except sqlite3.Error as exc:
         log.exception("run db error from %s: %s", src, exc)
-        return fail(500, "storage error")
+        return busy("database busy; retry") if db_locked(exc) else fail(500, "storage error")
     finally:
         # A BAN COMMITTED BETWEEN THE IDENTITY READ AND THIS WRITE (Patch 633's
         # review: 7 of 40 with a large recording in flight) found nothing to
