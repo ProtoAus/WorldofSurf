@@ -88,7 +88,7 @@ void() WP_Register =
 	registercvar("viewmodel_offset_x", "1", CVAR_ARCHIVE);
 	registercvar("viewmodel_offset_y", "1", CVAR_ARCHIVE);
 	registercvar("viewmodel_offset_z", "-1", CVAR_ARCHIVE);
-	registercommand("slot1"); registercommand("slot2"); registercommand("slot3");   // CS:GO model per gun: FS_WEAPON_USP|SCOUT|GLOCK bits
+	registercommand("slot1"); registercommand("slot2"); registercommand("slot3");
 	registercommand("butterfly"); registercommand("m9"); registercommand("knife_css"); registercommand("inspect");
 	registercommand("knife_mount_done"); registercommand("css_weapon_mount_done");
 	// Existing independent projection, not a scale hack or a change to world FOV.
@@ -403,8 +403,7 @@ void() WP_FlashFrame =
 		setmodel(wp_flashent, "models/ftesurf/muzzle.md3");
 		wp_flashent.forceshader = shaderforname("ftesurf/muzzleflash", "{\nprogram default2d\nsort additive\ncull none\n{ map materials/effects/muzzleflash4.vtf\nblendfunc add\nrgbgen entity\nalphagen entity\n}\n}\n");
 	}
-	forward = v_forward; right = v_right; up = v_up;
-	makevectors(wp_ent.angles);
+	forward = v_forward; right = v_right; up = v_up;   // gettaginfo sets v_* to the tag's axes
 	wp_flashent.origin = gettaginfo(wp_ent, wp_muzzletag);
 	wp_flashent.origin = wp_flashent.origin + v_forward * wp_muzzleorg_x - v_right * wp_muzzleorg_y + v_up * wp_muzzleorg_z;
 	if ((int)wp_ent.renderflags & RF_XFLIP)   // as the projection flip: about the view's centre, not the offset gun

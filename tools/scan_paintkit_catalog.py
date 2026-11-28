@@ -309,7 +309,7 @@ def build(directory):
         params = {k.lower(): v for k, v in params.items() if isinstance(v, str)}
         wear_scale = re.search(r'scale\s+([0-9]*\.?[0-9]+)', params.get('$weartexturetransform', ''))
         scales = (number(params, '$previewweaponuvscale', 1, (.01, 16)), number(params, '$previewweaponobjscale', 1, (.01, 16)),
-                  float(wear_scale.group(1)) if wear_scale else 1)
+                  min(max(float(wear_scale.group(1)), .01), 16) if wear_scale else 1)
         exp = vtf(pack, params.get('$exptexture')) if params.get('$exptexture') else None
         # The stock material's $envmaptint (v_models/<dir>/<stem>.vmt), averaged; 0.1 when absent.
         env = 0.1

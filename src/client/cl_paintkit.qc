@@ -340,7 +340,7 @@ string(float kind, int kit, float mode, string dir, string stem) PK_Shader =
 	style = paint ? stov(cvar_string("cl_wkit_opts4")) : '0 0 0';
 	name = sprintf("ftesurf/kit_%g_%s_%i_%g", kind, stem, paint ? pkc_ids[kit] : 0i, mode);
 	data = strcat(sprintf("{\nprogram weapon_catalog#STYLE=%g#EDIT=%g#UVS=%.4f#WEARS=%.4f#ENV=%.4f#NORMAL=%g%s\n",
-		style_x, mode == 2, flags_x ? 1 : scales_x, scales_z, envtint, flags_z, paint ? "" : "#NOPAINT"),
+		style_x, mode == 2, (paint && flags_x) ? 1 : scales_x, scales_z, envtint, (paint && flags_z), paint ? "" : "#NOPAINT"),
 		sprintf("{ map %s }\n{ map %s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n",
 		base, pattern, mask, ao, posmap, surface),
 		sprintf("{ map $nosrgb:%spaint_wear.vtf }\n{ map $nosrgb:%sgun_grunge.vtf }\n{ map $nosrgb:%s }\n{ map $nosrgb:%s }\n{ map $reflectcube }\n}\n",

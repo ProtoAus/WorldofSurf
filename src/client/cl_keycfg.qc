@@ -93,7 +93,7 @@ string(float i) KC_Def =
 	if (i == 40) return "jumpduck|Jump + duck|+jumpduck|||Movement|jump+duck";   // P1796: listed after Duck (KC_Order)
 	if (i == 41) return "workshop|Weapon workshop|weapon_workshop|knife_menu||Menus|weapon kits";
 	if (i == 42) return "slot1|Scout (slot 1)|slot1|||Game|weapon primary";
-	if (i == 43) return "slot2|Pistol (slot 2)|slot2|||Game|weapon pistol usp glock swap";
+	if (i == 43) return "slot2|Pistol (slot 2)|slot2|||Game|weapon pistol";
 	if (i == 44) return "slot3|Knife (slot 3)|slot3|||Game|weapon knife";
 	if (i == 45) return "inspect|Inspect weapon|inspect|||Game|weapon look";
 	if (i == 46) return "drop|Drop weapon|drop|||Game|weapon";
@@ -113,8 +113,7 @@ float(float n) KC_Order =
 	if (n < 14) return n - 1;              // walk, turning, HUD, graphics, keys, player
 	if (n == 14) return 41;
 	if (n == 15) return 37;
-	if (n < 29) return n - 2;              // saves and the run (14-26)
-	if (n < 31) return n - 2;              // report, surf view (27, 28)
+	if (n < 31) return n - 2;              // saves, the run, report, surf view (14-28)
 	if (n == 31) return 13;
 	if (n < 40) return n - 3;              // entity inspector ... main menu (29-36)
 	if (n < 42) return n - 2;              // screenshot, fullscreen (38, 39)
@@ -2389,7 +2388,7 @@ void(vector scr) KC_Draw =
 
 	sc = ui_cv_scale;
 	if (sc <= 0) sc = 2;
-	fit = min(scr_x * 0.96 / 568, scr_y * 0.96 / 314);   // P1400: three columns (568 wide); P1862: 20 lines
+	fit = min(scr_x * 0.96 / 568, scr_y * 0.96 / 323);   // P1400: three columns (568 wide); panh at sc 1 (P1862: 20 lines)
 	if (sc > fit)
 		sc = max(1, floor(fit * 2) / 2);
 
