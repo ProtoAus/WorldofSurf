@@ -1,5 +1,13 @@
 # Backend handoff delivered together — 10 November 2026 UTC
 
+## 28 Nov 2026 UTC: tasrevd codes.txt gains 0.1.71's csprogs; heartbeat lock follow-up (worldofsurf-62)
+0.1.71's lobby/client csprogs 6fc76828082b3747... (lobbies 26 Nov 05:38Z to 28 Nov 06:04Z) was never appended at its
+rollout. worldofsurf-33 appended it at 06:09:07Z on Lex's yes (backup codes.txt.pre0171code-20261128T060907Z; 192 lines,
+the old 12,415 bytes identical; verified by worldofsurf-62). Release rollouts must append their csprogs here (0.1.72 =
+bd41fc6c, line 191). Follow-up: surfd's heartbeat/tournament writes use BEGIN IMMEDIATE and return 500 "database is
+locked" when a sweep pass holds the write lock past their busy timeout (04:50:25Z, 06:05:24Z while 12 lobbies booted);
+rare, a missed heartbeat retries, but a tournament game post could be lost: consider a retry or a longer busy timeout.
+
 ## 28 Nov 2026 UTC: generation 1857 LIVE since 05:26:24Z -- reader pins installed (worldofsurf-62)
 Lex's Root install 04:59:05Z; step 6 hand-installed rcptcheck 32c88865, reccheck 651abe91, census/recsim b5890190 (REF
 4a3123dd: P1613, P1855, P1856, P1859, P1860) at 04:59:32Z (.pre1857-20261128T045932Z copies); primary eef5c7e7 (manifest
